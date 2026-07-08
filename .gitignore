@@ -1,6 +1,9 @@
 # Statto data and generated reports (may contain real player names)
 *.statto
 *_report.html
+# ...except the fake, made-up-names example checked into examples/
+!examples/example_season.statto
+!examples/example_report.html
 
 # Python
 __pycache__/

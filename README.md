@@ -28,6 +28,23 @@ The report remembers your light/dark theme choice in the browser it's
 opened in (via `localStorage`, since this is a file you own and open
 yourself, not something running inside a hosted app).
 
+## Example
+
+`examples/` has a fully made-up 3-game season (fake players, fake opponents,
+no real data) so you can see what a report looks like without needing a
+`.statto` export of your own:
+
+- [`examples/example_report.html`](examples/example_report.html) — download
+  it and open it in a browser (GitHub doesn't render HTML files inline)
+- `examples/example_season.statto` — the fake data behind it
+- `examples/generate_example_data.py` — the script that generated it, if you
+  want to regenerate or tweak it
+
+```bash
+python3 examples/generate_example_data.py
+python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
+```
+
 ## What's in the report
 
 The top nav has five destinations: **Season**, a **Games** dropdown (hover
