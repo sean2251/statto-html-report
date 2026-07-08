@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TEAM_NAME__ — Season Report</title>
+<meta name="color-scheme" content="dark light">
+<script>
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('statto-report-theme'); } catch (e) {}
+    var theme = stored || ((window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
+<style>
+__REPORT_CSS__
+</style>
+</head>
+<body>
+
+<header class="topnav" id="topnav"></header>
+<main id="main"></main>
+<footer>Generated from a Statto export &middot; field distances approximate, standard USAU pitch dimensions assumed (70&times;40yd field, 20yd endzones)</footer>
+
+<script id="report-data" type="application/json">__REPORT_DATA_JSON__</script>
+<script>
+__REPORT_JS__
+</script>
+</body>
+</html>
