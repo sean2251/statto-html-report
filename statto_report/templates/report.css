@@ -521,6 +521,8 @@
   .diff-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 2px 0; }
   .diff-legend .item { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--chalk-dim); }
   .diff-legend .swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .field-legend { justify-content: center; }
+  .field-legend-glyph { font-weight: 700; font-size: 13px; line-height: 1; }
   .summary-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -572,6 +574,11 @@
   }
   .csv-download:hover { background: rgba(var(--chalk-rgb),0.16); border-color: var(--chalk); }
   .csv-download::before { content: '\2193'; font-weight: 700; }
+  .csv-download:disabled { opacity: 0.4; cursor: not-allowed; }
+  .csv-download:disabled:hover { background: rgba(var(--chalk-rgb),0.08); border-color: rgba(var(--chalk-rgb),0.3); }
+  .csv-download.danger { border-color: rgba(var(--bad-rgb),0.5); color: var(--bad); }
+  .csv-download.danger:hover { background: rgba(var(--bad-rgb),0.14); border-color: var(--bad); }
+  .csv-download.danger::before { content: '\26A0'; }
   table.stats {
     width: 100%;
     border-collapse: collapse;
@@ -597,7 +604,31 @@
   }
   table.stats thead th:hover { color: var(--chalk); }
   table.stats thead th.sorted { color: var(--chalk); font-weight: 800; }
-  table.stats thead th .arrow { font-size: 9px; margin-left: 3px; }
+  table.stats thead th .arrow { font-size: 9px; }
+  table.stats thead th .arrow:not(:empty) { margin-left: 3px; }
+  table.stats thead tr.filter-row th {
+    cursor: default;
+    text-transform: none;
+    letter-spacing: normal;
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(var(--chalk-rgb),0.14);
+  }
+  table.stats thead tr.filter-row th:hover { color: var(--chalk-dim); }
+  .col-filter-input {
+    width: 100%;
+    min-width: 50px;
+    box-sizing: border-box;
+    background: rgba(var(--chalk-rgb),0.06);
+    border: 1px solid rgba(var(--chalk-rgb),0.2);
+    color: var(--chalk);
+    font-family: var(--sans);
+    font-weight: 400;
+    text-transform: none;
+    font-size: 11px;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+  .col-filter-input:focus { outline: none; border-color: var(--chalk); }
   table.stats tbody tr { border-bottom: 1px solid rgba(var(--chalk-rgb),0.06); }
   table.stats tbody tr:hover { background: rgba(var(--chalk-rgb),0.04); }
   table.stats td { font-family: var(--mono); }
@@ -609,3 +640,194 @@
     font-size: 12px;
     padding: 30px 20px 50px;
   }
+
+  /* ---------- line analysis ---------- */
+  .line-mgmt { margin-bottom: 8px; }
+  .line-scope-block {
+    padding: 16px 0 4px;
+    border-top: 1px solid rgba(var(--chalk-rgb),0.1);
+  }
+  .line-scope-block:first-child { border-top: none; padding-top: 0; }
+  .line-scope-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--chalk);
+    margin: 0 0 12px;
+  }
+  .line-scope-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+  }
+  .line-scope-title-input {
+    font-weight: 700;
+    font-size: 13.5px;
+    min-width: 220px;
+  }
+  .line-scope-dates { font-size: 11.5px; color: var(--chalk-dim); white-space: nowrap; }
+  .line-confirmed {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.08);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+  }
+  .line-candidate-meta { font-size: 11.5px; color: var(--chalk-dim); }
+  .line-name-input {
+    background: rgba(var(--chalk-rgb),0.06);
+    border: 1px solid rgba(var(--chalk-rgb),0.2);
+    color: var(--chalk);
+    font-family: var(--sans);
+    font-size: 12.5px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    min-width: 160px;
+  }
+  .line-name-input:focus { outline: none; border-color: var(--chalk); }
+  .line-confirmed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .line-confirmed-head .line-name-input { flex: 1 1 auto; font-weight: 700; font-size: 13.5px; }
+  .line-point-add-select {
+    background: rgba(var(--chalk-rgb),0.06);
+    border: 1px solid rgba(var(--chalk-rgb),0.2);
+    color: var(--chalk);
+    font-family: var(--sans);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    max-width: 220px;
+  }
+
+  .line-matrix-instructions {
+    margin: 0 0 14px;
+    padding-left: 20px;
+    color: var(--chalk-dim);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .line-matrix-instructions li { margin-bottom: 4px; }
+  .line-matrix-instructions li::marker { color: var(--chalk); font-weight: 700; }
+  .line-matrix-visibility-row { margin-bottom: 10px; }
+
+  /* Lineup matrix picker: points as rows, roster players as columns, a
+     filled dot where that player was on the field. The first three columns
+     (checkbox / point label / current line) stay pinned while the player
+     columns scroll horizontally, and the header row stays pinned while rows
+     scroll vertically -- explicit widths on all three keep their sticky
+     left-offsets in sync (see line-matrix-cb/-label/-owner below). */
+  .line-matrix-bulkbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .line-matrix-bulk-count { font-size: 12px; color: var(--chalk-dim); margin-right: 4px; }
+  .line-matrix-bulk-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding-right: 12px;
+    margin-right: 4px;
+    border-right: 1px solid rgba(var(--chalk-rgb),0.14);
+  }
+  .line-matrix-bulk-group:last-child { border-right: none; padding-right: 0; margin-right: 0; }
+  .line-matrix-scroll {
+    max-height: 460px;
+    overflow: auto;
+    border: 1px solid rgba(var(--chalk-rgb),0.14);
+    border-radius: 8px;
+  }
+  table.line-matrix { border-collapse: collapse; font-size: 12px; }
+  table.line-matrix th, table.line-matrix td { padding: 0; text-align: center; white-space: nowrap; }
+  table.line-matrix thead th {
+    position: sticky;
+    top: 0;
+    background: var(--ink-soft);
+    z-index: 2;
+    font-size: 10.5px;
+    color: var(--chalk-dim);
+    font-weight: 700;
+    border-bottom: 1px solid rgba(var(--chalk-rgb),0.14);
+    padding: 6px 4px;
+  }
+  table.line-matrix .line-matrix-player-th { cursor: pointer; user-select: none; }
+  table.line-matrix .line-matrix-player-th:hover { color: var(--chalk); }
+  table.line-matrix .line-matrix-player-th.active { color: var(--ink); background: var(--good); font-weight: 800; }
+  table.line-matrix .line-matrix-cb-th, table.line-matrix .line-matrix-cb {
+    position: sticky; left: 0; width: 28px; min-width: 28px; max-width: 28px;
+    background: var(--ink-soft); z-index: 1; text-align: center; padding: 6px 4px;
+  }
+  table.line-matrix td.line-matrix-cb { background: var(--ink); }
+  table.line-matrix .line-matrix-label-th, table.line-matrix .line-matrix-label {
+    position: sticky; left: 28px; width: 160px; min-width: 160px; max-width: 160px;
+    background: var(--ink-soft); z-index: 1; text-align: left; font-family: var(--sans);
+    overflow: hidden; text-overflow: ellipsis; padding: 6px 8px;
+  }
+  table.line-matrix td.line-matrix-label { background: var(--ink); color: var(--chalk); }
+  table.line-matrix .line-matrix-owner-th, table.line-matrix .line-matrix-owner {
+    position: sticky; left: 188px; width: 110px; min-width: 110px; max-width: 110px;
+    background: var(--ink-soft); z-index: 1; text-align: left; font-size: 11px; color: var(--chalk-dim);
+    overflow: hidden; text-overflow: ellipsis; padding: 6px 8px;
+    border-right: 1px solid rgba(var(--chalk-rgb),0.14);
+  }
+  table.line-matrix td.line-matrix-owner { background: var(--ink); }
+  table.line-matrix thead .line-matrix-cb-th, table.line-matrix thead .line-matrix-label-th, table.line-matrix thead .line-matrix-owner-th { z-index: 3; }
+  table.line-matrix tbody tr.owned td.line-matrix-cb, table.line-matrix tbody tr.owned td.line-matrix-label, table.line-matrix tbody tr.owned td.line-matrix-owner { background: rgba(var(--good-rgb),0.06); }
+  table.line-matrix tbody tr:hover td { background: rgba(var(--chalk-rgb),0.06); }
+  table.line-matrix tbody tr.owned:hover td { background: rgba(var(--good-rgb),0.12); }
+  /* Checked rows -- auto-suggested or manually picked -- get a visible
+     highlight since chronological order no longer clusters a recurring
+     group together, so the picked set has to read at a glance instead. */
+  table.line-matrix tbody tr.picked td { background: rgba(var(--chalk-rgb),0.12); }
+  table.line-matrix tbody tr.picked:hover td { background: rgba(var(--chalk-rgb),0.18); }
+  table.line-matrix tbody tr.owned.picked td { background: rgba(var(--good-rgb),0.16); }
+  table.line-matrix tbody tr.owned.picked:hover td { background: rgba(var(--good-rgb),0.22); }
+  .line-matrix-cell { width: 22px; }
+  .line-matrix-cell.present::after {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--chalk-dim);
+  }
+  table.line-matrix tbody tr.owned .line-matrix-cell.present::after { background: var(--good); }
+
+  /* ---------- thrower-receiver analysis ---------- */
+  .heatmap-toggle-row { overflow-x: auto; padding-bottom: 2px; }
+  .heatmap-toggle-label { font-size: 12px; font-weight: 600; color: var(--chalk-dim); white-space: nowrap; }
+  .pair-heatmap-wrap {
+    overflow-x: auto;
+    margin: 12px 0 24px;
+    padding-bottom: 4px;
+  }
+  .pair-rose-wrap { display: flex; justify-content: center; margin-top: 10px; }
+
+  /* ---------- raw data ---------- */
+  .export-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin: 4px 0 24px;
+  }
+  .export-card {
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.08);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .export-card-title { font-size: 13px; font-weight: 700; color: var(--chalk); }
+  .export-card-desc { font-size: 12px; color: var(--chalk-dim); margin: 0; line-height: 1.4; flex: 1 0 auto; }
+  .export-card-count { font-size: 11px; color: var(--chalk-dim); opacity: 0.8; margin: 0 0 4px; }
+  .export-card .csv-download { margin-top: 4px; align-self: flex-start; }

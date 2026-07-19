@@ -47,9 +47,10 @@ python3 statto_to_html_report.py examples/example_season.statto -o examples/exam
 
 ## What's in the report
 
-The top nav has five destinations: **Season**, a **Games** dropdown (hover
-or click to jump to any individual game), **Player Analysis**, **Field
-Analysis**, and **Gender Analysis**.
+The top nav has eight destinations: **Season**, a **Games** dropdown (hover
+or click to jump to any individual game), **Player Analysis**, **Line
+Analysis**, **Thrower-Receiver Analysis**, **Field Analysis**,
+**Gender Analysis**, and **Raw Data**.
 
 ### Season
 
@@ -83,7 +84,8 @@ Analysis**, and **Gender Analysis**.
 - An interactive **field diagram** for the selected point:
   - USAU-dimensioned pitch (70×40 yd, 20 yd endzones, brick marks shown)
   - Pass routes color-coded (white = completed, gold = the scoring assist,
-    red dashed = turnover), hover any line to see who threw to whom
+    red dashed = turnover — ending in an ✕ for a throwaway or a hollow
+    circle for a drop), hover any line to see who threw to whom
   - Small "Poss 1 / Poss 2…" tabs for points with more than one possession
     — the focused possession renders in full color, the rest fade to thin
     ghost lines
@@ -116,6 +118,110 @@ side by side:
   shared filter for which category of throw to show (All throws, Assist
   attempts, Huck attempts, Throwing errors, Receiving errors, Blocks — "All
   throws" is exclusive with the rest, the others can be combined)
+
+### Line Analysis
+
+Compares specific 7-person lineups ("lines") the way Player Analysis compares
+individual players — useful for questions like "which line is best in the
+red zone" or "which line gets the most blocks." A line isn't something
+Statto tracks directly, so this tab walks you through building one:
+
+A toggle at the top switches between **Across Tournaments** (one pool of
+lines for the whole season) and **Within Tournament** (pick 1-to-all
+tournaments — auto-identified from game dates and labeled like "Jul 10-11
+Tournament" — each with its own independently detected/named lines). Each
+tournament's heading is editable, so you can rename "Jul 10-11 Tournament"
+to e.g. "Regionals" — the custom name shows up everywhere (with the dates
+kept alongside for context) and is saved with your lines. This
+matters because rosters can differ a lot tournament to tournament: a
+within-tournament line stays specific to that weekend's roster, and since
+each tournament's lines are tracked separately rather than merged, you can
+still put e.g. "O-line @ Jul 10-11" and "O-line @ Jul 17-18" side by side in
+the comparison table to see how that line's performance changed weekend to
+weekend.
+
+The tab itself walks through the workflow with numbered instructions, but in
+short:
+
+1. **Pick points in a visual matrix** — every point in scope is a row (game
+   by game, point by point), every player who appears in any of them is a
+   column, with a dot marking who was on the field. The biggest group of
+   points that look like a recurring lineup comes **pre-checked** — review
+   it, checking or unchecking rows as needed. Click a player's column to
+   filter down to just the points featuring them (stack a few clicks to zero
+   in on an exact combination); click a row's checkbox — or shift-click for
+   a range — to adjust the selection, with a "select all visible" box for
+   grabbing everything currently filtered in at once
+2. **Assign or create** — with points selected, either add them to an
+   existing line or type a name and create a new one, right from a bulk
+   action bar under the grid; an **Unassign** button removes points from
+   whatever line currently owns them
+3. **Repeat** — once a group is saved, it drops out of the (default
+   unassigned-only) grid and the next-biggest recurring group is
+   automatically pre-checked in its place, so confirming groups one after
+   another converges toward just the one-off points. Flip **"Show all"** any
+   time to bring already-assigned points back into view for editing
+4. **Compare** — once you have 1+ named lines, pick which ones to compare
+   (and which games to include) for a stats table (points played, hold/break
+   rate, throw/huck/assist completion, blocks, opponent turnovers forced,
+   red-zone conversion), per-line **Scoring Efficiency** gauges, and per-line
+   **field diagrams** with the same category filter used elsewhere
+
+A **"Clear all line data"** button (with a confirmation prompt first) wipes
+every saved line from this browser if you want to start over.
+
+Your named lines are saved in the browser (`localStorage`), plus an
+**Export/Import lines.json** button so your curation survives regenerating
+the report with new games, moving to another device, or sharing the file
+with a teammate.
+
+### Thrower-Receiver Analysis
+
+Looks at specific thrower → receiver connections rather than individual
+players or lines:
+
+- A **heatmap** (throwers × receivers, axis-labeled so rows/columns are
+  never ambiguous) gives an at-a-glance view of the whole passing network —
+  click any cell to add that exact pair to the **Compare Pairs** section
+  below (up to 7 at once) and jump straight to it. A **"Color by" toggle**
+  switches what each cell shows:
+  **Number of Passes**, **Total Yards**, **Avg Yards / Throw**, **Forward
+  Yards**, or **Avg Forward Yards / Throw**. Only Number of Passes splits
+  each cell into two segments (color = completed count, red = incomplete
+  count, sized proportionally) — the other four are yardage stats with no
+  incomplete-pass analog, so their cells are a single solid color. Colors
+  come from a multi-hue scale (navy → teal → gold) rather than shades of
+  one color, so nearby values stay visually distinct, and every cell has a
+  hairline border so boxes never blur together even at the low end of the
+  scale. A gradient legend below the grid spells out what the colors mean.
+  A second **"Totals" / "Per thrower" toggle** rescales every metric
+  against each thrower's own numbers: Number of Passes, Total Yards, and
+  Forward Yards switch from a raw count to that receiver's *share of the
+  thrower's total* (e.g. "18% of Sean's throws went to Emily"); Avg Yards /
+  Throw and Avg Forward Yards / Throw switch to a *ratio against the
+  thrower's own average* (e.g. "1.3x Sean's average yards per throw" for
+  their favorite deep look). The legend and cell tooltips update to match
+  — percentages for share metrics, "x" ratios for rate metrics — and the
+  color scale's floor is the smallest value actually observed rather than
+  a fixed zero when there's no natural zero to anchor to (a ratio-to-average)
+- **Compare Pairs** — pick up to 7 pairs, either from the selector or by
+  clicking cells in the heatmap above (a caption under the heatmap spells
+  this out), with a **"Deselect all"** button next to the selector to clear
+  the picks in one click. Shows a compact stats table with one row per
+  selected pair, followed by a **field-diagram comparison** — same category
+  filter (Assist attempts / Huck attempts / Throwing errors / Receiving
+  errors) as Player Analysis's Impact Map, plus a direction rose diagram per
+  pair showing that connection's overall throw-direction tendency
+- **All pairs data** — the full **sortable, filterable table**, one row per
+  pair that's actually thrown to (throws, completions/%, assist attempts/%,
+  huck attempts/completions/%, total and per-pass forward yards, total and
+  per-pass pass distance), at the bottom of the page. Every column filters
+  live: text columns by substring, numeric columns by a "≥" minimum — handy
+  for e.g. "N ≥ 10" to cut out noise. CSV download reflects whatever's
+  currently filtered
+
+A shared **Games filter** scopes the heatmap, Compare Pairs, and the All
+pairs data table together.
 
 ### Field Analysis
 
@@ -162,6 +268,51 @@ gender at all.
 - A full written explanation with a worked example sits above the chart —
   worth reading once if the "percentage points above/below fairness" idea
   is new to you
+
+### Raw Data
+
+Export the underlying data behind the report, scoped to a shared **games
+filter** (1 to all games):
+
+- **CSV exports** (six, each with a live row-count preview before you
+  download): **Passes** (one row per pass, with derived yardage/huck/
+  assist-attempt columns so you don't have to re-derive field geometry
+  yourself), **Points** (one row per point — including points the opponent
+  held with zero of our recorded passes, since Statto only tracks this
+  team's actions, making this the only reliable source for point-by-point
+  score progression), **Blocks**, **Players (per game)** (every selected
+  game's box score combined into one file — the one bulk export that isn't
+  already available a game at a time), **Season Leaderboard**, and
+  **Game Summaries** (one row per game, with the nested line-stats/
+  scoring-efficiency data flattened into columns)
+- **Machine-readable export** — two paired files, each with its own
+  **Download** and **Copy to Clipboard** buttons, meant to be handed to an
+  LLM together:
+  - **Data (JSON)** — the raw per-game data (points/passes/blocks/lineups,
+    box scores, summaries) plus a season leaderboard for the selection. It
+    carries its own glossary, a short orientation section (coordinate
+    system, what turnover/assist/isOffense mean), a **style guide** (the
+    report's actual colors, fonts, and field-diagram drawing conventions,
+    copied from its own CSS/SVG code), and a **formulas** section (exact
+    definitions for the trickier derived stats, plus a gotcha about
+    combining rate stats across games) — all self-contained, so it's still
+    usable if it ever gets separated from the file below.
+  - **Context (Markdown)** — the fuller companion: the same glossary,
+    orientation, style guide, and formulas in prose/table form, a
+    ready-to-use prompt template for generating a game summary (narrative,
+    individual outliers relative to season norms, and the supporting stats
+    — not just a stat dump), and a set of example questions — descriptive,
+    actionable (practice focus areas, lineup changes, turnover-risk
+    connections), and visual (asking the LLM to draw a custom chart or
+    field diagram in the report's own style)
+
+  This export deliberately doesn't include every derived table the report
+  itself shows (a thrower-receiver pair matrix, for instance) — those are a
+  simple aggregation over the raw passes below, and the useful slice
+  depends entirely on the question. Rather than lock an LLM into the
+  report's own predefined views, the formulas section gives it the exact
+  math to compute whatever slice a question actually needs, consistent
+  with what the report itself would show.
 
 ## Stat glossary
 

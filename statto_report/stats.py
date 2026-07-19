@@ -55,7 +55,13 @@ def _index_passes_by_possession(all_passes):
 
 def _index_game(game, all_points, all_possessions, all_blocks, all_opposition_errors, passes_by_possession):
     game_uuid = game["uuid"]
-    points = [pt for pt in all_points if pt.get("gameUUID") == game_uuid]
+    # Statto pre-creates the next point record the moment a point ends, so a
+    # finished game's export always carries one trailing point with result 0
+    # that was never actually played (occasionally with a lineup and passes,
+    # if the game was called mid-point). Only completed points count --
+    # everything downstream (possessions, passes, blocks, scoring-efficiency
+    # denominators, box-score points played) keys off this list.
+    points = [pt for pt in all_points if pt.get("gameUUID") == game_uuid and pt.get("result") in (1, -1)]
     points.sort(key=lambda pt: pt.get("createdAt", ""))
     point_number = {pt["uuid"]: i + 1 for i, pt in enumerate(points)}
 
@@ -275,6 +281,7 @@ def _build_point_log(idx, player_name):
             "goal": player_name(assist_pass["receiverUUID"]) if assist_pass else None,
             "passes": pass_entries,
             "blocks": block_entries,
+            "oppositionErrors": len(opp_errors_by_point.get(pt_uuid, [])),
             "lineup": lineup,
         })
 
@@ -475,7 +482,11 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
             "throwCompletionPct": _pct(throw_completions, throws),
             "catches": catches,
             "receivingTargets": receiving_targets,
-            "catchCompletionPct": _pct(catches, receiving_targets),
+            # Excludes thrower errors from the denominator: every target resolves to
+            # a catch, a drop (receiver's own error), or a thrown-away/errant throw
+            # that was the thrower's fault, so catches + receiver_errors already is
+            # "targets that weren't the thrower's mistake" -- no separate count needed.
+            "catchCompletionPct": _pct(catches, catches + receiver_errors),
             "possessionsInitiated": possessions_initiated,
             "assists": assists,
             "secondaryAssists": sec_assists,
@@ -656,7 +667,7 @@ def _build_season_leaderboard(season_stats, season_games_played):
         row["playerUUID"] = puuid
         row["gamesPlayed"] = season_games_played.get(puuid, 0)
         row["throwCompletionPct"] = _pct(row["throwCompletions"], row["throws"])
-        row["catchCompletionPct"] = _pct(row["catches"], row["receivingTargets"])
+        row["catchCompletionPct"] = _pct(row["catches"], row["catches"] + row["receiverErrors"])
         row["huckCompletionPct"] = _pct(row["huckCompletions"], row["huckAttempts"])
         row["assistCompletionPct"] = _pct(row["assists"], row["assistAttempts"])
         row["huckReceptionPct"] = _pct(row["huckReceptions"], row["huckTargets"])
