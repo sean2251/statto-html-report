@@ -1,6 +1,24 @@
 # Statto data and generated reports (may contain real player names)
 *.statto
 *_report.html
+
+# Anything named after a real team. Catches hand-renamed downloads like
+# "RAMP 2026 Spectre.html" that don't match the generated-filename patterns
+# below. Both cases, since gitignore is case-sensitive by default.
+RAMP*
+ramp*
+
+# Everything else the report generates, all of which carries real names:
+# single-game video-tagging pages, exported film annotations, curated lines,
+# the player-photo bundle, and the Raw Data CSV/JSON/Markdown exports.
+*_tag_*.html
+*_annotations*.json
+*_lines.json
+*_player_photos.zip
+*_raw_data.json
+*_raw_data_context.md
+*.csv
+
 # ...except the fake, made-up-names example checked into examples/
 !examples/example_season.statto
 !examples/example_report.html
