@@ -237,6 +237,33 @@
     padding-top: 14px;
     margin: 48px 0 20px;
   }
+  .section-title-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--chalk-dim);
+    background: none;
+    border: none;
+    border-top: 1px solid rgba(var(--chalk-rgb),0.14);
+    padding: 14px 0 0;
+    margin: 48px 0 20px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .section-title-toggle:hover { color: var(--chalk); }
+  .section-title-toggle-arrow {
+    font-size: 11px;
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+  .section-title-toggle.expanded .section-title-toggle-arrow { transform: rotate(90deg); }
   .game-filter { position: relative; text-transform: none; letter-spacing: normal; }
   .game-filter-btn {
     background: rgba(var(--chalk-rgb),0.06);
@@ -434,13 +461,28 @@
   /* ---------- game body: two columns ---------- */
   .game-grid {
     display: grid;
-    grid-template-columns: minmax(260px, 340px) 1fr;
+    grid-template-columns: minmax(440px, 520px) 1fr;
     gap: 28px;
     align-items: start;
     margin-top: 36px;
   }
+  /* Once a game has tagged film the grid gains a third column. Three even
+     columns don't fit the 1100px reading column, so this one block alone
+     widens toward the viewport and re-centres itself. */
+  .game-grid.has-film {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+    width: min(1400px, calc(100vw - 48px));
+    margin-left: 50%;
+    transform: translateX(-50%);
+  }
+  @media (max-width: 1180px) {
+    /* Too narrow for three: film drops to a full-width row under the other two. */
+    .game-grid.has-film { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+    .game-grid.has-film .film-strip { grid-column: 1 / -1; }
+  }
   @media (max-width: 800px) {
-    .game-grid { grid-template-columns: 1fr; }
+    .game-grid, .game-grid.has-film { grid-template-columns: 1fr; }
   }
 
   .point-log { max-height: 640px; overflow-y: auto; border: 1px solid rgba(var(--chalk-rgb),0.1); border-radius: 10px; }
@@ -448,7 +490,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 10px 16px;
     border-bottom: 1px solid rgba(var(--chalk-rgb),0.06);
     cursor: pointer;
     transition: background 0.12s ease;
@@ -460,14 +502,71 @@
     font-family: var(--mono);
     font-size: 12px;
     color: var(--chalk-dim);
-    width: 20px;
+    width: 24px;
     flex-shrink: 0;
   }
-  .point-row .pscore { font-family: var(--mono); font-size: 13px; color: var(--chalk-dim); width: 40px; flex-shrink: 0;}
+  .point-row .pscore { font-family: var(--mono); font-size: 13px; color: var(--chalk-dim); width: 48px; flex-shrink: 0;}
   .point-row .pdetail { font-size: 13px; flex: 1; min-width: 0; }
   .point-row .pdetail .goal { font-weight: 600; }
-  .point-row .pdetail small { color: var(--chalk-dim); display: block; font-size: 11px; margin-top: 1px; }
   .point-row .presult { font-family: var(--mono); font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+
+  /* Sticky column-header row -- reuses the data rows' own column classes so
+     widths line up automatically, with this class layered on top (higher
+     specificity than the plain .point-row rules) to swap in header styling
+     and turn off the click/hover affordance that a real row has. */
+  .point-row.point-log-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--ink-soft);
+    border-bottom: 1px solid rgba(var(--chalk-rgb),0.14);
+    cursor: default;
+  }
+  .point-row.point-log-header:hover { background: var(--ink-soft); }
+  .point-log-header .pnum, .point-log-header .pscore, .point-log-header .pdetail,
+  .point-log-header .pline, .point-log-header .pleverage-head, .point-log-header .presult-head {
+    font-family: var(--sans);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--chalk-dim);
+  }
+  .point-log-header .pleverage-head { width: 68px; box-sizing: border-box; flex-shrink: 0; }
+  .point-log-header .presult-head { width: 22px; text-align: center; flex-shrink: 0; }
+
+  .point-log-footnotes { line-height: 1.6; }
+  /* Fixed widths (not just max-width caps) on every column, header and data
+     alike, so rows actually line up like a table instead of the later
+     columns nudging side to side with content length ("—" vs a long line
+     name, "4.1" vs "10.0"). */
+  .point-row .pleverage {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 68px;
+    box-sizing: border-box;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--chalk-dim);
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(var(--chalk-rgb),0.06);
+    border: 1px solid rgba(var(--chalk-rgb),0.16);
+    flex-shrink: 0;
+  }
+  .point-row .pleverage-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .point-row .pline {
+    font-size: 11px;
+    color: var(--chalk-dim);
+    width: 84px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .point-row .presult { width: 22px; text-align: center; }
 
   .pitch-wrap { position: sticky; top: 78px; }
   .poss-tabs { display: none; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -831,3 +930,334 @@
   .export-card-desc { font-size: 12px; color: var(--chalk-dim); margin: 0; line-height: 1.4; flex: 1 0 auto; }
   .export-card-count { font-size: 11px; color: var(--chalk-dim); opacity: 0.8; margin: 0 0 4px; }
   .export-card .csv-download { margin-top: 4px; align-self: flex-start; }
+
+  /* ---------- Pill button (like .csv-download but without the download arrow) ---------- */
+  .pill-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 12px;
+    background: rgba(var(--chalk-rgb),0.08);
+    border: 1px solid rgba(var(--chalk-rgb),0.3);
+    color: var(--chalk);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 7px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .pill-btn:hover { background: rgba(var(--chalk-rgb),0.16); border-color: var(--chalk); }
+  .pill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ---------- Set up tab ---------- */
+  .setup-tournament-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+  .setup-tournament-row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.1);
+    border-radius: 10px; padding: 8px 12px;
+  }
+  .setup-tournament-row .line-name-input { flex: 1; min-width: 0; }
+  .setup-tournament-count { font-size: 12px; color: var(--chalk-dim); white-space: nowrap; }
+  .setup-tournament-row .pill-btn { margin-top: 0; }
+
+  table.stats.setup-games { width: 100%; }
+  table.stats.setup-games th, table.stats.setup-games td { text-align: left; vertical-align: middle; }
+  .setup-game-date { color: var(--chalk-dim); }
+  .setup-select, .setup-video-input {
+    background: rgba(var(--chalk-rgb),0.06);
+    border: 1px solid rgba(var(--chalk-rgb),0.2);
+    color: var(--chalk);
+    font-family: var(--sans); font-size: 12.5px;
+    padding: 6px 8px; border-radius: 6px;
+  }
+  .setup-video-input { width: 100%; min-width: 180px; }
+  .setup-select { cursor: pointer; }
+
+  .setup-photo-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 16px; margin: 8px 0 24px;
+  }
+  .setup-photo-card {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.08);
+    border-radius: 12px; padding: 14px 10px;
+  }
+  .setup-avatar {
+    width: 84px; height: 84px; border-radius: 50%;
+    object-fit: cover; display: block;
+    border: 2px solid rgba(var(--chalk-rgb),0.15);
+  }
+  .setup-avatar-placeholder {
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(var(--chalk-rgb),0.08);
+    color: var(--chalk-dim); font-weight: 700; font-size: 22px; letter-spacing: 0.02em;
+  }
+  .setup-photo-name { font-size: 12.5px; font-weight: 600; text-align: center; color: var(--chalk); }
+  .setup-photo-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .setup-photo-actions .pill-btn { margin-top: 0; padding: 5px 11px; }
+
+  /* ---------- Photo cropper modal ---------- */
+  .cropper-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .cropper-dialog {
+    background: var(--ink); color: var(--chalk);
+    border: 1px solid rgba(var(--chalk-rgb),0.16);
+    border-radius: 14px; padding: 20px;
+    display: flex; flex-direction: column; gap: 14px; align-items: center;
+    max-width: 100%;
+  }
+  .cropper-title { font-size: 14px; font-weight: 700; }
+  .cropper-viewport {
+    position: relative; overflow: hidden; border-radius: 8px;
+    background: #000; cursor: grab; touch-action: none;
+    max-width: 100%;
+  }
+  .cropper-viewport:active { cursor: grabbing; }
+  .cropper-img { position: absolute; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+  .cropper-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+    border: 2px solid rgba(255,255,255,0.85);
+    pointer-events: none;
+  }
+  .cropper-zoom-row { display: flex; align-items: center; gap: 10px; width: 100%; font-size: 12px; color: var(--chalk-dim); }
+  .cropper-zoom { flex: 1; accent-color: var(--chalk); cursor: pointer; }
+  .cropper-actions { display: flex; gap: 10px; }
+  .cropper-actions .pill-btn { margin-top: 0; }
+  .cropper-save { background: rgba(var(--good-rgb),0.15); border-color: rgba(var(--good-rgb),0.5); color: var(--good); }
+  .cropper-save:hover { background: rgba(var(--good-rgb),0.25); border-color: var(--good); }
+
+  /* ---------- Team-photo tagger modal ---------- */
+  .tagger-dialog { max-width: min(840px, 96vw); }
+  .tagger-body { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+  .tagger-choose { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 8px; }
+  .tagger-choose .pitch-caption { max-width: 360px; text-align: center; }
+  .tagger-help { max-width: 620px; text-align: center; margin: 0; }
+  .tagger-stage {
+    position: relative; overflow: visible; border-radius: 8px;
+    background: #000; touch-action: none; max-width: 100%;
+    box-shadow: 0 0 0 1px rgba(var(--chalk-rgb),0.15);
+  }
+  .tagger-img { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-drag: none; border-radius: 8px; }
+  .tagger-circle {
+    position: absolute; border-radius: 50%; box-sizing: border-box;
+    border: 2px dashed rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.06);
+    cursor: move; touch-action: none;
+    --tag-color: #4FD1AE;
+  }
+  .tagger-circle.tagged-named {
+    border-style: solid; border-color: var(--tag-color);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+  }
+  .tagger-handle {
+    position: absolute; right: -7px; bottom: -7px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--tag-color, #4FD1AE); border: 2px solid #000;
+    cursor: nwse-resize;
+  }
+  .tagger-remove {
+    position: absolute; top: -9px; right: -9px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--bad); color: #fff; border: 1px solid #000;
+    font-size: 13px; line-height: 1; padding: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tagger-name {
+    position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .tagger-name-select {
+    font-size: 11px; padding: 2px 4px; max-width: 130px;
+    background: var(--ink); color: var(--chalk);
+    border: 1px solid rgba(var(--chalk-rgb),0.3); border-radius: 6px;
+    cursor: pointer;
+  }
+
+  /* ---------- Data Editor ---------- */
+  .de-game-row { align-items: center; gap: 10px; }
+  .de-inline-label { font-size: 12px; font-weight: 700; color: var(--chalk-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .de-game-select { min-width: 240px; }
+  .de-game-fixed { font-weight: 700; color: var(--chalk); }
+  .setup-tag-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .setup-tag-actions .pill-btn { margin-top: 0; padding: 5px 10px; }
+  .setup-tag-count { font-size: 11.5px; color: var(--chalk-dim); font-family: ui-monospace, monospace; white-space: nowrap; }
+  .de-layout { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(280px, 380px); gap: 24px; align-items: start; margin-top: 8px; }
+  @media (max-width: 860px) { .de-layout { grid-template-columns: 1fr; } }
+  .de-left { min-width: 0; }
+  .de-player-host {
+    width: 100%; aspect-ratio: 16 / 9; background: #000;
+    border-radius: 10px; overflow: hidden; margin-bottom: 12px;
+  }
+  .de-player-host iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .de-no-video { margin: 0 0 12px; }
+  .de-player-note { margin: 0 0 12px; }
+  .de-watch-inline { color: var(--good); text-decoration: none; white-space: nowrap; }
+  .de-watch-inline:hover { text-decoration: underline; }
+  .de-pitch { margin: 0 auto 8px; }
+  .de-step-caption { text-align: center; margin: 0 0 8px; font-weight: 600; color: var(--chalk); }
+  .de-step-nav { align-items: center; justify-content: center; gap: 14px; }
+  .de-step-counter { font-family: ui-monospace, monospace; font-size: 12px; color: var(--chalk-dim); min-width: 60px; text-align: center; }
+
+  .de-panel {
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.1);
+    border-radius: 12px; padding: 16px; position: sticky; top: 74px;
+  }
+  .de-panel-head { margin-bottom: 12px; }
+  .de-panel-title { font-size: 15px; font-weight: 700; color: var(--chalk); }
+  .de-panel-sub { font-size: 12px; color: var(--chalk-dim); margin-top: 2px; }
+  .de-point-field {
+    display: flex; flex-direction: column; gap: 6px;
+    padding-bottom: 12px; margin-bottom: 12px;
+    border-bottom: 1px dashed rgba(var(--chalk-rgb),0.16);
+  }
+  .de-defposs-row { display: flex; align-items: center; gap: 8px; }
+  .de-defposs-label {
+    font-size: 11px; font-family: ui-monospace, monospace; color: var(--chalk-dim);
+    min-width: 46px; flex: 0 0 auto;
+  }
+  .de-defposs-row .de-select { flex: 1; }
+  .de-field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .de-field { display: flex; flex-direction: column; gap: 4px; }
+  .de-field-wide { margin-top: 12px; }
+  .de-field-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--chalk-dim); }
+  .de-select, .de-ts-input, .de-notes {
+    background: var(--ink); color: var(--chalk);
+    border: 1px solid rgba(var(--chalk-rgb),0.22); border-radius: 8px;
+    padding: 6px 8px; font-size: 13px; font-family: inherit; width: 100%;
+  }
+  .de-select { cursor: pointer; }
+  .de-notes { resize: vertical; }
+  .de-multi-box { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .de-multi-option {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--chalk); cursor: pointer;
+    white-space: nowrap;
+  }
+  .de-multi-option input[type="checkbox"] { cursor: pointer; accent-color: var(--good); }
+  .de-ts-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .de-ts-input { width: 90px; flex: 0 0 auto; }
+  .de-ts-row .pill-btn { margin-top: 0; }
+  .de-ts-row .pill-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .de-io-row { align-items: center; gap: 10px; margin-top: 20px; }
+  .de-tagged-count { font-size: 12px; color: var(--chalk-dim); }
+  .de-mode-row { margin: 4px 0 14px; }
+
+  /* Data Editor -- Query pane */
+  .de-query-top { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; margin-bottom: 14px; }
+  .de-qfield { display: flex; flex-direction: column; gap: 5px; }
+  .de-query-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 16px; }
+  .de-query-filters .de-select { min-width: 120px; }
+  .de-query-summary-row { align-items: center; justify-content: space-between; gap: 12px; }
+  .de-query-summary { font-weight: 700; color: var(--chalk); font-size: 13.5px; }
+  .de-query-results { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .de-result-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 8px 12px; background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.08); border-radius: 8px; font-size: 13px;
+  }
+  .de-result-meta { color: var(--chalk); }
+  .de-result-tags { color: var(--chalk-dim); font-size: 12px; flex: 1 1 120px; }
+  .de-result-link { margin-left: auto; font-family: ui-monospace, monospace; color: var(--good); text-decoration: none; white-space: nowrap; }
+  .de-result-link:hover { text-decoration: underline; }
+  .de-result-nolink { margin-left: auto; color: var(--chalk-dim); font-size: 12px; white-space: nowrap; }
+
+  /* ---------- Player photos used around the report ---------- */
+  .avatar {
+    border-radius: 50%;
+    object-fit: cover;
+    flex: none;
+    background: rgba(var(--chalk-rgb),0.08);
+    vertical-align: middle;
+  }
+  .avatar-name { display: inline-flex; align-items: center; gap: 7px; }
+  .compare-avatar { display: flex; justify-content: center; margin-bottom: 6px; }
+  /* photo circles drawn inside the game-page field diagram */
+  .pass-node-ring { pointer-events: none; }
+
+  /* ---------- Game page: tagged events column ---------- */
+  /* The third column of the game grid. Deliberately quiet -- dim ink, no card,
+     small type -- so it reads as an annotation of the diagram beside it rather
+     than competing with the point log on the left. */
+  .film-strip { min-width: 0; }
+  .film-head {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 1px solid rgba(var(--chalk-rgb),0.1);
+  }
+  .film-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; color: var(--chalk-dim); }
+  .film-count {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--chalk-dim);
+    background: rgba(var(--chalk-rgb),0.08); border-radius: 999px; padding: 1px 7px;
+  }
+  .film-watch { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--chalk); text-decoration: none; white-space: nowrap; }
+  .film-watch:hover { text-decoration: underline; }
+  .film-empty { margin: 0; font-size: 12px; color: var(--chalk-dim); opacity: 0.75; }
+  .film-list { display: flex; flex-direction: column; max-height: 596px; overflow-y: auto; }
+  .film-row {
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px;
+    font-size: 12px; line-height: 1.45; color: var(--chalk-dim);
+    padding: 6px 0; border-bottom: 1px solid rgba(var(--chalk-rgb),0.06);
+  }
+  .film-row:last-child { border-bottom: none; }
+  .film-kind {
+    flex: none; min-width: 50px; font-size: 9.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--chalk-dim);
+    opacity: 0.75;
+  }
+  .film-main { color: var(--chalk); font-weight: 600; }
+  .film-tags { color: var(--chalk-dim); }
+  .film-note { color: var(--chalk-dim); font-style: italic; }
+  .film-ts { margin-left: auto; flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--chalk); text-decoration: none; white-space: nowrap; }
+  .film-ts:hover { text-decoration: underline; }
+  .film-ts-plain { color: var(--chalk-dim); }
+  /* the ▶ that marks a point-log row as having tagged film */
+  .pfilm { margin-left: 4px; font-size: 8px; color: var(--chalk-dim); opacity: 0.65; vertical-align: 1px; }
+
+  /* ---------- Data Editor: events filter ---------- */
+  /* Deliberately oversized -- this is the first decision a tagger makes each
+     session, so it reads as a mode switch rather than another small control. */
+  .de-events-row { margin: 4px 0 18px; }
+  .de-events-row .seg-btn { font-size: 14px; padding: 11px 22px; }
+  .de-events-note { display: block; margin-top: 8px; max-width: 780px; color: var(--chalk-dim); font-size: 12px; line-height: 1.5; }
+
+  /* ---------- Advanced Stats descriptions ---------- */
+  .adv-subtitle { font-size: 26px; font-weight: 800; color: var(--chalk); margin: 0 0 6px; letter-spacing: -0.01em; }
+  /* the caption sits in dim ink, so lift the reference link to full-contrast text */
+  #advanced-stats .pitch-caption a { color: var(--chalk); text-decoration: underline; text-underline-offset: 2px; }
+  .adv-desc { display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
+  .adv-desc-item {
+    display: grid; grid-template-columns: 120px 1fr; gap: 12px;
+    align-items: baseline;
+  }
+  @media (max-width: 600px) { .adv-desc-item { grid-template-columns: 1fr; gap: 2px; } }
+  .adv-desc-term { font-weight: 700; color: var(--chalk); font-family: ui-monospace, monospace; font-size: 13px; }
+  .adv-desc-body { color: var(--chalk-dim); font-size: 13px; line-height: 1.5; }
+
+  /* ---------- Game filter: tournament groups ---------- */
+  .game-filter-row.game-filter-group { font-weight: 700; }
+  .game-filter-row.game-filter-game { padding-left: 22px; font-size: 12px; color: var(--chalk-dim); }
+  .game-filter-row.game-filter-game:hover { color: var(--chalk); }
+
+  /* ---------- Game page: watch link ---------- */
+  .game-watch-wrap { margin: 4px 0 8px; }
+  .game-watch-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(var(--chalk-rgb),0.08);
+    border: 1px solid rgba(var(--chalk-rgb),0.25);
+    color: var(--chalk); text-decoration: none;
+    font-size: 12.5px; font-weight: 700;
+    padding: 6px 14px; border-radius: 999px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .game-watch-link:hover { background: rgba(var(--chalk-rgb),0.16); border-color: var(--chalk); }
+
+  /* Line Analysis: static tournament heading (rename moved to Set up) */
+  .line-scope-title { font-size: 16px; font-weight: 700; color: var(--chalk); }

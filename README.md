@@ -45,12 +45,355 @@ python3 examples/generate_example_data.py
 python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
 ```
 
+## Recommended workflow: from a `.statto` file to a team report
+
+This is the end-to-end path for whoever is leading the effort — coach,
+captain, or stats keeper. Every step below saves its data in *your* browser,
+and the final **Publish** step bakes it all into one file you hand to the
+team. (The separate helper instructions in the next section are what you send
+to anyone pitching in on video tagging.)
+
+**1. Generate the report.** Run the tool on your Statto export:
+
+```bash
+python3 statto_to_html_report.py path/to/season.statto -o report.html
+```
+
+Open `report.html` in a browser. If you want the film features (embedded
+video and "grab current time"), open it through a local web server rather
+than double-clicking it — see the note at the end of this section.
+
+**2. Set up your season** — the **Set up** tab:
+
+- **Tournaments** — group your games and name them (e.g. "Regionals"). These
+  groups then appear in every games filter across the report.
+- **Video links** — paste one YouTube link per game. This powers the **▶
+  Watch game** button on each game page and all the film-tagging tools.
+- **Player photos** — give each player a round avatar, either one at a time or
+  by tagging faces on a single team photo.
+
+**3. Curate your lines** — the **Line Analysis** tab. Confirm the recurring
+7-person lineups the tool auto-detects, name them, and compare them like
+players.
+
+**4. Tag the film** — the **Data Editor** tab (optional, but it's what unlocks
+clip queries like "show me all our inside-flick turnovers"). Either:
+
+- **Do it yourself**, stepping through each pass, block, and defensive
+  possession; or
+- **Split it across helpers** — on the **Set up** tab's Games table, click
+  **Create tagging page** for a game to produce a stripped-down, single-game
+  file, and send one to each helper (point them at *For video-tagging
+  helpers*, below). When they email back their exported annotations JSON,
+  click **Upload tags** next to that game to merge it in.
+
+**5. Publish for the team** — the **Set up** tab, **Publish for team
+(read-only)**. This downloads one self-contained HTML file with all your
+tournaments, lines, photos, video links, and film tags baked in, but with the
+editing surfaces stripped down to a clean, read-only report (no Set up tab;
+the Data Editor becomes a read-only film-clip browser). Email it, AirDrop it,
+or drop it on any static host (GitHub Pages, a Netlify drag-and-drop deploy,
+etc.) to share a link.
+
+> **A note on the video player.** The embedded YouTube player only works when
+> the report is opened from a web address (`http://…`), not straight off disk
+> (`file://`) — YouTube blocks the embed otherwise. The simplest fix is to
+> serve the folder locally: in a terminal, `cd` into the report's folder and
+> run `python3 -m http.server`, then open the `http://localhost:8000/…` URL it
+> prints. (Hosting the report online works too.) Everything else in the report
+> works fine straight off disk.
+
+## For video-tagging helpers (no coding needed)
+
+Someone sent you an HTML file (something like `team_tag_glass_cannons.html`)
+and asked you to tag one game's film. Here's how — no experience needed. You
+have **two options**; pick one.
+
+- **Option A — Easiest, works right away.** Double-click the file, watch the
+  game video in a separate tab, and type each timestamp by hand. Nothing to
+  install.
+- **Option B — Smoother.** Run one tiny "local server" so the video plays
+  *inside* the tagging page and a **Grab current time** button fills in
+  timestamps for you. Needs a 2-minute, one-time setup.
+
+Either way, **your work saves automatically in that browser as you go**, and at
+the end you'll click one button to send it back. Two rules: stick to the
+**same browser on the same computer** the whole time (your work lives in that
+browser), and don't forget the final **Export** step.
+
+### The tagging screen
+
+However you open the file, you'll see one **Video Tagging** tab and a screen
+laid out like this:
+
+```
+ ┌──────────────────────────┐   ┌─────────────────────────────┐
+ │                          │   │  Thrower → Receiver          │
+ │      GAME  VIDEO         │   │  Point 1 · Completed         │
+ │   (or a "Watch on        │   │  Hand ▾      Release ▾       │
+ │    YouTube" link if       │   │  Distance ▾  Stall ▾         │
+ │    not self-hosting)      │   │  Catch ▾     Highlight ▾     │
+ │                          │   │  Notes […]                   │
+ ├──────────────────────────┤   │  Timestamp [mm:ss] [Grab]    │
+ │   FIELD DIAGRAM          │   └─────────────────────────────┘
+ │  (one pass highlighted)  │        the tagging panel for
+ │  [← Prev]  3 / 60  [Next →]      the highlighted pass
+ └──────────────────────────┘
+```
+
+The field diagram shows the current pass (bright, with the others dimmed). The
+panel on the right is where you describe **that** pass. Use **← / →** on your
+keyboard (or the **Prev / Next** buttons) to move through every pass in the
+game, one at a time.
+
+You step through more than just passes — a game's events, in the order they
+happened, are: the **Pull** (opening every defensive point — who pulled, and
+where it landed), each **Defensive possession** (our scheme while they had it),
+**Opponent turnovers** that weren't our blocks, our **Blocks**, and every
+**pass**.
+
+### Choose how much to tag
+
+At the top of the screen is a two-way toggle:
+
+- **All events** — every event above, including every completed pass.
+- **All events except throws** — skips the routine passes (the ones that were
+  completed and didn't score). Everything else stays: pulls, opponent
+  turnovers, blocks, defensive possessions, turnovers and assists. On a typical
+  game this is roughly a third of the events, so it's *much* faster.
+
+It's only a filter on what you're shown — nothing is deleted, and you can flip
+between the two at any time without losing tags. The counters (`3 / 56` and the
+"tagged in this view" count at the bottom) follow whichever mode you're in.
+
+### How to tag each pass
+
+1. Watch that pass on the video.
+2. In the panel, pick whatever applies — **Hand**, **Release**, **Distance**,
+   **Stall**, **Catch**, **Highlight** are single-choice dropdowns; **Turnover
+   reason** (shown only on turnovers) is checkboxes, so check as many reasons
+   as genuinely applied. **You don't have to fill every box** — just set the
+   ones the coach asked for, and leave the rest blank. Add a **Note** if
+   useful.
+3. Set the **Timestamp** (the moment in the video):
+   - **Option B (self-hosting):** scrub the embedded video to the moment and
+     click **Grab current time**. Use **Jump ▶** to re-check it.
+   - **Option A:** read the time off your video (e.g. `12:04`) and type it into
+     the timestamp box as `mm:ss`.
+4. Press **→** for the next pass and repeat.
+
+### When you're finished → send it back
+
+Scroll to the bottom and click **Export annotations JSON**. Your browser
+downloads a small `.json` file (usually to your **Downloads** folder), named
+after the game you tagged — e.g. `ramp_2025_tag_anthem_jul_12_2025_annotations.json`
+— so the coach can tell whose game is whose. **Email that file back to the
+coach** — that's it. (You do *not* send the big HTML file back.)
+
+---
+
+### Option B setup: run a local server (one time)
+
+Only needed if you want the embedded player + "Grab current time." Because of a
+YouTube rule, the video won't play when a page is opened straight off your disk;
+running a tiny local server fixes it. Pick your operating system.
+
+#### Mac
+
+1. Put the `.html` file in its own folder (e.g. make a new folder on your
+   Desktop called `tagging` and drag the file into it).
+2. Open **Terminal**: press **⌘ Cmd + Space**, type `Terminal`, press
+   **Return**. A window with plain text appears — that's normal.
+3. Type `cd ` (the letters c, d, then a **space**), then **drag the `tagging`
+   folder from Finder onto the Terminal window** and let go. It pastes the
+   folder's location for you. Press **Return**.
+4. Type this and press **Return**:
+
+   ```
+   python3 -m http.server
+   ```
+
+   - If a popup asks to *install command line developer tools*, click
+     **Install**, wait for it to finish, then run the command again. (No popup
+     and it just works? Great.)
+   - You should see a line like `Serving HTTP on :: port 8000 …`. **Leave this
+     window open** while you tag.
+5. Open your web browser and go to this address:
+
+   ```
+   http://localhost:8000/
+   ```
+
+   Click the `.html` file in the list that appears (or add its name to the
+   address, e.g. `http://localhost:8000/team_tag_glass_cannons.html`).
+6. Tag away — the video now plays inside the page.
+7. **When you're done:** click back on the Terminal window and press
+   **Control + C** (that's the Control key, *not* Command) to stop the server.
+   You can close Terminal.
+
+#### Windows
+
+1. Put the `.html` file in its own folder (e.g. a new folder on your Desktop
+   called `tagging`).
+2. **Install Python once** (if you don't have it): go to
+   [python.org/downloads](https://www.python.org/downloads/), click the big
+   download button, run the installer, and — importantly — **tick the box that
+   says "Add Python to PATH"** on the first screen, then click **Install Now**.
+3. Open the `tagging` folder in **File Explorer**. Click the **address bar**
+   (the strip at the top showing the folder path), type `cmd`, and press
+   **Enter**. A black **Command Prompt** window opens, already pointed at your
+   folder.
+4. Type this and press **Enter**:
+
+   ```
+   python -m http.server
+   ```
+
+   - If it says `'python' is not recognized`, Python isn't installed / wasn't
+     added to PATH — redo step 2 (make sure that box is ticked).
+   - You should see `Serving HTTP on … port 8000 …`. **Leave this window open**
+     while you tag.
+5. Open your web browser and go to:
+
+   ```
+   http://localhost:8000/
+   ```
+
+   Click the `.html` file (or add its name, e.g.
+   `http://localhost:8000/team_tag_glass_cannons.html`).
+6. Tag away — the video now plays inside the page.
+7. **When you're done:** click the black window and press **Ctrl + C** to stop
+   the server, then close it.
+
+> **Stuck on the video?** If it shows a red error or a "Watch on YouTube" link
+> instead of playing, you're almost certainly opening the file directly instead
+> of through `http://localhost:8000/` — go back to step 5. Either way you can
+> still tag using **Option A** (type timestamps by hand); nothing is lost.
+
 ## What's in the report
 
-The top nav has eight destinations: **Season**, a **Games** dropdown (hover
-or click to jump to any individual game), **Player Analysis**, **Line
-Analysis**, **Thrower-Receiver Analysis**, **Field Analysis**,
-**Gender Analysis**, and **Raw Data**.
+The top nav has nine destinations: **Set up**, **Season**, a **Games**
+dropdown (hover or click to jump to any individual game), **Player
+Analysis**, **Line Analysis**, **Thrower-Receiver Analysis**, **Field
+Analysis**, **Gender Analysis**, and **Raw Data**.
+
+### Set up
+
+One-time (per browser) configuration that the rest of the report reads from.
+Everything here is saved in `localStorage`, not baked into the `.statto`
+file:
+
+- **Tournaments** — name your tournaments and assign each game to one. This
+  starts pre-filled from a date-based auto-grouping (games on the same or
+  consecutive days), which you can rename, split, merge, or rebuild from
+  scratch. These groups then appear in **every games filter** across the
+  report: each tournament is a group header you can check/uncheck to select
+  all its games at once, while still ticking individual games as before.
+  Other tabs pick up tournament changes automatically the next time you
+  click into them (no page reload needed) — a tab you haven't revisited
+  since an edit keeps its current state until you do.
+- **Games** — a table to assign each game's tournament, paste a single
+  **video link** per game (which shows up as a **▶ Watch game** button on the
+  game's own page), and split video tagging across people: **Create tagging
+  page** downloads a stripped single-game HTML (just a "Video Tagging" tab,
+  locked to that game) to hand a helper; when they send back their exported
+  annotations JSON, **Upload tags** merges it here (filtered to that game, so
+  a wrong file can't affect others). Each row shows an `X/Y tagged` count.
+- **Player photos** — give each player a round avatar, two ways: upload one
+  photo per player and crop it to a circle (drag to pan, slider to zoom), or
+  **tag several at once from a single team photo** — upload one group shot,
+  click each face to drop a circle, drag it to centre / drag its handle to
+  resize, and pick the player's name from a dropdown. Each named circle is
+  cropped to its own round avatar (each name maps to one face).
+
+  Once set, a player's face shows up above their column in **Player
+  Analysis**'s side-by-side comparison, and photos download as a ZIP from the
+  **Raw Data** tab. Anyone without one just shows their name, so a
+  half-photographed roster still reads consistently.
+- **Publish for the team** — everything you enter on this tab (plus your
+  curated lines and film tags) is saved in *your* browser only, so it doesn't
+  travel with the HTML file on its own. **Publish for team (read-only)** bakes
+  it all into one standalone HTML file that opens with everything preloaded —
+  email it, AirDrop it, or drop it on any static host (GitHub Pages, Netlify
+  drop, etc.) to get a link. The team gets a clean, read-only report: no Set up
+  tab, the Data Editor becomes a read-only **Film Clips** browser (positioned
+  right of Games — filter tags → jump to video clips, no editing), while
+  **Line Analysis stays editable** so a teammate can build their own lines on
+  top of yours. The seed is non-destructive: a recipient who has already
+  entered their own data for this team keeps theirs.
+
+  **Collaborating on video tagging.** Split games among helpers. For each game,
+  use **Create tagging page** to hand a helper a single-game tagging file (it
+  has the video link baked in). They tag it, click **Export annotations JSON**,
+  and send just that small file back; you **Upload tags** on that game's row to
+  merge it (per field on Statto's stable pass IDs, filtered to that game, so
+  overlapping taggers don't clobber and a mis-sent file can't pollute other
+  games). When everything's collected, **Publish for team**. Note that hosting
+  the report online doesn't make tagging live-collaborative — each person's
+  tags stay in their own browser until exported.
+
+### Data Editor
+
+Step through a game's events on its field diagram and tag them, building a
+richer, queryable film dataset on top of the raw Statto data.
+
+- Pick a game, then move step-by-step with **← / →** (or Prev/Next) through
+  every **pass**, **block**, **pull**, **defensive possession** and
+  **opponent turnover**. The focused pass is highlighted on the field diagram
+  while the rest of the point dims, so you always know exactly which one
+  you're tagging.
+- An **All events / All events except throws** toggle sits at the top. The
+  second mode skips the routine passes (completed, non-scoring) and keeps
+  everything else, which is far quicker to work through. It's purely a view
+  filter — flip between the two freely without losing tags.
+- **Pulls** open every defensive point: record **who pulled**, and click the
+  field to mark **where the pull landed** (or pick Out-of-bounds).
+- **Opponent turnovers** that weren't your blocks get their own step (Huck
+  turnover / Throwing error / Receiver error). Statto records nothing for
+  these, so they're inferred as opponent possessions you won the disc back
+  from without a block.
+- **Defensive possessions** are woven into the stepping in the right place:
+  the opponent gets a new offensive possession each time they gain the disc
+  (they receive your pull, or you turn it over), so a scrappy point can have
+  several, and even a clean opponent hold shows up as its own step. Each one
+  lets you tag your **Defensive scheme** (Zone / Force forehand / Force
+  backhand / Force return) for that possession.
+- Tag each pass with a few composable fields — **Hand** (backhand/flick/…),
+  **Release** (forceside/breakside/…), **Distance** (reset/under/away/…),
+  **Stall**, **Catch**, and, for turnovers, one or more **Turnover reasons**
+  (checkboxes, not a single choice — a turnover can be both "Too far" and
+  "Into doublecoverage" at once) — plus free-text notes. Blocks get their own
+  **Block type**. Because these are separate fields rather than one flat
+  label, questions compose ("inside flick turnovers", "% of turnovers that
+  were around backhands").
+- **Timestamps**: if the game has a video link (from Set up), the editor
+  embeds the YouTube player — scrub to the moment and click **Grab current
+  time**, or **Jump** back to a saved time. No link, or prefer to type it?
+  Enter a timestamp as `mm:ss` manually. (The embedded player is the one part
+  of the report that needs a network connection; everything else is offline.)
+  It also needs the report opened from a **web address** (http/https), not a
+  local `file://` — YouTube rejects the embed otherwise (its "error 153"). If
+  you're double-clicking the HTML off disk, either serve the folder locally
+  (`python3 -m http.server` in that folder, then open the printed
+  `http://localhost:…` URL) or host the report; the editor falls back to a
+  "Watch on YouTube" link and manual timestamps when it can't embed.
+- Tags are saved in your browser per team, ride along when you **Publish for
+  team**, and have their own **Export / Import annotations JSON** backup (this
+  is also how a helper's single-game tagging comes back — see the Set up tab's
+  per-game **Upload tags**). They key to Statto's stable pass IDs, so they
+  survive regenerating the report as you log more games.
+- A **Tag / Query** toggle at the top switches between the stepping editor and
+  a **Query** view, which covers **all five event kinds** — Passes, Blocks,
+  Pulls, D-possessions and Opp turnovers — each with its own filters (pass
+  outcome and tag fields; block type; pull landing and puller; defensive
+  scheme; opponent-turnover type). Results are a clip list where each entry
+  **deep-links to that moment in the game's video**. The summary is the share
+  of every event of that kind in scope, so *Pulls + Landing = Out-of-bounds*
+  reads directly as "X of Y pulls (Z%)", and for passes an **Outcome** filter
+  re-scopes the denominator so *Outcome = Turnover, Release = Around, Hand =
+  Backhand* reads as "X of Y turnovers (Z%)". A **Copy timestamp links**
+  button grabs every result's video link at once (e.g. to paste into a
+  scouting doc or share with players).
 
 ### Season
 
@@ -60,26 +403,85 @@ Analysis**, **Thrower-Receiver Analysis**, **Field Analysis**,
   Defensive) and a toggle between three ways of counting a "chance": **Per
   Point**, **Per Possession**, and **First Possession** (i.e. no
   turnover-and-recovery detours)
+- A **Clutch Efficiency** table splitting hold rate / break rate / total
+  scoring efficiency into **high-leverage** points (Leverage ≥ 7 — the
+  moments closest to deciding the season's games) vs. everything else, so
+  you can see whether performance actually holds up when it matters most
 - A schedule grid — click any game card to jump straight to that game
 - A sortable **season leaderboard** covering every tracked stat (see
   [Stat glossary](#stat-glossary) below), with:
   - A **games filter** so you can scope the leaderboard to any subset of
-    games instead of the whole season
+    games — or whole tournaments at once (see [Set up](#set-up)) — instead
+    of the whole season
   - **Download CSV** on every table
 
 ### Games (one page per game, reached via the Games dropdown)
 
 - Score, opponent, and result
-- A **Combined / O-line / D-line** toggle over the core box stats
-  (completions, hucks, blocks, opponent turnovers, red-zone conversion),
-  scoped to which side of the disc a point started on
+- A **▶ Watch game** button, if you've added a video link for this game on
+  the [Set up](#set-up) tab
+Top to bottom: **Summary Statistics → Scoring Efficiency → Point
+differential → the point log / field diagram / tagged events columns →
+Clutch Efficiency → Box score.**
+
+- A **Combined / Offensive points / Defensive points** toggle over the core
+  box stats (completions, hucks, blocks, opponent turnovers, red-zone
+  conversion), scoped to which side of the disc a point started on
 - The same **Scoring Efficiency** ring gauges as the Season tab, scoped to
   this game
 - An interactive **point-differential chart** — click any dot to jump to
-  that point in the log below
-- A point-by-point log labeled **Clean hold / Dirty hold / Break / Opp
-  hold / Broken**, showing who scored and who threw the assist. Use the
-  **← / →** arrow keys to step through points (and, for multi-possession
+  that point in the log below, with a colored strip beneath it showing each
+  point's Leverage (same scale as the point log and the Thrower-Receiver
+  heatmap), so you can see at a glance when the game actually got tense,
+  independent of the score margin above it
+- The same **Clutch Efficiency** table as the Season tab, scoped to this
+  game's high- vs. low-leverage points
+- A point-by-point log with real column headers (**#, Score, Result, Type,
+  Line¹, Leverage²**) and two numbered footnotes underneath:
+  - **Result** is **Clean hold / Dirty hold / Break / Opp hold / Broken**;
+    click a row (or step through with **← / →**) to see the point play out
+    in the field diagram beside it — kept out of the row itself so the table
+    doesn't feel too busy. Every person who touched the disc gets an
+    initialled circle at the spot they threw or caught from; the throws that
+    decided the point (the assist and scorer, or the turnover) are ringed in
+    gold
+  - **Line** is which curated line (from Line Analysis) was on the field
+    for that point — blank if you haven't assigned one, and it updates
+    live if you curate lines later in the same session without needing to
+    reload
+  - **Leverage**, 0–10 and colored by the same scale as the
+    Thrower-Receiver heatmap, is how much that specific point's outcome
+    could swing the game's eventual result. A double-game-point scores a
+    10; a point in an already-decided blowout scores near 0. It's modeled
+    as a fair (50/50) race to this game's actual final winning score
+    (retroactive by design, so it sidesteps soft-cap/hard-cap/win-by-2
+    rules entirely), with a square-root reshape on top so a tied score
+    with just a couple points left still reads as clearly high-stakes
+    instead of getting compressed toward the bottom of the scale — see
+    [Stat glossary](#stat-glossary) for the exact formula
+
+- **Film tags.** Once a game has been tagged in the Data Editor, the layout
+  gains a third column — point log, field diagram, **Tagged events** — and
+  until then nothing changes, so an untagged game looks exactly as it always
+  did:
+  - A dim **▶** next to a point's number means it has tagged film, so you
+    can see at a glance how far tagging has got
+  - The **Tagged events** column lists the selected point's tagged events in
+    the order they happened (pull, defensive possessions, blocks, passes,
+    opponent turnovers) with their tags and notes. Each event with a
+    timestamp links straight to that moment in the game video, and a single
+    **▶ Watch point** link at the top jumps to where the point starts
+  - Tagged passes carry their tags into the diagram's existing hover
+    tooltip, and a tagged **pull** shows where it landed as a teal marker —
+    the only two things actually drawn on the field, to keep it uncluttered
+  - Everything degrades on its own: no video link means timestamps show as
+    plain text instead of links, a point with one tagged pass shows just that
+    one row, and a point with none shows a quiet placeholder (so the diagram
+    never jumps between layouts as you step through). On narrower screens the
+    column drops to a full-width row beneath the other two
+
+  Use the **← / →** arrow keys to step through points (and,
+  for multi-possession
   points, through each possession in order) without touching the mouse
 - An interactive **field diagram** for the selected point:
   - USAU-dimensioned pitch (70×40 yd, 20 yd endzones, brick marks shown)
@@ -101,19 +503,21 @@ Analysis**, **Thrower-Receiver Analysis**, **Field Analysis**,
 Pick 1–7 players (and, separately, which games to include) to compare
 side by side:
 
-- **Season Totals** — games, points played, touches, goals, assists,
-  blocks, turnovers, plus/minus, and five scoring-efficiency stats scoped
-  to that player specifically
+- **Season Totals** — games, points played, high-leverage points played,
+  touches, goals, assists, blocks, turnovers, plus/minus, and five
+  scoring-efficiency stats scoped to that player specifically (see
+  [Stat glossary](#stat-glossary) for what "high-leverage" means)
 - **Efficiency & Averages** — a Thrower/Receiver toggle switches between
   completion rates and reception rates, huck stats, assist stats, and a
   set of per-game and per-pass averages (see [Stat glossary](#stat-glossary))
 - **Directions** — a rose diagram per player showing which direction they
   tend to throw toward and receive from, throws and receptions side by
-  side
-- **Connections** — a dual-Sankey per player: the top 5 people who throw
-  to them on the left, the top 5 people they throw to on the right, each
+  side; wedge length shows relative frequency in that direction, and hover
+  a wedge for the exact count
+- **Connections** — a dual-Sankey per player: the top 7 people who throw
+  to them on the left, the top 7 people they throw to on the right, each
   connection split into green (completed) and red (incomplete) segments;
-  hover any segment for the exact count
+  hover any ribbon or name's bar for the exact throw/completion counts
 - **Impact Map** — one mini field diagram per selected player, with a
   shared filter for which category of throw to show (All throws, Assist
   attempts, Huck attempts, Throwing errors, Receiving errors, Blocks — "All
@@ -128,11 +532,9 @@ Statto tracks directly, so this tab walks you through building one:
 
 A toggle at the top switches between **Across Tournaments** (one pool of
 lines for the whole season) and **Within Tournament** (pick 1-to-all
-tournaments — auto-identified from game dates and labeled like "Jul 10-11
-Tournament" — each with its own independently detected/named lines). Each
-tournament's heading is editable, so you can rename "Jul 10-11 Tournament"
-to e.g. "Regionals" — the custom name shows up everywhere (with the dates
-kept alongside for context) and is saved with your lines. This
+tournaments — the ones you defined on the [Set up](#set-up) tab, each with
+its own independently detected/named lines). Tournament names and
+game assignments are managed on the Set up tab now, not here. This
 matters because rosters can differ a lot tournament to tournament: a
 within-tournament line stays specific to that weekend's roster, and since
 each tournament's lines are tracked separately rather than merged, you can
@@ -162,10 +564,13 @@ short:
    another converges toward just the one-off points. Flip **"Show all"** any
    time to bring already-assigned points back into view for editing
 4. **Compare** — once you have 1+ named lines, pick which ones to compare
-   (and which games to include) for a stats table (points played, hold/break
-   rate, throw/huck/assist completion, blocks, opponent turnovers forced,
-   red-zone conversion), per-line **Scoring Efficiency** gauges, and per-line
-   **field diagrams** with the same category filter used elsewhere
+   (and which games to include) for a stats table (points played, **avg
+   point leverage** — the mean Leverage across a line's points, showing
+   which lines get deployed in the tightest, highest-stakes moments vs.
+   mostly decided games — hold/break rate, throw/huck/assist completion,
+   blocks, opponent turnovers forced, red-zone conversion), per-line
+   **Scoring Efficiency** gauges, and per-line **field diagrams** with the
+   same category filter used elsewhere
 
 A **"Clear all line data"** button (with a confirmation prompt first) wipes
 every saved line from this browser if you want to start over.
@@ -269,6 +674,26 @@ gender at all.
   worth reading once if the "percentage points above/below fairness" idea
   is new to you
 
+### Advanced Stats — Ultiworld EDGE Stats
+
+One row per player, filterable by game/tournament, with the **EDGE** family of
+goal-equivalent and efficiency metrics:
+**EDGE-O / EDGE-B / EDGE** (production — offensive, block, and total goal
+equivalents), **xEO / xEB / xE** (the same per unit of expected opportunity),
+**CP+** (a retention-rate twist on completion %), **PE-O / PE-B / PE**
+(per-possession efficiency, empirical-Bayes smoothed), and **CR** (a 0–100
+composite rank). Each stat has a plain-language description on the page, which
+also links out to the [Ultiworld EDGE reference page](https://docs.google.com/document/d/1ZgBKIX0DtGNomjwr1EuvsOkK4QRB6GP4/edit)
+for the full definitions and worked examples.
+
+Two things to know, since this report only has *your* team's season and no
+league data: the framework's league-relative ratings (**PER-O**, **PER**) are
+omitted, and the game-condition adjustments use your own season's scoring
+efficiency as the reference — so the numbers are comparable across your roster
+but not against outside benchmarks. (Opponent turnovers, needed for the game
+scoring-efficiency term, are inferred from the per-point defensive-possession
+count.)
+
 ### Raw Data
 
 Export the underlying data behind the report, scoped to a shared **games
@@ -276,11 +701,12 @@ filter** (1 to all games):
 
 - **CSV exports** (six, each with a live row-count preview before you
   download): **Passes** (one row per pass, with derived yardage/huck/
-  assist-attempt columns so you don't have to re-derive field geometry
-  yourself), **Points** (one row per point — including points the opponent
-  held with zero of our recorded passes, since Statto only tracks this
-  team's actions, making this the only reliable source for point-by-point
-  score progression), **Blocks**, **Players (per game)** (every selected
+  assist-attempt columns, plus that pass's point's **leverage**, so you
+  don't have to re-derive field geometry yourself), **Points** (one row per
+  point — including points the opponent held with zero of our recorded
+  passes, since Statto only tracks this team's actions, making this the
+  only reliable source for point-by-point score progression — also carries
+  **leverage**), **Blocks**, **Players (per game)** (every selected
   game's box score combined into one file — the one bulk export that isn't
   already available a game at a time), **Season Leaderboard**, and
   **Game Summaries** (one row per game, with the nested line-stats/
@@ -296,7 +722,19 @@ filter** (1 to all games):
     copied from its own CSS/SVG code), and a **formulas** section (exact
     definitions for the trickier derived stats, plus a gotcha about
     combining rate stats across games) — all self-contained, so it's still
-    usable if it ever gets separated from the file below.
+    usable if it ever gets separated from the file below. It also carries
+    the two video-tagged event lists that exist nowhere in the Statto data
+    itself — **pullEvents** (who pulled, where it landed) and
+    **opponentTurnoverEvents** (opponent turnovers that weren't our blocks)
+    — for whatever games have been tagged. A **roster[]** array names every
+    player with `hasPhoto` / `photoFile`, pairing up with the photo ZIP below.
+  - **Player photos (ZIP)** — one PNG per player who has one, named
+    `photos/first_last.png` to match `roster[].photoFile`. Photos are
+    deliberately *not* base64'd into the JSON: 256px PNGs would add megabytes
+    to a file meant to be pasted into a chat, and an LLM can't view an image
+    out of a JSON string field anyway. Hand over the ZIP alongside the JSON
+    when you want faces (player cards, an awards graphic, a scouting
+    one-pager); skip it and nothing else changes.
   - **Context (Markdown)** — the fuller companion: the same glossary,
     orientation, style guide, and formulas in prose/table form, a
     ready-to-use prompt template for generating a game summary (narrative,
@@ -332,6 +770,8 @@ A few terms that come up throughout the report and aren't self-explanatory:
 | **Offensive utilization** | Of the points a player was on the field for that either started on offense or where their line got a block, the percentage where they recorded at least one touch |
 | **Scoring efficiency (Per Point / Per Possession / First Possession)** | Three ways of measuring conversion rate — by point, by individual possession (a point with a turnover-and-recovery has more than one), or restricted to clean, first-try conversions only |
 | **Plus/minus** | Goals + assists − turnovers |
+| **Leverage** | How much a single point's outcome could swing the game's eventual result, 0–10 (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = an already-decided blowout). Modeled as a fair (50/50) race to that game's actual final winning score, with a square-root reshape so mid-to-late-game situations don't read as more compressed than they feel — see [Games](#games-one-page-per-game-reached-via-the-games-dropdown) |
+| **High-leverage points played** | How many of a player's points had Leverage ≥ 7 — points close to a coin flip on the game's outcome, typically late and close — as opposed to raw points played, which counts every point regardless of how much it mattered |
 
 ## Notes on data quality
 

@@ -1,9 +1,30 @@
 // ---------- Report data & shared stats-table column definitions ----------
 const REPORT = JSON.parse(document.getElementById('report-data').textContent);
 
+// Captured before init() builds anything into #topnav / #main, so this is the
+// pristine generated file (CSS, JS and report data all inlined, containers
+// still empty). The "Download shareable copy" button on Set up injects a
+// localStorage seed into this snapshot and hands back a standalone HTML with
+// the user's tournaments, curated lines, video links and player photos baked
+// in -- so the file can be emailed or hosted and everyone who opens it sees
+// the same preloaded data, with no separate import step.
+const PRISTINE_DOC_HTML = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+// "Published for the team" copies inject a flag (before this script runs) that
+// strips the authoring UI down to a clean, read-only viewer: no Set up tab, the
+// Data Editor becomes a read-only "Film Clips" browser, and Line Analysis shows
+// comparisons without the line-curation controls. The underlying data is baked
+// in by the same seed the shareable copy uses -- see buildDistributableHtml.
+const VIEWER_MODE = !!(typeof window !== 'undefined' && window.__STATTO_VIEWER__);
+// A per-game "video tagging" page: a stripped build showing only the Data
+// Editor, locked to this one game, for handing to a helper to tag. Set by the
+// injected flag in a page built via downloadGameTaggingPage.
+const TAGONLY_GAME = (typeof window !== 'undefined' && typeof window.__STATTO_TAGONLY_GAME__ === 'number') ? window.__STATTO_TAGONLY_GAME__ : null;
+
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player', full: 'Player', numeric: false },
   { key: 'pointsPlayed', label: 'Pts', full: 'Points played', numeric: true },
+  { key: 'highLeveragePointsPlayed', label: 'HLV Pts', full: 'High-leverage points played: how many of this player’s points had Leverage ≥ 7 (0–10 scale) -- points close to a coin flip on the game’s outcome, typically late and close', numeric: true },
   { key: 'offensePlayed', label: 'O Pld', full: 'Points played on offense', numeric: true },
   { key: 'defensePlayed', label: 'D Pld', full: 'Points played on defense', numeric: true },
   { key: 'offenseWon', label: 'O Won', full: 'Offensive points won (held)', numeric: true },
@@ -131,9 +152,32 @@ function buildGamesNavDropdown() {
 function buildNav() {
   const nav = document.getElementById('topnav');
   nav.appendChild(el('div', { class: 'brand' }, [document.createTextNode(REPORT.teamName)]));
+
+  // Per-game tagging page: a single "Video Tagging" tab, nothing else.
+  if (TAGONLY_GAME != null) {
+    const tagBtn = el('button', { class: 'tab active', 'data-target': 'data-editor' }, [document.createTextNode('Video Tagging')]);
+    tagBtn.addEventListener('click', () => showView('data-editor'));
+    nav.appendChild(tagBtn);
+    nav.appendChild(buildThemeToggle());
+    return;
+  }
+
+  if (!VIEWER_MODE) {
+    const setupBtn = el('button', { class: 'tab', 'data-target': 'setup' }, [document.createTextNode('Set up')]);
+    nav.appendChild(setupBtn);
+    // In the full/editing report the Data Editor sits up front, next to Set up.
+    const dataEditorBtn = el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Data Editor')]);
+    nav.appendChild(dataEditorBtn);
+  }
   const seasonBtn = el('button', { class: 'tab active', 'data-target': 'season' }, [document.createTextNode('Season')]);
   nav.appendChild(seasonBtn);
   nav.appendChild(buildGamesNavDropdown());
+  // In the read-only team report the Data Editor becomes "Film Clips" and sits
+  // right of the Games dropdown, alongside the other analysis tabs.
+  if (VIEWER_MODE) {
+    const filmBtn = el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Film Clips')]);
+    nav.appendChild(filmBtn);
+  }
   const playerBtn = el('button', { class: 'tab', 'data-target': 'player-analysis' }, [document.createTextNode('Player Analysis')]);
   nav.appendChild(playerBtn);
   const lineBtn = el('button', { class: 'tab', 'data-target': 'line-analysis' }, [document.createTextNode('Line Analysis')]);
@@ -144,6 +188,8 @@ function buildNav() {
   nav.appendChild(fieldBtn);
   const genderBtn = el('button', { class: 'tab', 'data-target': 'gender-analysis' }, [document.createTextNode('Gender Analysis')]);
   nav.appendChild(genderBtn);
+  const advancedBtn = el('button', { class: 'tab', 'data-target': 'advanced-stats' }, [document.createTextNode('Advanced Stats')]);
+  nav.appendChild(advancedBtn);
   const rawDataBtn = el('button', { class: 'tab', 'data-target': 'raw-data' }, [document.createTextNode('Raw Data')]);
   nav.appendChild(rawDataBtn);
   nav.querySelectorAll('button.tab:not(.nav-games-btn)').forEach(btn => {
@@ -152,7 +198,44 @@ function buildNav() {
   nav.appendChild(buildThemeToggle());
 }
 
+// Game sections are built once at init() and just shown/hidden by class
+// toggle (never rebuilt), but the "Line" column on each point row depends
+// on Line Analysis's curated lines, which live in localStorage and can
+// change *after* this game page was built -- e.g. the user names a line,
+// then switches straight to a game page in the same session without a
+// reload. Each buildGameSection registers a refresher here so showView can
+// re-pull the current lines data and update the column live on every visit.
+const gameViewRefreshers = new Map();
+
+// Every analysis tab reads the tournament setup (its game filter groups its
+// games by tournament; Line Analysis scopes lines by tournament). Those tabs
+// are built once at init and never rebuilt, so a tournament change made on
+// the Set up tab wouldn't otherwise reach them without a full page reload.
+// Instead we track a revision that bumps on every tournament edit, register
+// each tab's build function here, and -- when you click into a tab whose
+// content predates the latest edit -- rebuild just that tab from current
+// data. Tabs you haven't touched since the edit keep all their in-tab state
+// (selected players, filter picks); the disruptive rebuild only happens on
+// the first visit after an actual change.
+let tournamentsRevision = 0;
+const rebuildableViews = new Map(); // id -> { buildFn, revision }
+
+function mountRebuildableView(buildFn) {
+  const section = buildFn();
+  document.getElementById('main').appendChild(section);
+  rebuildableViews.set(section.id, { buildFn, revision: tournamentsRevision });
+}
+
 function showView(id) {
+  const rv = rebuildableViews.get(id);
+  if (rv && rv.revision !== tournamentsRevision) {
+    const old = document.getElementById(id);
+    if (old && old.parentNode) {
+      const fresh = rv.buildFn();
+      old.parentNode.replaceChild(fresh, old);
+    }
+    rv.revision = tournamentsRevision;
+  }
   document.querySelectorAll('section.view').forEach(s => s.classList.toggle('active', s.id === id));
   document.querySelectorAll('header.topnav button.tab').forEach(b => {
     if (b.classList.contains('nav-games-btn')) {
@@ -162,6 +245,7 @@ function showView(id) {
     }
   });
   document.querySelectorAll('.nav-games-row').forEach(r => r.classList.toggle('active', r.getAttribute('data-target') === id));
+  if (gameViewRefreshers.has(id)) gameViewRefreshers.get(id)();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -211,6 +295,122 @@ function downloadFile(content, filename, mime) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ---------- Player photos ----------
+// A player's Set-up photo as a small circular <img>, or null when they don't
+// have one. Every caller falls back to just the name, so a roster that's only
+// half photographed looks deliberate rather than broken.
+function playerAvatar(name, size) {
+  const src = (loadSetupData().playerPhotos || {})[name];
+  if (!src) return null;
+  return el('img', {
+    class: 'avatar', src, alt: '', loading: 'lazy',
+    style: `width:${size}px;height:${size}px;`,
+  }, []);
+}
+// Name preceded by the player's photo when there is one -- the standard way a
+// player is labelled anywhere a face helps.
+function playerNameWithAvatar(name, size, cls) {
+  const wrap = el('span', { class: 'avatar-name' + (cls ? ' ' + cls : '') }, []);
+  const img = playerAvatar(name, size);
+  if (img) wrap.appendChild(img);
+  wrap.appendChild(el('span', {}, [document.createTextNode(name)]));
+  return wrap;
+}
+
+// ---------- Minimal ZIP writer (store-only) ----------
+// Just enough of the ZIP spec to bundle the player photos into one download.
+// No compression: the entries are PNGs, which are already deflate-compressed,
+// so storing them costs nothing and keeps this to a few dozen lines with no
+// external library (the report has to stay a single self-contained file).
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC32_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+// files: [{ name, data: Uint8Array }] -> Uint8Array of a .zip
+function buildZip(files) {
+  const enc = new TextEncoder();
+  const entries = files.map(f => ({ name: enc.encode(f.name), data: f.data, crc: crc32(f.data) }));
+  const localSize = entries.reduce((s, e) => s + 30 + e.name.length + e.data.length, 0);
+  const centralSize = entries.reduce((s, e) => s + 46 + e.name.length, 0);
+  const out = new Uint8Array(localSize + centralSize + 22);
+  const dv = new DataView(out.buffer);
+  let p = 0;
+  entries.forEach(e => {
+    e.offset = p;
+    dv.setUint32(p, 0x04034b50, true);      // local file header
+    dv.setUint16(p + 4, 20, true);          // version needed
+    dv.setUint16(p + 6, 0, true);           // flags
+    dv.setUint16(p + 8, 0, true);           // method: stored
+    dv.setUint16(p + 10, 0, true);          // mod time
+    dv.setUint16(p + 12, 0x21, true);       // mod date (1980-01-01: no clock in a zip we regenerate)
+    dv.setUint32(p + 14, e.crc, true);
+    dv.setUint32(p + 18, e.data.length, true);
+    dv.setUint32(p + 22, e.data.length, true);
+    dv.setUint16(p + 26, e.name.length, true);
+    dv.setUint16(p + 28, 0, true);          // extra length
+    p += 30;
+    out.set(e.name, p); p += e.name.length;
+    out.set(e.data, p); p += e.data.length;
+  });
+  const centralStart = p;
+  entries.forEach(e => {
+    dv.setUint32(p, 0x02014b50, true);      // central directory header
+    dv.setUint16(p + 4, 20, true);          // version made by
+    dv.setUint16(p + 6, 20, true);          // version needed
+    dv.setUint16(p + 8, 0, true);
+    dv.setUint16(p + 10, 0, true);
+    dv.setUint16(p + 12, 0, true);
+    dv.setUint16(p + 14, 0x21, true);
+    dv.setUint32(p + 16, e.crc, true);
+    dv.setUint32(p + 20, e.data.length, true);
+    dv.setUint32(p + 24, e.data.length, true);
+    dv.setUint16(p + 28, e.name.length, true);
+    dv.setUint16(p + 30, 0, true);          // extra
+    dv.setUint16(p + 32, 0, true);          // comment
+    dv.setUint16(p + 34, 0, true);          // disk number
+    dv.setUint16(p + 36, 0, true);          // internal attrs
+    dv.setUint32(p + 38, 0, true);          // external attrs
+    dv.setUint32(p + 42, e.offset, true);
+    p += 46;
+    out.set(e.name, p); p += e.name.length;
+  });
+  dv.setUint32(p, 0x06054b50, true);        // end of central directory
+  dv.setUint16(p + 8, entries.length, true);
+  dv.setUint16(p + 10, entries.length, true);
+  dv.setUint32(p + 12, centralStart ? p - centralStart : 0, true);
+  dv.setUint32(p + 16, centralStart, true);
+  return out;
+}
+
+// "data:image/png;base64,...." -> raw bytes
+function dataUrlToBytes(dataUrl) {
+  const bin = atob(String(dataUrl).split(',')[1] || '');
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// The player photos set up on the Set up tab, as ZIP entries named after the
+// player so the mapping survives outside the report.
+function playerPhotoFiles() {
+  const photos = loadSetupData().playerPhotos || {};
+  return Object.keys(photos).sort().map(name => ({
+    player: name,
+    name: 'photos/' + slug(name) + '.png',
+    data: dataUrlToBytes(photos[name]),
+  }));
 }
 
 function downloadCSV(rows, columns, filename) {
@@ -355,7 +555,15 @@ function buildStatsTable(rows, columns, initialSortKey, filename, opts) {
     tbody.innerHTML = '';
     currentSorted.forEach(r => {
       const tr = el('tr', {}, []);
-      visibleColumns.forEach(col => tr.appendChild(el('td', {}, [document.createTextNode(formatCell(r[col.key], col, r))])));
+      visibleColumns.forEach(col => {
+        // avatar:true on a column (the Player column of a per-player table)
+        // puts the player's photo in front of their name; every other column,
+        // and every player without a photo, renders as plain text as before.
+        const cell = (col.avatar && typeof r[col.key] === 'string')
+          ? playerNameWithAvatar(r[col.key], 22)
+          : document.createTextNode(formatCell(r[col.key], col, r));
+        tr.appendChild(el('td', {}, [cell]));
+      });
       tbody.appendChild(tr);
     });
   }
@@ -489,6 +697,12 @@ function buildPitch() {
   const markerDrop = svgEl('marker', { id: 'marker-drop', markerWidth: 9, markerHeight: 9, refX: 4.5, refY: 4.5, orient: 'auto' });
   markerDrop.appendChild(svgEl('circle', { cx: 4.5, cy: 4.5, r: 3, fill: 'none', stroke: '#E8604C', 'stroke-width': 1.6 }));
   defs.appendChild(markerDrop);
+  // Both-fault turnover (thrower AND receiver error): the throwaway X inside
+  // the drop's circle, so a shared-blame turnover reads as its own symbol.
+  const markerBoth = svgEl('marker', { id: 'marker-both', markerWidth: 11, markerHeight: 11, refX: 5.5, refY: 5.5, orient: 'auto' });
+  markerBoth.appendChild(svgEl('circle', { cx: 5.5, cy: 5.5, r: 4.2, fill: 'none', stroke: '#E8604C', 'stroke-width': 1.4 }));
+  markerBoth.appendChild(svgEl('path', { d: 'M3,3 L8,8 M8,3 L3,8', stroke: '#E8604C', 'stroke-width': 1.4, fill: 'none' }));
+  defs.appendChild(markerBoth);
   // Assist (scoring) lines render 1.5x thicker (stroke-width 3 vs 2 for a
   // regular pass), and a marker's size scales with its line's stroke-width
   // by default -- so this marker's own box is shrunk by that same 2/3 ratio,
@@ -507,6 +721,7 @@ function buildPitch() {
 // circle for the receiver's. Falls back to the plain red arrowhead for a
 // turnover pass carrying neither flag (shouldn't happen in Statto data).
 function turnoverMarker(p) {
+  if (p.throwerError && p.receiverError) return 'url(#marker-both)';
   if (p.throwerError) return 'url(#marker-throwaway)';
   if (p.receiverError) return 'url(#marker-drop)';
   return 'url(#arrowhead-to)';
@@ -521,6 +736,7 @@ function buildFieldLegend() {
     ['#FFB800', '→', 'Assist'],
     ['#E8604C', '✕', 'Throwaway'],
     ['#E8604C', '○', 'Drop'],
+    ['#E8604C', '⊗', 'Throwaway & Drop'],
   ].forEach(([color, glyph, label]) => {
     legend.appendChild(el('span', { class: 'item' }, [
       el('span', { class: 'field-legend-glyph', style: `color:${color};` }, [document.createTextNode(glyph)]),
@@ -568,6 +784,30 @@ function finalSequence(point) {
   };
 }
 
+// Radius of the player circles on a game's field diagram -- a step up from the
+// r=10 bubbles that used to mark only the deciding throws, since there's now
+// one on every touch, but small enough that a busy possession stays readable.
+const PASS_NODE_R = 12;
+
+// One circular player marker for a field diagram: their initials on a dark
+// disc, ringed in the accent colour.
+function buildPlayerNodeMarker(name, cx, cy, r, accent) {
+  const g = svgEl('g', {});
+  g.appendChild(svgEl('circle', { cx, cy, r, fill: '#0E2426' }));
+  const label = svgEl('text', {
+    x: cx, y: cy, 'text-anchor': 'middle', 'dominant-baseline': 'central',
+    'font-size': Math.round(r * 0.8), 'font-weight': 700, fill: '#F3F1E9',
+    'font-family': 'ui-monospace, monospace',
+  });
+  label.textContent = initials(name);
+  g.appendChild(label);
+  g.appendChild(svgEl('circle', {
+    class: 'pass-node-ring', cx, cy, r, fill: 'none',
+    stroke: accent, 'stroke-width': accent === '#FFB800' ? 2.2 : 1.5,
+  }));
+  return g;
+}
+
 function possessionsInPoint(point) {
   const nums = [...new Set((point.passes || []).map(p => p.possession).filter(n => n != null))];
   return nums.sort((a, b) => a - b);
@@ -576,6 +816,10 @@ function possessionsInPoint(point) {
 function renderPoint(routeLayer, point, focusPossession) {
   routeLayer.innerHTML = '';
   const multi = possessionsInPoint(point).length > 1;
+  // Video tags, if any have been made for this point. They only ever *add* to
+  // the diagram (a hover detail, the pull's landing spot), so an untagged or
+  // half-tagged point renders exactly as it always did.
+  const ann = loadAnnotations();
   (point.passes || []).forEach((p, i) => {
     const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
     const x2 = p.endX * PITCH_W, y2 = p.endY * PITCH_H;
@@ -593,7 +837,7 @@ function renderPoint(routeLayer, point, focusPossession) {
       routeLayer.appendChild(ghost);
       ghost.style.transition = 'opacity 0.3s ease';
       requestAnimationFrame(() => ghost.setAttribute('opacity', 0.5));
-      attachPassHover(routeLayer, x1, y1, x2, y2, p);
+      attachPassHover(routeLayer, x1, y1, x2, y2, p, passTags(p));
       return;
     }
 
@@ -615,8 +859,14 @@ function renderPoint(routeLayer, point, focusPossession) {
       line.setAttribute('opacity', p.turnover ? 0.85 : 1);
       if (dash === '0') line.style.strokeDashoffset = 0;
     });
-    attachPassHover(routeLayer, x1, y1, x2, y2, p);
+    attachPassHover(routeLayer, x1, y1, x2, y2, p, passTags(p));
   });
+  // A tagged pass carries its film tags into the existing hover tooltip --
+  // detail on demand, nothing extra drawn on the diagram itself.
+  function passTags(p) {
+    const tags = filmTagValues(ann.passes[p.uuid], FILM_PASS_TAG_KEYS);
+    return tags.length ? tags.join(' · ') : undefined;
+  }
   (point.blocks || []).forEach(b => {
     const cx = b.locationX * PITCH_W, cy = b.locationY * PITCH_H;
     const c = svgEl('circle', { cx, cy, r: 5, fill: b.callahan ? '#FFB800' : '#F3F1E9', stroke: '#0E2426', 'stroke-width': 1.2, opacity: 0 });
@@ -624,33 +874,77 @@ function renderPoint(routeLayer, point, focusPossession) {
     c.style.transition = 'opacity 0.3s ease 0.5s';
     requestAnimationFrame(() => c.setAttribute('opacity', 1));
     const title = svgEl('title', {});
-    title.textContent = (b.player || 'Unknown') + (b.callahan ? ' — Callahan!' : ' — block');
+    const blockTags = filmTagValues(ann.blocks[b.uuid], ['type']);
+    title.textContent = (b.player || 'Unknown') + (b.callahan ? ' — Callahan!' : ' — block')
+      + (blockTags.length ? ' · ' + blockTags.join(' · ') : '');
     c.appendChild(title);
   });
 
+  // Where our pull landed, when the point's pull has been tagged with a spot.
+  // Teal ring + dot, matching the Data Editor's own pull marker.
+  if (!point.isOffense && point.uuid) {
+    const pull = (ann.points || {})[point.uuid + '#pull'];
+    if (pull && !pull.outOfBounds && pull.landX != null && pull.landY != null) {
+      const cx = pull.landX * PITCH_W, cy = pull.landY * PITCH_H;
+      const ring = svgEl('circle', { cx, cy, r: 8, fill: 'none', stroke: '#4FD1AE', 'stroke-width': 1.6, opacity: 0 });
+      const dot = svgEl('circle', { cx, cy, r: 3, fill: '#4FD1AE', stroke: '#0E2426', 'stroke-width': 1, opacity: 0 });
+      const t = svgEl('title', {});
+      t.textContent = 'Pull' + (pull.puller ? ' by ' + pull.puller : '') + ' — landed here';
+      dot.appendChild(t);
+      routeLayer.appendChild(ring);
+      routeLayer.appendChild(dot);
+      [ring, dot].forEach(n => {
+        n.style.transition = 'opacity 0.3s ease';
+        requestAnimationFrame(() => n.setAttribute('opacity', 1));
+      });
+    }
+  }
+
   // Final-throw-sequence bubbles: always shown regardless of possession focus,
   // since they mark how the point overall was decided, not a single possession's detail.
+  // Player circles along the point's chain of touches -- one per person at the
+  // spot they threw or caught from. These replace the old bubbles that marked
+  // only the deciding throws; those keep their gold ring and their role in the
+  // tooltip, so nothing is lost by unifying the two.
   const seq = finalSequence(point);
-  if (seq) {
-    [seq.second, seq.first, seq.target].forEach(node => {
-      if (!node) return;
-      const cx = node.x * PITCH_W, cy = node.y * PITCH_H;
-      const g = svgEl('g', { opacity: 0 });
-      g.appendChild(svgEl('circle', { cx, cy, r: 10, fill: '#0E2426', stroke: '#FFB800', 'stroke-width': 1.5 }));
-      const label = svgEl('text', {
-        x: cx, y: cy, 'text-anchor': 'middle', 'dominant-baseline': 'central',
-        'font-size': 9, 'font-weight': 700, fill: '#F3F1E9', 'font-family': 'ui-monospace, monospace',
-      });
-      label.textContent = initials(node.name);
-      g.appendChild(label);
-      const title = svgEl('title', {});
-      title.textContent = `${node.name || 'Unknown'} — ${node.role}`;
-      g.appendChild(title);
-      routeLayer.appendChild(g);
-      g.style.transition = 'opacity 0.3s ease 0.6s';
-      requestAnimationFrame(() => g.setAttribute('opacity', 1));
-    });
-  }
+  const keyOf = (name, x, y) => `${name}@${x.toFixed(4)},${y.toFixed(4)}`;
+  const roleAt = new Map();
+  if (seq) [seq.second, seq.first, seq.target].forEach(n => {
+    if (n) roleAt.set(keyOf(n.name, n.x, n.y), n.role);
+  });
+
+  const nodes = [];
+  const pushNode = (name, x, y) => {
+    if (!name) return;
+    const last = nodes[nodes.length - 1];
+    // The receiver of one pass is the thrower of the next, at the same spot --
+    // collapse those into a single circle rather than stacking two.
+    if (last && keyOf(last.name, last.x, last.y) === keyOf(name, x, y)) return;
+    nodes.push({ name, x, y });
+  };
+  (point.passes || []).forEach(p => {
+    if (multi && focusPossession != null && p.possession !== focusPossession) return;
+    pushNode(p.thrower, p.startX, p.startY);
+    // A pure throwaway ends where the disc landed, not on a player -- the X
+    // marker already says that. A drop (or a shared-blame turnover) does end on
+    // the receiver, so they get a circle.
+    if (!(p.throwerError && !p.receiverError)) pushNode(p.receiver, p.endX, p.endY);
+  });
+
+  nodes.forEach((n, i) => {
+    const role = roleAt.get(keyOf(n.name, n.x, n.y));
+    const g = buildPlayerNodeMarker(
+      n.name, n.x * PITCH_W, n.y * PITCH_H, PASS_NODE_R,
+      role ? '#FFB800' : 'rgba(243,241,233,0.85)'
+    );
+    const title = svgEl('title', {});
+    title.textContent = n.name + (role ? ` — ${role}` : '');
+    g.appendChild(title);
+    g.setAttribute('opacity', 0);
+    routeLayer.appendChild(g);
+    g.style.transition = `opacity 0.3s ease ${(0.5 + i * 0.04).toFixed(2)}s`;
+    requestAnimationFrame(() => g.setAttribute('opacity', 1));
+  });
 }
 
 // ---------- Player "impact map": this player's passes/blocks plotted on a pitch ----------
@@ -1381,7 +1675,19 @@ function computeDirectionBins(taggedPasses, role) {
   return bins;
 }
 
-function buildRoseChart(counts, size, color) {
+// One label per DIRECTION_BINS=16 wedge, in bin order (bin 0 starts at 0°
+// = straight upfield, going clockwise -- see polarPoint's angle convention).
+const DIRECTION_BIN_LABELS = [
+  'straight upfield', 'upfield, slightly right', 'upfield-right', 'right, slightly upfield',
+  'straight right', 'right, slightly back', 'back-right', 'back, slightly right',
+  'straight back (toward own endzone)', 'back, slightly left', 'back-left', 'left, slightly back',
+  'straight left', 'left, slightly upfield', 'upfield-left', 'upfield, slightly left',
+];
+
+// labelPrefix names what's being counted ("Throws", "Receptions") for the
+// hover tooltip; omit it where the chart's own caption already makes that
+// clear (e.g. a single-purpose pair rose that's always throws).
+function buildRoseChart(counts, size, color, labelPrefix) {
   const n = counts.length;
   const maxVal = Math.max(...counts, 1);
   const cx = size / 2, cy = size / 2;
@@ -1412,7 +1718,13 @@ function buildRoseChart(counts, size, color) {
     const p3 = polarPoint(cx, cy, innerR, a2);
     const p4 = polarPoint(cx, cy, innerR, a1);
     const d = `M ${p1[0]} ${p1[1]} A ${r} ${r} 0 0 1 ${p2[0]} ${p2[1]} L ${p3[0]} ${p3[1]} A ${innerR} ${innerR} 0 0 0 ${p4[0]} ${p4[1]} Z`;
-    svg.appendChild(svgEl('path', { d, style: `fill:${color};`, opacity: val > 0 ? 0.9 : 0.12 }));
+    const wedge = svgEl('path', { d, style: `fill:${color}; cursor:pointer;`, opacity: val > 0 ? 0.9 : 0.12 });
+    const dirLabel = DIRECTION_BIN_LABELS[i] || `bin ${i}`;
+    const tipText = `${labelPrefix ? labelPrefix + ', ' : ''}${dirLabel}: ${val} ${val === 1 ? 'pass' : 'passes'}`;
+    wedge.addEventListener('mouseenter', (e) => showPassTooltip(e, tipText));
+    wedge.addEventListener('mousemove', (e) => positionPassTooltip(e));
+    wedge.addEventListener('mouseleave', hidePassTooltip);
+    svg.appendChild(wedge);
   }
   return svg;
 }
@@ -1430,11 +1742,11 @@ function buildDirectionsSection(players, gameIndices) {
     card.appendChild(el('div', { class: 'impact-card-name' }, [document.createTextNode(p.player)]));
     const roseRow = el('div', { class: 'rose-row' }, []);
     const throwCol = el('div', { class: 'rose-col' }, [
-      buildRoseChart(throwBins, 150, 'var(--chalk)'),
+      buildRoseChart(throwBins, 150, 'var(--chalk)', 'Throws'),
       el('div', { class: 'rose-label' }, [document.createTextNode('Throws')]),
     ]);
     const receiveCol = el('div', { class: 'rose-col' }, [
-      buildRoseChart(receiveBins, 150, 'var(--chalk)'),
+      buildRoseChart(receiveBins, 150, 'var(--chalk)', 'Receptions'),
       el('div', { class: 'rose-label' }, [document.createTextNode('Receptions')]),
     ]);
     roseRow.appendChild(throwCol);
@@ -1446,7 +1758,7 @@ function buildDirectionsSection(players, gameIndices) {
   return wrap;
 }
 
-// ---------- Connections: dual Sankey of top-5 throwers-to and receivers-from ----------
+// ---------- Connections: dual Sankey of top-7 throwers-to and receivers-from ----------
 
 function computeTopConnections(name, gameIndices) {
   const received = gatherReceivedPasses(name, gameIndices); // this player as receiver -> group by thrower
@@ -1462,7 +1774,7 @@ function computeTopConnections(name, gameIndices) {
       g.total += 1;
       if (pass.turnover) g.incomplete += 1; else g.completed += 1;
     });
-    return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 5);
+    return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 7);
   }
 
   return {
@@ -1476,7 +1788,10 @@ function sankeyRibbonPath(x1, y1a, y1b, x2, y2a, y2b) {
   return `M ${x1} ${y1a} C ${midX} ${y1a} ${midX} ${y2a} ${x2} ${y2a} L ${x2} ${y2b} C ${midX} ${y2b} ${midX} ${y1b} ${x1} ${y1b} Z`;
 }
 
-function buildSankeyDiagram(throwers, receivers) {
+// centerName is the player this card is about -- needed so hover tooltips
+// on the throwers (left) and receivers (right) sides can spell out the
+// actual thrower -> receiver direction, not just name the other player.
+function buildSankeyDiagram(throwers, receivers, centerName) {
   const W = 380, H = 260;
   const nodeW = 10;
   const leftX = 30, centerX = W / 2, rightX = W - 30 - nodeW;
@@ -1503,14 +1818,21 @@ function buildSankeyDiagram(throwers, receivers) {
     });
   }
 
+  function attachTip(node, text) {
+    node.style.cursor = 'pointer';
+    node.addEventListener('mouseenter', (e) => showPassTooltip(e, text));
+    node.addEventListener('mousemove', (e) => positionPassTooltip(e));
+    node.addEventListener('mouseleave', hidePassTooltip);
+  }
   function addRibbon(d, color, title) {
-    const g = svgEl('path', { d, style: `fill:${color};`, opacity: 0.6 });
-    const t = svgEl('title', {}); t.textContent = title;
-    g.appendChild(t);
+    const g = svgEl('path', { d, style: `fill:${color};` , opacity: 0.6 });
+    attachTip(g, title);
     svg.appendChild(g);
   }
-  function addNodeAndLabel(x, y0, y1, name, labelAnchor, labelX) {
-    svg.appendChild(svgEl('rect', { x, y: y0, width: nodeW, height: Math.max(0.5, y1 - y0), style: 'fill:rgba(var(--chalk-rgb),0.5);' }));
+  function addNodeAndLabel(x, y0, y1, name, labelAnchor, labelX, tipText) {
+    const rect = svgEl('rect', { x, y: y0, width: nodeW, height: Math.max(0.5, y1 - y0), style: 'fill:rgba(var(--chalk-rgb),0.5);' });
+    attachTip(rect, tipText);
+    svg.appendChild(rect);
     const label = svgEl('text', {
       x: labelX, y: (y0 + y1) / 2, 'text-anchor': labelAnchor, 'dominant-baseline': 'middle',
       'font-size': 10, 'font-weight': 600, style: 'fill:var(--chalk);',
@@ -1524,34 +1846,38 @@ function buildSankeyDiagram(throwers, receivers) {
   layoutSide(throwers).forEach(item => {
     // Label sits just inside the ribbon area (to the right of the left node),
     // not out past the diagram edge, so long names don't get clipped.
-    addNodeAndLabel(leftX, item.nodeY0, item.nodeY1, item.name, 'start', leftX + nodeW + 6);
+    const passWord = item.total === 1 ? 'pass' : 'passes';
+    addNodeAndLabel(leftX, item.nodeY0, item.nodeY1, item.name, 'start', leftX + nodeW + 6,
+      `${item.name} → ${centerName}: ${item.total} ${passWord} (${item.completed} completed, ${item.incomplete} incomplete)`);
     const frac = item.total ? item.completed / item.total : 0;
     const splitNodeY = item.nodeY0 + (item.nodeY1 - item.nodeY0) * frac;
     const splitCenterY = item.centerY0 + (item.centerY1 - item.centerY0) * frac;
     if (item.completed > 0) {
       addRibbon(sankeyRibbonPath(leftX + nodeW, item.nodeY0, splitNodeY, centerX - nodeW / 2, item.centerY0, splitCenterY),
-        'var(--good)', `${item.name}: ${item.completed} completed`);
+        'var(--good)', `${item.name} → ${centerName}: ${item.completed} of ${item.total} ${passWord} completed`);
     }
     if (item.incomplete > 0) {
       addRibbon(sankeyRibbonPath(leftX + nodeW, splitNodeY, item.nodeY1, centerX - nodeW / 2, splitCenterY, item.centerY1),
-        'var(--bad)', `${item.name}: ${item.incomplete} incomplete`);
+        'var(--bad)', `${item.name} → ${centerName}: ${item.incomplete} of ${item.total} ${passWord} incomplete`);
     }
   });
 
   layoutSide(receivers).forEach(item => {
     // Same idea on the right: label sits just inside the ribbon area, to the
     // left of the right node.
-    addNodeAndLabel(rightX, item.nodeY0, item.nodeY1, item.name, 'end', rightX - 6);
+    const passWord = item.total === 1 ? 'pass' : 'passes';
+    addNodeAndLabel(rightX, item.nodeY0, item.nodeY1, item.name, 'end', rightX - 6,
+      `${centerName} → ${item.name}: ${item.total} ${passWord} (${item.completed} completed, ${item.incomplete} incomplete)`);
     const frac = item.total ? item.completed / item.total : 0;
     const splitNodeY = item.nodeY0 + (item.nodeY1 - item.nodeY0) * frac;
     const splitCenterY = item.centerY0 + (item.centerY1 - item.centerY0) * frac;
     if (item.completed > 0) {
       addRibbon(sankeyRibbonPath(centerX + nodeW / 2, item.centerY0, splitCenterY, rightX, item.nodeY0, splitNodeY),
-        'var(--good)', `${item.name}: ${item.completed} completed`);
+        'var(--good)', `${centerName} → ${item.name}: ${item.completed} of ${item.total} ${passWord} completed`);
     }
     if (item.incomplete > 0) {
       addRibbon(sankeyRibbonPath(centerX + nodeW / 2, splitCenterY, item.centerY1, rightX, splitNodeY, item.nodeY1),
-        'var(--bad)', `${item.name}: ${item.incomplete} incomplete`);
+        'var(--bad)', `${centerName} → ${item.name}: ${item.incomplete} of ${item.total} ${passWord} incomplete`);
     }
   });
 
@@ -1564,11 +1890,11 @@ function buildConnectionsSection(players, gameIndices) {
   players.forEach(p => {
     const { throwers, receivers } = computeTopConnections(p.player, gameIndices);
     const card = el('div', { class: 'impact-card' }, []);
-    card.appendChild(el('div', { class: 'impact-card-name' }, [document.createTextNode(`Thrower: ${p.player}`)]));
+    card.appendChild(el('div', { class: 'impact-card-name' }, [document.createTextNode(p.player)]));
     if (!throwers.length && !receivers.length) {
       card.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No connections recorded.')]));
     } else {
-      card.appendChild(buildSankeyDiagram(throwers, receivers));
+      card.appendChild(buildSankeyDiagram(throwers, receivers, p.player));
     }
     grid.appendChild(card);
   });
@@ -1626,8 +1952,8 @@ function fmtPct(v) { return v == null ? '–' : `${v}%`; }
 
 const GAME_LINE_MODES = [
   { key: 'combined', label: 'Combined' },
-  { key: 'offense', label: 'O-line' },
-  { key: 'defense', label: 'D-line' },
+  { key: 'offense', label: 'Offensive points' },
+  { key: 'defense', label: 'Defensive points' },
 ];
 
 function buildGameSummary(summary) {
@@ -1662,6 +1988,8 @@ function buildDiffChart(points) {
   const W = 900, H = 170;
   const padL = 28, padR = 14, padT = 16, padB = 24;
   const innerW = W - padL - padR, innerH = H - padT - padB;
+  const stripGap = 10, stripH = 14;
+  const totalH = H + stripGap + stripH;
 
   const margins = [0];
   points.forEach(pt => {
@@ -1677,7 +2005,7 @@ function buildDiffChart(points) {
   const xFor = i => padL + (nodeCount > 1 ? (i / (nodeCount - 1)) * innerW : innerW / 2);
   const yFor = m => padT + (maxM - m) / span * innerH;
 
-  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', style: 'display:block;' });
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${totalH}`, width: '100%', style: 'display:block;' });
 
   const zeroY = yFor(0);
   svg.appendChild(svgEl('line', { x1: padL, y1: zeroY, x2: W - padR, y2: zeroY, style: 'stroke:rgba(var(--chalk-rgb),0.25);', 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
@@ -1688,19 +2016,19 @@ function buildDiffChart(points) {
     svg.appendChild(t);
   });
 
-  const pathStr = margins.map((m, i) => `${xFor(i)},${yFor(m)}`).join(' ');
-  const poly = svgEl('polyline', { points: pathStr, fill: 'none', style: 'stroke:rgba(var(--chalk-rgb),0.4);', 'stroke-width': 1.5 });
-  svg.appendChild(poly);
-  requestAnimationFrame(() => {
-    let len = 0;
-    try { len = poly.getTotalLength(); } catch (e) { len = 0; }
-    if (len) {
-      poly.style.strokeDasharray = len;
-      poly.style.strokeDashoffset = len;
-      poly.style.transition = 'stroke-dashoffset 0.8s ease';
-      requestAnimationFrame(() => { poly.style.strokeDashoffset = 0; });
-    }
-  });
+  // Each segment is coloured by how the point it leads INTO was decided:
+  // green if we got a break, red if we were broken, neutral for a hold either
+  // way -- so momentum swings jump out.
+  for (let i = 1; i < nodeCount; i++) {
+    const pt = points[i - 1];
+    let segColor = 'rgba(var(--chalk-rgb),0.45)';
+    if (pt.isOffense && pt.result === -1) segColor = 'var(--bad)';        // broken
+    else if (!pt.isOffense && pt.result === 1) segColor = 'var(--good)';  // break
+    svg.appendChild(svgEl('line', {
+      x1: xFor(i - 1), y1: yFor(margins[i - 1]), x2: xFor(i), y2: yFor(margins[i]),
+      style: `stroke:${segColor};`, 'stroke-width': 2.5, 'stroke-linecap': 'round',
+    }));
+  }
 
   const labelEvery = points.length <= 12 ? 1 : points.length <= 24 ? 2 : Math.ceil(points.length / 12);
   points.forEach((pt, idx) => {
@@ -1713,7 +2041,7 @@ function buildDiffChart(points) {
 
   // "Game start" anchor at 0-0
   const startG = svgEl('g', {});
-  startG.appendChild(svgEl('circle', { cx: xFor(0), cy: yFor(0), r: 3, style: 'fill:var(--chalk-dim);', opacity: 0.6 }));
+  startG.appendChild(svgEl('circle', { cx: xFor(0), cy: yFor(0), r: 4, style: 'fill:var(--chalk-dim);', opacity: 0.6 }));
   const startTitle = svgEl('title', {});
   startTitle.textContent = 'Game start (0–0)';
   startG.appendChild(startTitle);
@@ -1728,9 +2056,9 @@ function buildDiffChart(points) {
     else if (pt.isOffense && pt.result === -1) color = 'var(--bad)';  // broken
     else if (!pt.isOffense && pt.result === 1) color = 'var(--good)'; // break
     const g = svgEl('g', { style: 'cursor:pointer;' });
-    const halo = svgEl('circle', { cx, cy, r: 8, fill: 'none', style: 'stroke:var(--chalk);', 'stroke-width': 2, opacity: 0 });
-    const dot = svgEl('circle', { cx, cy, r: 4, style: `fill:${color};stroke:var(--ink);`, 'stroke-width': 1 });
-    const hit = svgEl('circle', { cx, cy, r: 10, fill: 'transparent' });
+    const halo = svgEl('circle', { cx, cy, r: 11, fill: 'none', style: 'stroke:var(--chalk);', 'stroke-width': 2, opacity: 0 });
+    const dot = svgEl('circle', { cx, cy, r: 6, style: `fill:${color};stroke:var(--ink);`, 'stroke-width': 1.2 });
+    const hit = svgEl('circle', { cx, cy, r: 13, fill: 'transparent' });
     const title = svgEl('title', {});
     const marginLabel = margins[i] > 0 ? `+${margins[i]}` : String(margins[i]);
     title.textContent = `Point ${pt.number} \u00b7 ${pt.isOffense ? 'Offense' : 'Defense'} \u00b7 ${pt.scored ? 'Scored' : 'Conceded'} \u00b7 margin ${marginLabel}`;
@@ -1740,6 +2068,27 @@ function buildDiffChart(points) {
     g.appendChild(hit);
     svg.appendChild(g);
     dotsByNumber.set(pt.number, { halo, hit });
+  });
+
+  // Leverage strip: one colored segment per point, same low->high scale as
+  // the point log's leverage badge and the Thrower-Receiver heatmap, so the
+  // moments that mattered most to the outcome are visible at a glance below
+  // the margin line itself (a separate strip rather than a second y-axis,
+  // since leverage and score margin aren't the same unit).
+  const colW = nodeCount > 1 ? innerW / (nodeCount - 1) : innerW;
+  const stripY = H + stripGap;
+  points.forEach((pt, idx) => {
+    const i = idx + 1;
+    const cx = xFor(i);
+    const lv = pt.leverage || 0;
+    const rect = svgEl('rect', {
+      x: cx - colW / 2, y: stripY, width: Math.max(1, colW - 1), height: stripH,
+      style: `fill:${heatmapColorForT(lv / 10)};`,
+    });
+    const title = svgEl('title', {});
+    title.textContent = `Point ${pt.number} · Leverage ${lv.toFixed(1)}`;
+    rect.appendChild(title);
+    svg.appendChild(rect);
   });
 
   return { svg, dotsByNumber };
@@ -1763,6 +2112,20 @@ function buildGameSection(game, index) {
   ]);
   section.appendChild(bug);
 
+  // "Watch" link from the Set up tab's per-game video URL. The URL lives in
+  // localStorage and can be set after this page was built, so it's refreshed
+  // on every visit alongside the point-log Line column (see below).
+  const watchLink = el('a', { class: 'game-watch-link', target: '_blank', rel: 'noopener noreferrer' }, [document.createTextNode('▶ Watch game')]);
+  const watchWrap = el('div', { class: 'game-watch-wrap' }, [watchLink]);
+  watchWrap.style.display = 'none';
+  section.appendChild(watchWrap);
+  function refreshVideoLink() {
+    const url = loadSetupData().videoLinks[index];
+    if (url) { watchLink.href = url; watchWrap.style.display = ''; }
+    else { watchLink.removeAttribute('href'); watchWrap.style.display = 'none'; }
+  }
+
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Summary Statistics')]));
   section.appendChild(buildGameSummary(game.summary));
 
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Scoring Efficiency')]));
@@ -1777,13 +2140,33 @@ function buildGameSection(game, index) {
     el('span', { class: 'item' }, [el('span', { class: 'swatch', style: 'background:var(--bad);' }, []), document.createTextNode('Broken')]),
     el('span', { class: 'item' }, [el('span', { class: 'swatch', style: 'background:var(--good);' }, []), document.createTextNode('Break')]),
   ]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [
+    document.createTextNode('The colored strip below the chart is each point’s Leverage. The closer to 10 (more gold/amber) the more critical the point to the outcome of the game.'),
+  ]));
   game.points.forEach(pt => {
     const entry = diffChart.dotsByNumber.get(pt.number);
     if (entry) entry.hit && entry.hit.addEventListener('click', () => selectPoint(pt, rowByNumber.get(pt.number)));
   });
 
   const grid = el('div', { class: 'game-grid' }, []);
-  const log = el('div', { class: 'point-log' }, []);
+  // Third column: the selected point's video-tagged events. The whole column is
+  // hidden (and the grid falls back to two columns) until this game has some
+  // film tagged, so an untagged game looks exactly as it did before -- but once
+  // any of it is tagged the column stays put, and points without tags show a
+  // quiet placeholder rather than making the diagram jump between layouts.
+  const filmWrap = el('div', { class: 'film-strip' }, []);
+  filmWrap.style.display = 'none';
+  const logWrap = el('div', {}, []);
+  const logHeader = el('div', { class: 'point-row point-log-header' }, [
+    el('span', { class: 'pnum' }, [document.createTextNode('#')]),
+    el('span', { class: 'pscore' }, [document.createTextNode('Score')]),
+    el('div', { class: 'pdetail' }, [document.createTextNode('Result')]),
+    el('span', { class: 'presult-head' }, [document.createTextNode('Type')]),
+    el('span', { class: 'pline' }, [document.createTextNode('Line')]),
+    el('span', { class: 'pleverage-head' }, [document.createTextNode('Leverage')]),
+  ]);
+  const log = el('div', { class: 'point-log' }, [logHeader]);
+  logWrap.appendChild(log);
   const pitchWrap = el('div', { class: 'pitch-wrap' }, []);
   const { svg, routeLayer } = buildPitch();
   const possTabs = el('div', { class: 'poss-tabs' }, []);
@@ -1810,10 +2193,63 @@ function buildGameSection(game, index) {
   let currentStep = 0;
   const rowByNumber = new Map();
   let selectedDotEntry = null;
+  let selectedPoint = null;
+
+  // Renders the selected point's tagged events under the diagram: one compact
+  // line each, in the order they happened, deep-linking to the moment in the
+  // game video where a timestamp was recorded. Nothing renders at all when the
+  // point has no tags -- the common case before a game has been worked through.
+  function renderFilm(pt) {
+    filmWrap.innerHTML = '';
+    const rows = pt ? pointFilmRows(pt) : [];
+    const vid = parseYouTubeId(loadSetupData().videoLinks[index]);
+    const stamps = rows.map(r => r.rec.timestamp).filter(t => t != null);
+    const earliest = stamps.length ? Math.min.apply(null, stamps) : null;
+
+    const head = el('div', { class: 'film-head' }, [
+      el('span', { class: 'film-title' }, [document.createTextNode('Tagged events')]),
+    ]);
+    if (!rows.length) {
+      filmWrap.appendChild(head);
+      filmWrap.appendChild(el('p', { class: 'film-empty' }, [document.createTextNode('Nothing tagged for this point yet.')]));
+      return;
+    }
+    head.appendChild(el('span', { class: 'film-count' }, [document.createTextNode(String(rows.length))]));
+    // One link straight to where the point starts on the video -- the earliest
+    // timestamp anyone recorded in it.
+    if (vid && earliest != null) {
+      head.appendChild(el('a', {
+        class: 'film-watch', href: youtubeTimestampUrl(vid, earliest),
+        target: '_blank', rel: 'noopener noreferrer',
+      }, [document.createTextNode('▶ Watch point (' + formatTimestamp(earliest) + ')')]));
+    }
+    filmWrap.appendChild(head);
+
+    const list = el('div', { class: 'film-list' }, []);
+    rows.forEach(({ ev, rec }) => {
+      const d = filmEventDescriptor(ev, rec);
+      const parts = [
+        el('span', { class: 'film-kind film-kind-' + ev.kind }, [document.createTextNode(d.kind)]),
+        el('span', { class: 'film-main' }, [document.createTextNode(d.main)]),
+      ];
+      if (d.tags.length) parts.push(el('span', { class: 'film-tags' }, [document.createTextNode(d.tags.join(' · '))]));
+      if (rec.notes) parts.push(el('span', { class: 'film-note' }, [document.createTextNode('“' + rec.notes + '”')]));
+      if (rec.timestamp != null) {
+        parts.push(vid
+          ? el('a', { class: 'film-ts', href: youtubeTimestampUrl(vid, rec.timestamp), target: '_blank', rel: 'noopener noreferrer' },
+              [document.createTextNode('▶ ' + formatTimestamp(rec.timestamp))])
+          : el('span', { class: 'film-ts film-ts-plain' }, [document.createTextNode(formatTimestamp(rec.timestamp))]));
+      }
+      list.appendChild(el('div', { class: 'film-row' }, parts));
+    });
+    filmWrap.appendChild(list);
+  }
 
   function selectPoint(pt, rowEl, forcedFocus) {
     log.querySelectorAll('.point-row').forEach(r => r.classList.remove('selected'));
     if (rowEl) rowEl.classList.add('selected');
+    selectedPoint = pt;
+    renderFilm(pt);
 
     if (selectedDotEntry) selectedDotEntry.halo.setAttribute('opacity', 0);
     const dotEntry = diffChart.dotsByNumber.get(pt.number);
@@ -1882,6 +2318,41 @@ function buildGameSection(game, index) {
     else if (e.key === 'ArrowLeft') { e.preventDefault(); goToStep(currentStep - 1); }
   });
 
+  // "Line" column: which curated line (Line Analysis) this point belongs to,
+  // if any. Lines live in localStorage and can be created/edited *after*
+  // this page was already built, so each row's label is refreshed on every
+  // visit via gameViewRefreshers rather than only computed once here.
+  const lineCells = []; // { key, el }
+  function refreshLineColumn() {
+    const lines = loadLinesData().lines;
+    const nameByKey = new Map();
+    lines.forEach(l => l.pointKeys.forEach(k => nameByKey.set(k, l.name)));
+    lineCells.forEach(({ key, el: cellEl }) => {
+      const name = nameByKey.get(key) || '—';
+      cellEl.textContent = name;
+      cellEl.title = name === '—' ? 'No curated line assigned to this point yet (see Line Analysis)' : `Line: ${name}`;
+    });
+  }
+  // A dim ▶ on any point that has tagged film, so you can spot what's been
+  // covered without opening each one. Like the Line column, tags can arrive
+  // after this page was built, so it's recomputed on every visit.
+  const filmMarks = []; // { pt, el }
+  function refreshFilmMarks() {
+    let gameHasFilm = false;
+    filmMarks.forEach(({ pt, el: markEl }) => {
+      const n = pointFilmRows(pt).length;
+      if (n) gameHasFilm = true;
+      markEl.textContent = n ? '▶' : '';
+      markEl.title = n ? `${n} tagged film event${n === 1 ? '' : 's'} in this point` : '';
+    });
+    // The third column only exists once this game has film -- otherwise the
+    // grid stays two-column exactly as it was before tagging existed.
+    grid.classList.toggle('has-film', gameHasFilm);
+    filmWrap.style.display = gameHasFilm ? '' : 'none';
+    renderFilm(selectedPoint);
+  }
+  gameViewRefreshers.set(section.id, () => { refreshLineColumn(); refreshVideoLink(); refreshFilmMarks(); });
+
   game.points.forEach((pt, i) => {
     let title;
     if (pt.result === 1) {
@@ -1896,18 +2367,34 @@ function buildGameSection(game, index) {
     } else {
       title = 'No score';
     }
-    const small = [];
-    if (pt.goal) small.push(pt.goal);
-    if (pt.assist) small.push('ast ' + pt.assist);
+
+    // Leverage (0-10): how much this specific point's outcome could swing the
+    // game's eventual result -- 10 is a true double-game-point. A colored dot
+    // (the same sequential scale as the Thrower-Receiver heatmap) carries the
+    // magnitude so the number itself can stay in plain, always-legible ink.
+    const leverageDot = el('span', {
+      class: 'pleverage-dot', style: `background:${heatmapColorForT((pt.leverage || 0) / 10)};`,
+    }, []);
+    const leverageBadge = el('span', {
+      class: 'pleverage',
+      title: 'Leverage: how much this point could swing the game\u2019s outcome (0\u201310, 10 = double game point)',
+    }, [leverageDot, document.createTextNode((pt.leverage != null ? pt.leverage.toFixed(1) : '\u2014'))]);
+
+    const lineSpan = el('span', { class: 'pline' }, [document.createTextNode('\u2014')]);
+    lineCells.push({ key: pointKey(index, pt.number), el: lineSpan });
+
+    const filmMark = el('span', { class: 'pfilm' }, []);
+    filmMarks.push({ pt, el: filmMark });
 
     const row = el('div', { class: 'point-row', tabindex: '0', role: 'button' }, [
-      el('span', { class: 'pnum' }, [document.createTextNode('#' + pt.number)]),
+      el('span', { class: 'pnum' }, [document.createTextNode('#' + pt.number), filmMark]),
       el('span', { class: 'pscore' }, [document.createTextNode(pt.ourScoreBefore + '-' + pt.oppScoreBefore)]),
       el('div', { class: 'pdetail' }, [
         el('span', { class: 'goal' }, [document.createTextNode(title)]),
-        small.length ? el('small', {}, [document.createTextNode(small.join(' \u00b7 '))]) : null,
       ]),
       el('span', { class: 'presult badge ' + (pt.scored ? 'W' : 'L') }, [document.createTextNode(pt.isOffense ? 'O' : 'D')]),
+      lineSpan,
+      leverageBadge,
     ]);
     row.addEventListener('click', () => selectPoint(pt, row));
     row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPoint(pt, row); } });
@@ -1915,10 +2402,17 @@ function buildGameSection(game, index) {
     log.appendChild(row);
     if (i === 0) requestAnimationFrame(() => selectPoint(pt, row));
   });
+  refreshLineColumn();
+  refreshVideoLink();
+  refreshFilmMarks();
 
-  grid.appendChild(log);
+  grid.appendChild(logWrap);
   grid.appendChild(pitchWrap);
+  grid.appendChild(filmWrap);
   section.appendChild(grid);
+
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Clutch Efficiency')]));
+  section.appendChild(buildClutchEfficiencyWidget(game.summary.clutchEfficiency));
 
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Box score')]));
   section.appendChild(buildStatsTable(game.boxScore, STAT_COLUMNS, 'pointsPlayed', `${slug(game.opponent)}_${slug(game.dateDisplay)}_box_score.csv`));
@@ -1931,7 +2425,7 @@ function buildGameSection(game, index) {
 // so filtering to a subset of games stays mathematically correct.
 // ---------- Shared widgets: season aggregation, game filters, toggles, scoring-efficiency gauges ----------
 const SEASON_RAW_FIELDS = [
-  'pointsPlayed', 'offensePlayed', 'defensePlayed', 'offenseWon', 'defenseWon', 'touches',
+  'pointsPlayed', 'highLeveragePointsPlayed', 'offensePlayed', 'defensePlayed', 'offenseWon', 'defenseWon', 'touches',
   'throws', 'throwCompletions', 'catches', 'receivingTargets', 'possessionsInitiated',
   'assists', 'secondaryAssists', 'assistAttempts', 'goals', 'plusMinus', 'turnovers',
   'throwerErrors', 'receiverErrors', 'blocks', 'stallsFor', 'stallsAgainst',
@@ -1982,6 +2476,12 @@ function aggregateSeasonStats(gameIndices) {
   return rows;
 }
 
+// Games filter used everywhere in the report. Games are grouped by the
+// tournaments configured on the Set up tab (getTournaments), with an
+// "Unassigned" group for the rest; a group checkbox toggles all its games at
+// once, while individual game checkboxes still work one at a time. The
+// onChange contract is unchanged -- it always receives a sorted array of the
+// selected game indices -- so every call site is tournament-aware for free.
 function buildGameFilterDropdown(onChange) {
   const wrap = el('div', { class: 'game-filter' }, []);
   const btn = el('button', { class: 'game-filter-btn', type: 'button' }, []);
@@ -1989,43 +2489,78 @@ function buildGameFilterDropdown(onChange) {
   panel.style.display = 'none';
   let selected = new Set(REPORT.games.map((g, i) => i));
 
+  const tournaments = getTournaments();
+  const unassigned = unassignedGameIndices(tournaments);
+  // Build display groups: each configured tournament, then Unassigned (only
+  // if it has any games). When there are no tournaments at all, this is a
+  // single "Unassigned" group holding every game -- i.e. a flat list.
+  const groups = tournaments
+    .map(t => ({ label: t.label, indices: t.gameIndices }))
+    .filter(g => g.indices.length);
+  if (unassigned.length) groups.push({ label: tournaments.length ? 'Unassigned' : 'All games', indices: unassigned });
+
+  const gameCbByIndex = new Map();
+  const groupControls = [];
+
   function updateLabel() {
     btn.textContent = selected.size === REPORT.games.length
       ? `Games: All (${REPORT.games.length})`
       : `Games: ${selected.size} of ${REPORT.games.length}`;
   }
+  function syncGroupState() {
+    groupControls.forEach(gc => {
+      const n = gc.indices.filter(i => selected.has(i)).length;
+      gc.cb.checked = n === gc.indices.length;
+      gc.cb.indeterminate = n > 0 && n < gc.indices.length;
+    });
+  }
+  function emit() { updateLabel(); syncGroupState(); onChange([...selected].sort((a, b) => a - b)); }
 
   const selectAllCb = el('input', { type: 'checkbox' }, []);
   selectAllCb.checked = true;
-  const selectAllRow = el('label', { class: 'game-filter-row' }, [selectAllCb, document.createTextNode('Select all')]);
-  panel.appendChild(selectAllRow);
+  panel.appendChild(el('label', { class: 'game-filter-row' }, [selectAllCb, document.createTextNode('Select all')]));
   panel.appendChild(el('div', { class: 'game-filter-sep' }, []));
+  selectAllCb.addEventListener('change', () => {
+    if (selectAllCb.checked) { selected = new Set(REPORT.games.map((g, i) => i)); }
+    else { selected = new Set(); }
+    selectAllCb.indeterminate = false;
+    gameCbByIndex.forEach((cb, i) => { cb.checked = selected.has(i); });
+    emit();
+  });
 
-  const gameCbs = [];
-  REPORT.games.forEach((g, i) => {
-    const cb = el('input', { type: 'checkbox' }, []);
-    cb.checked = true;
-    const row = el('label', { class: 'game-filter-row' }, [cb, document.createTextNode(`vs ${g.opponent} (${g.dateDisplay})`)]);
-    panel.appendChild(row);
-    gameCbs.push(cb);
-    cb.addEventListener('change', () => {
-      if (cb.checked) selected.add(i); else selected.delete(i);
+  groups.forEach(group => {
+    const groupCb = el('input', { type: 'checkbox' }, []);
+    groupCb.checked = true;
+    const groupRow = el('label', { class: 'game-filter-row game-filter-group' }, [
+      groupCb, document.createTextNode(`${group.label} (${group.indices.length})`),
+    ]);
+    panel.appendChild(groupRow);
+    groupControls.push({ cb: groupCb, indices: group.indices });
+    groupCb.addEventListener('change', () => {
+      group.indices.forEach(i => { if (groupCb.checked) selected.add(i); else selected.delete(i); });
+      group.indices.forEach(i => { gameCbByIndex.get(i).checked = groupCb.checked; });
       selectAllCb.checked = selected.size === REPORT.games.length;
       selectAllCb.indeterminate = selected.size > 0 && selected.size < REPORT.games.length;
-      updateLabel();
-      onChange([...selected].sort((a, b) => a - b));
+      emit();
+    });
+
+    group.indices.forEach(i => {
+      const g = REPORT.games[i];
+      const cb = el('input', { type: 'checkbox' }, []);
+      cb.checked = true;
+      panel.appendChild(el('label', { class: 'game-filter-row game-filter-game' }, [cb, document.createTextNode(`vs ${g.opponent} (${g.dateDisplay})`)]));
+      gameCbByIndex.set(i, cb);
+      cb.addEventListener('change', () => {
+        if (cb.checked) selected.add(i); else selected.delete(i);
+        selectAllCb.checked = selected.size === REPORT.games.length;
+        selectAllCb.indeterminate = selected.size > 0 && selected.size < REPORT.games.length;
+        emit();
+      });
     });
   });
 
-  selectAllCb.addEventListener('change', () => {
-    if (selectAllCb.checked) { selected = new Set(REPORT.games.map((g, i) => i)); gameCbs.forEach(cb => { cb.checked = true; }); }
-    else { selected = new Set(); gameCbs.forEach(cb => { cb.checked = false; }); }
-    selectAllCb.indeterminate = false;
-    updateLabel();
-    onChange([...selected].sort((a, b) => a - b));
-  });
-
   updateLabel();
+  syncGroupState();
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
@@ -2142,6 +2677,29 @@ function buildScoringEfficiencyWidget(scoringEfficiency) {
   return wrap;
 }
 
+// Clutch Efficiency: hold rate / break rate / total scoring efficiency,
+// split into high-leverage points (Leverage >= 7, i.e. the moments closest
+// to deciding the game) vs. everything else -- built with buildComparisonTable
+// (below) by treating the two leverage buckets as if they were two "players".
+const CLUTCH_EFFICIENCY_ROWS = [
+  { label: 'Points', get: b => b.pointCount },
+  { label: 'Hold rate', main: b => fmtPct(b.holdRate.pct), sub: b => `${b.holdRate.numer}/${b.holdRate.denom}` },
+  { label: 'Break rate', main: b => fmtPct(b.breakRate.pct), sub: b => `${b.breakRate.numer}/${b.breakRate.denom}` },
+  { label: 'Total scoring efficiency', main: b => fmtPct(b.totalScoringEfficiency.pct), sub: b => `${b.totalScoringEfficiency.numer}/${b.totalScoringEfficiency.denom}` },
+];
+function buildClutchEfficiencyWidget(clutchEfficiency) {
+  const wrap = el('div', {}, []);
+  const buckets = [
+    { name: 'High-leverage (≥ 7)', ...clutchEfficiency.highLeverage },
+    { name: 'Low-leverage (< 7)', ...clutchEfficiency.lowLeverage },
+  ];
+  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name'));
+  wrap.appendChild(el('p', { class: 'pitch-caption' }, [
+    document.createTextNode('High-leverage points are those with Leverage ≥ 7 (0–10 scale) -- close to a coin flip on the game’s outcome, typically late and close. Comparing hold/break/scoring rates in these moments against everything else shows whether performance holds up when a point mattered most.'),
+  ]));
+  return wrap;
+}
+
 // ---------- Player comparison table (used by Player Analysis) ----------
 function safeDiv(numer, denom, decimals) {
   if (!denom) return null;
@@ -2155,6 +2713,7 @@ const PLAYER_BASIC_ROWS = [
   { label: 'Games played', get: p => p.gamesPlayed },
   { label: 'Offensive points', get: p => p.offensePlayed },
   { label: 'Defensive points', get: p => p.defensePlayed },
+  { label: 'High-leverage points played', get: p => p.highLeveragePointsPlayed },
   { label: 'Touches', get: p => p.touches },
   { label: 'Goals', get: p => p.goals },
   { label: 'Assists', get: p => p.assists },
@@ -2200,7 +2759,15 @@ function buildComparisonTable(rowDefs, players, labelKey) {
   const table = el('table', { class: 'stats compare' }, []);
   const thead = el('thead', {}, []);
   const headRow = el('tr', {}, [el('th', { class: 'row-label' }, [])]);
-  players.forEach(p => headRow.appendChild(el('th', {}, [document.createTextNode(p[key])])));
+  players.forEach(p => {
+    // Only the player comparison gets faces -- the same table also compares
+    // lines and thrower-receiver pairs, which have no single photo.
+    const avatar = (key === 'player') ? playerAvatar(p[key], 80) : null;
+    const cell = el('th', {}, []);
+    if (avatar) cell.appendChild(el('div', { class: 'compare-avatar' }, [avatar]));
+    cell.appendChild(el('div', {}, [document.createTextNode(p[key])]));
+    headRow.appendChild(cell);
+  });
   thead.appendChild(headRow);
   table.appendChild(thead);
   const tbody = el('tbody', {}, []);
@@ -2362,9 +2929,15 @@ function buildPlayerAnalysisSection() {
     contentArea.appendChild(rateTableHolder);
 
     contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Directions')]));
+    contentArea.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(
+      'Which way each player’s throws and receptions tend to go. Each wedge points in the direction the disc traveled (straight up = toward the attacking endzone), and how far it reaches out from the center shows how often that player threw or received in that direction, relative to their own other directions — not compared across players. Hover a wedge for the exact count.'
+    )]));
     contentArea.appendChild(buildDirectionsSection(players, selectedGames));
 
     contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Connections')]));
+    contentArea.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(
+      'Who each player’s top 7 connections are. On the left, the players who throw to them most; on the right, the players they throw to most — the player named on the card sits in the middle. Ribbon thickness shows how much of that player’s total volume each connection accounts for, and color splits completed (green) from incomplete (red). Hover a ribbon or a name’s bar for the exact throw counts.'
+    )]));
     contentArea.appendChild(buildConnectionsSection(players, selectedGames));
 
     contentArea.appendChild(buildImpactSection(players, selectedGames));
@@ -2377,6 +2950,516 @@ function buildPlayerAnalysisSection() {
   section.appendChild(contentArea);
   render();
   return section;
+}
+
+// ---------- Set up section: tournaments, per-game video links, player photos ----------
+// All of this is user configuration saved in localStorage (see loadSetupData),
+// not derived from the .statto file, so it lives entirely client-side like the
+// curated lines. Tournaments defined here drive the tournament grouping in the
+// game filter and Line Analysis everywhere else in the report.
+function buildSetupSection() {
+  const section = el('section', { class: 'view', id: 'setup' }, []);
+  section.appendChild(text('p', 'eyebrow', 'Set up'));
+  section.appendChild(text('p', 'hero-sub', 'Group games into tournaments, add a video link per game, and set player photos. Everything here is saved in this browser.'));
+
+  const data = loadSetupData();
+  // Seed the working tournament list from any saved config, else from the
+  // date-based auto-detection (getTournaments' fallback) so the user starts
+  // from a sensible grouping rather than a blank slate.
+  let tournaments = (data.tournaments && data.tournaments.length)
+    ? data.tournaments.map(t => ({ id: t.id, label: t.label, gameIndices: (t.gameIndices || []).slice() }))
+    : getTournaments().map(t => ({ id: t.id, label: t.label, gameIndices: t.gameIndices.slice() }));
+  let videoLinks = Object.assign({}, data.videoLinks);
+  let playerPhotos = Object.assign({}, data.playerPhotos);
+
+  function persist() { saveSetupData({ tournaments, videoLinks, playerPhotos }); }
+  // Tournament edits bump the global revision so the analysis tabs rebuild
+  // from the new grouping on the next click into them (see showView). Photo
+  // edits bump it too, since players' faces now appear in those tabs' tables
+  // and headers. Video links don't -- they're read live wherever they're used.
+  function persistTournaments() { persist(); tournamentsRevision++; }
+  function persistPhotos() { persist(); tournamentsRevision++; }
+
+  function tournamentIdOf(gi) {
+    const t = tournaments.find(t => t.gameIndices.includes(gi));
+    return t ? t.id : '';
+  }
+  function assignGame(gi, tid) {
+    tournaments.forEach(t => { t.gameIndices = t.gameIndices.filter(i => i !== gi); });
+    if (tid) {
+      const t = tournaments.find(t => t.id === tid);
+      if (t) { t.gameIndices.push(gi); t.gameIndices.sort((a, b) => a - b); }
+    }
+  }
+
+  // ---- Tournaments subsection ----
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Tournaments')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Name your tournaments here, then assign each game to one in the table below. These groups appear in every games filter across the report; other tabs pick up your changes the next time you open them.')]));
+  const tournamentList = el('div', { class: 'setup-tournament-list' }, []);
+  section.appendChild(tournamentList);
+  const addBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('+ Add tournament')]);
+  addBtn.addEventListener('click', () => {
+    tournaments.push({ id: newTournamentId(), label: 'New tournament', gameIndices: [] });
+    persistTournaments();
+    renderTournaments();
+    renderGamesTable();
+  });
+  section.appendChild(el('div', { class: 'controls-row' }, [addBtn]));
+
+  function renderTournaments() {
+    tournamentList.innerHTML = '';
+    if (!tournaments.length) {
+      tournamentList.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No tournaments yet — add one to start grouping games.')]));
+      return;
+    }
+    tournaments.forEach(t => {
+      const nameInput = el('input', { type: 'text', class: 'line-name-input', value: t.label }, []);
+      nameInput.addEventListener('change', () => {
+        t.label = nameInput.value.trim() || t.label;
+        nameInput.value = t.label;
+        persistTournaments();
+        renderGamesTable();
+      });
+      const count = el('span', { class: 'setup-tournament-count' }, [document.createTextNode(`${t.gameIndices.length} game${t.gameIndices.length === 1 ? '' : 's'}`)]);
+      const del = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Delete')]);
+      del.addEventListener('click', () => {
+        tournaments = tournaments.filter(x => x.id !== t.id);
+        persistTournaments();
+        renderTournaments();
+        renderGamesTable();
+      });
+      tournamentList.appendChild(el('div', { class: 'setup-tournament-row' }, [nameInput, count, del]));
+    });
+  }
+
+  // ---- Games table: assignment + one video link each ----
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Games')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Assign each game to a tournament and paste its video link. To split video tagging across people, use “Create tagging page” to hand each helper a single-game tagging file; when they send back their exported annotations JSON, “Upload tags” merges it here (only that game’s tags, so a wrong file can’t affect others).')]));
+  const gamesTableWrap = el('div', { class: 'table-scroll' }, []);
+  section.appendChild(gamesTableWrap);
+
+  function renderGamesTable() {
+    gamesTableWrap.innerHTML = '';
+    const table = el('table', { class: 'stats setup-games' }, []);
+    const thead = el('thead', {}, [el('tr', {}, [
+      el('th', {}, [document.createTextNode('Game')]),
+      el('th', {}, [document.createTextNode('Tournament')]),
+      el('th', {}, [document.createTextNode('Video link')]),
+      el('th', {}, [document.createTextNode('Video tagging')]),
+    ])]);
+    table.appendChild(thead);
+    const tbody = el('tbody', {}, []);
+    REPORT.games.forEach((g, i) => {
+      const select = el('select', { class: 'setup-select' }, []);
+      select.appendChild(el('option', { value: '' }, [document.createTextNode('— Unassigned —')]));
+      tournaments.forEach(t => {
+        const opt = el('option', { value: t.id }, [document.createTextNode(t.label)]);
+        select.appendChild(opt);
+      });
+      select.value = tournamentIdOf(i);
+      select.addEventListener('change', () => {
+        assignGame(i, select.value);
+        persistTournaments();
+        renderTournaments();
+      });
+
+      const urlInput = el('input', { type: 'url', class: 'setup-video-input', placeholder: 'https://…', value: videoLinks[i] || '' }, []);
+      urlInput.addEventListener('change', () => {
+        const v = urlInput.value.trim();
+        if (v) videoLinks[i] = v; else delete videoLinks[i];
+        persist();
+      });
+
+      // Per-game video-tagging: hand out a single-game tagging page, then
+      // re-import that game's annotations JSON when it comes back.
+      const total = gameAnnotationUUIDs(i).size;
+      const tagged = gameTaggedCount(i);
+      const createBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Create tagging page')]);
+      createBtn.addEventListener('click', () => downloadGameTaggingPage(i));
+      const uploadInput = el('input', { type: 'file', accept: 'application/json,.json' }, []);
+      uploadInput.style.display = 'none';
+      const uploadBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Upload tags')]);
+      uploadBtn.addEventListener('click', () => uploadInput.click());
+      uploadInput.addEventListener('change', () => {
+        const file = uploadInput.files && uploadInput.files[0];
+        uploadInput.value = '';
+        if (!file) return;
+        importGameAnnotationsFile(i, file, (n) => { renderGamesTable(); });
+      });
+      const countEl = el('span', { class: 'setup-tag-count' }, [document.createTextNode(`${tagged}/${total} tagged`)]);
+      const tagCell = el('td', {}, [
+        el('div', { class: 'setup-tag-actions' }, [createBtn, uploadBtn, uploadInput, countEl]),
+      ]);
+
+      tbody.appendChild(el('tr', {}, [
+        el('td', {}, [document.createTextNode(`vs ${g.opponent}`), el('span', { class: 'setup-game-date' }, [document.createTextNode(' · ' + g.dateDisplay)])]),
+        el('td', {}, [select]),
+        el('td', {}, [urlInput]),
+        tagCell,
+      ]));
+    });
+    table.appendChild(tbody);
+    gamesTableWrap.appendChild(table);
+  }
+
+  // ---- Player photos ----
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Player photos')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Give each player a circular photo — upload one per person below, or tag several at once from a single team photo. Saved in this browser for use elsewhere in the report.')]));
+
+  const roster = REPORT.seasonLeaderboard.map(r => r.player).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+  const tagTeamBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Tag from a team photo')]);
+  tagTeamBtn.addEventListener('click', () => {
+    openTeamPhotoTagger(roster, playerPhotos, (map) => {
+      Object.assign(playerPhotos, map);
+      persistPhotos();
+      renderPhotos();
+    });
+  });
+  section.appendChild(el('div', { class: 'controls-row' }, [tagTeamBtn]));
+
+  const photoGrid = el('div', { class: 'setup-photo-grid' }, []);
+  section.appendChild(photoGrid);
+
+  function renderPhotoCard(name) {
+    const card = el('div', { class: 'setup-photo-card' }, []);
+    const has = !!playerPhotos[name];
+    const avatar = has
+      ? el('img', { class: 'setup-avatar', src: playerPhotos[name], alt: name })
+      : el('div', { class: 'setup-avatar setup-avatar-placeholder' }, [document.createTextNode(initials(name))]);
+    card.appendChild(avatar);
+    card.appendChild(el('div', { class: 'setup-photo-name' }, [document.createTextNode(name)]));
+
+    const fileInput = el('input', { type: 'file', accept: 'image/*' }, []);
+    fileInput.style.display = 'none';
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      openPhotoCropper(name, file, (dataUrl) => {
+        playerPhotos[name] = dataUrl;
+        persistPhotos();
+        const fresh = renderPhotoCard(name);
+        photoGrid.replaceChild(fresh, card);
+      });
+      fileInput.value = '';
+    });
+    const btnRow = el('div', { class: 'setup-photo-actions' }, []);
+    const uploadBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode(has ? 'Change' : 'Add photo')]);
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    btnRow.appendChild(uploadBtn);
+    if (has) {
+      const removeBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Remove')]);
+      removeBtn.addEventListener('click', () => {
+        delete playerPhotos[name];
+        persistPhotos();
+        const fresh = renderPhotoCard(name);
+        photoGrid.replaceChild(fresh, card);
+      });
+      btnRow.appendChild(removeBtn);
+    }
+    card.appendChild(btnRow);
+    card.appendChild(fileInput);
+    return card;
+  }
+
+  function renderPhotos() {
+    photoGrid.innerHTML = '';
+    roster.forEach(name => photoGrid.appendChild(renderPhotoCard(name)));
+  }
+
+  // ---- Publish ----
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Publish for the team')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Everything you set up here — tournaments, video links, player photos, curated lines and film tags — is saved in this browser only, so it doesn’t travel with the report file on its own. Publish bakes it all into one standalone HTML file to email, AirDrop, or host: the team gets a clean, read-only report — no Set up tab, the Data Editor becomes a read-only “Film Clips” browser — while Line Analysis stays editable so they can build their own lines on top of yours.')]));
+  const publishBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Publish for team (read-only)')]);
+  publishBtn.addEventListener('click', publishForTeam);
+  section.appendChild(el('div', { class: 'controls-row' }, [publishBtn]));
+
+  renderTournaments();
+  renderGamesTable();
+  renderPhotos();
+  return section;
+}
+
+// Modal circular-crop uploader. Loads `file`, lets the user pan (drag) and
+// zoom (slider) within a square viewport whose inscribed circle is the crop,
+// then renders that circle to a 256px PNG data URL passed to onSave. Output
+// is transparent outside the circle so it drops straight into a round avatar.
+function openPhotoCropper(name, file, onSave) {
+  const V = 300;        // on-screen viewport (square) size in px
+  const OUT = 256;      // exported image size in px
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+
+  const overlay = el('div', { class: 'cropper-overlay' }, []);
+  const viewport = el('div', { class: 'cropper-viewport' }, []);
+  viewport.style.width = V + 'px';
+  viewport.style.height = V + 'px';
+  const imgEl = el('img', { class: 'cropper-img', src: objectUrl, alt: '' }, []);
+  imgEl.setAttribute('draggable', 'false');
+  viewport.appendChild(imgEl);
+  viewport.appendChild(el('div', { class: 'cropper-ring' }, []));
+
+  const zoom = el('input', { type: 'range', min: '1', max: '4', step: '0.01', value: '1', class: 'cropper-zoom' }, []);
+  const saveBtn = el('button', { class: 'pill-btn cropper-save', type: 'button' }, [document.createTextNode('Save')]);
+  const cancelBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Cancel')]);
+
+  const dialog = el('div', { class: 'cropper-dialog' }, [
+    el('div', { class: 'cropper-title' }, [document.createTextNode('Crop photo — ' + name)]),
+    viewport,
+    el('div', { class: 'cropper-zoom-row' }, [el('span', {}, [document.createTextNode('Zoom')]), zoom]),
+    el('div', { class: 'cropper-actions' }, [cancelBtn, saveBtn]),
+  ]);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  let baseScale = 1, z = 1, tx = 0, ty = 0; // image transform within viewport
+  function dispW() { return img.naturalWidth * baseScale * z; }
+  function dispH() { return img.naturalHeight * baseScale * z; }
+  function clamp() {
+    // keep the image covering the whole viewport (so the circle is never empty)
+    tx = Math.min(0, Math.max(V - dispW(), tx));
+    ty = Math.min(0, Math.max(V - dispH(), ty));
+  }
+  function apply() {
+    imgEl.style.width = dispW() + 'px';
+    imgEl.style.height = dispH() + 'px';
+    imgEl.style.left = tx + 'px';
+    imgEl.style.top = ty + 'px';
+  }
+
+  img.onload = () => {
+    baseScale = V / Math.min(img.naturalWidth, img.naturalHeight); // "cover"
+    z = 1; tx = (V - dispW()) / 2; ty = (V - dispH()) / 2;
+    clamp(); apply();
+  };
+  img.src = objectUrl;
+
+  zoom.addEventListener('input', () => {
+    // zoom about the viewport centre so the framed subject stays put
+    const cx = (V / 2 - tx) / (baseScale * z);
+    const cy = (V / 2 - ty) / (baseScale * z);
+    z = parseFloat(zoom.value);
+    tx = V / 2 - cx * baseScale * z;
+    ty = V / 2 - cy * baseScale * z;
+    clamp(); apply();
+  });
+
+  let dragging = false, lastX = 0, lastY = 0;
+  viewport.addEventListener('pointerdown', (e) => {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    viewport.setPointerCapture(e.pointerId);
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    tx += e.clientX - lastX; ty += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    clamp(); apply();
+  });
+  function endDrag(e) { dragging = false; try { viewport.releasePointerCapture(e.pointerId); } catch (err) {} }
+  viewport.addEventListener('pointerup', endDrag);
+  viewport.addEventListener('pointercancel', endDrag);
+
+  function close() {
+    URL.revokeObjectURL(objectUrl);
+    document.body.removeChild(overlay);
+  }
+  cancelBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  saveBtn.addEventListener('click', () => {
+    const canvas = el('canvas', {}, []);
+    canvas.width = OUT; canvas.height = OUT;
+    const ctx = canvas.getContext('2d');
+    const scale = OUT / V; // viewport px -> output px
+    ctx.beginPath();
+    ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, tx * scale, ty * scale, dispW() * scale, dispH() * scale);
+    let out;
+    try { out = canvas.toDataURL('image/png'); } catch (e) { out = null; }
+    close();
+    if (out) onSave(out);
+  });
+}
+
+// Modal for tagging faces on a single team photo. The user uploads one photo,
+// clicks each face to drop a circle, drags it to centre / drags its handle to
+// resize, and picks that person's name from a dropdown. On save, each named
+// circle is rendered to its own 256px circular PNG (identical crop math to
+// openPhotoCropper) and returned as a { name: dataUrl } map -- so it feeds the
+// exact same playerPhotos store as the per-player uploader. No face detection:
+// placement is entirely manual, which keeps this dependency-free and offline.
+function openTeamPhotoTagger(roster, existingPhotos, onSaveMany) {
+  const OUT = 256;            // exported avatar size in px
+  const MAX_W = 760, MAX_H = 460; // on-screen stage bounds
+  const overlay = el('div', { class: 'cropper-overlay' }, []);
+  const dialog = el('div', { class: 'cropper-dialog tagger-dialog' }, []);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  dialog.appendChild(el('div', { class: 'cropper-title' }, [document.createTextNode('Tag players on a team photo')]));
+
+  const body = el('div', { class: 'tagger-body' }, []);
+  dialog.appendChild(body);
+
+  const saveBtn = el('button', { class: 'pill-btn cropper-save', type: 'button' }, [document.createTextNode('Save tagged players')]);
+  const cancelBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Cancel')]);
+  const actions = el('div', { class: 'cropper-actions' }, [cancelBtn, saveBtn]);
+  saveBtn.style.display = 'none';
+  dialog.appendChild(actions);
+
+  let objectUrl = null;
+  function close() {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  }
+  cancelBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  // ---- Step 1: choose a team photo ----
+  const fileInput = el('input', { type: 'file', accept: 'image/*' }, []);
+  fileInput.style.display = 'none';
+  const chooseBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Choose team photo')]);
+  chooseBtn.addEventListener('click', () => fileInput.click());
+  const chooseWrap = el('div', { class: 'tagger-choose' }, [
+    el('p', { class: 'pitch-caption' }, [document.createTextNode('Upload one photo with several players in it. You’ll click each face to tag it.')]),
+    chooseBtn,
+  ]);
+  body.appendChild(chooseWrap);
+  body.appendChild(fileInput);
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => startTagging(img);
+    img.src = objectUrl;
+  });
+
+  // ---- Step 2: place + name circles ----
+  function startTagging(img) {
+    body.removeChild(chooseWrap);
+    saveBtn.style.display = '';
+
+    const scale = Math.min(MAX_W / img.naturalWidth, MAX_H / img.naturalHeight, 1);
+    const dispW = img.naturalWidth * scale, dispH = img.naturalHeight * scale;
+    const r0 = Math.max(18, Math.min(img.naturalWidth, img.naturalHeight) * 0.09); // default face radius (natural px)
+
+    body.appendChild(el('p', { class: 'pitch-caption tagger-help' }, [
+      document.createTextNode('Click a face to drop a circle. Drag it to centre, drag the corner handle to resize, then pick the player’s name. Circles without a name are ignored.'),
+    ]));
+
+    const stage = el('div', { class: 'tagger-stage' }, []);
+    stage.style.width = dispW + 'px';
+    stage.style.height = dispH + 'px';
+    const imgEl = el('img', { class: 'tagger-img', src: img.src, alt: '' }, []);
+    imgEl.setAttribute('draggable', 'false');
+    stage.appendChild(imgEl);
+    body.appendChild(stage);
+
+    const tags = []; // { id, cx, cy, r, name, circle, select }
+    let colorIdx = 0;
+    const COLORS = ['#4FD1AE', '#E8604C', '#F0C85A', '#6FA8DC', '#C68FE6', '#EF8CA0', '#8FD16B', '#E0A15A'];
+
+    function clampTag(t) {
+      t.r = Math.max(10, Math.min(t.r, img.naturalWidth / 2, img.naturalHeight / 2));
+      t.cx = Math.min(img.naturalWidth - t.r, Math.max(t.r, t.cx));
+      t.cy = Math.min(img.naturalHeight - t.r, Math.max(t.r, t.cy));
+    }
+    function place(t) {
+      const d = t.r * 2 * scale;
+      t.circle.style.width = d + 'px';
+      t.circle.style.height = d + 'px';
+      t.circle.style.left = (t.cx - t.r) * scale + 'px';
+      t.circle.style.top = (t.cy - t.r) * scale + 'px';
+    }
+
+    function refreshSelectStates() {
+      const used = new Set(tags.map(t => t.name).filter(Boolean));
+      tags.forEach(t => {
+        Array.from(t.select.options).forEach(opt => {
+          // disable names taken by *other* circles so each maps to one face
+          opt.disabled = opt.value && opt.value !== t.name && used.has(opt.value);
+        });
+        t.circle.classList.toggle('tagged-named', !!t.name);
+        t.circle.style.setProperty('--tag-color', t.color);
+      });
+    }
+
+    function addTag(cx, cy) {
+      const t = { id: 'tag-' + Math.random().toString(36).slice(2, 8), cx, cy, r: r0, name: '', color: COLORS[colorIdx++ % COLORS.length] };
+      const circle = el('div', { class: 'tagger-circle' }, []);
+      const handle = el('div', { class: 'tagger-handle' }, []);
+      const removeBtn = el('button', { class: 'tagger-remove', type: 'button', title: 'Remove' }, [document.createTextNode('×')]);
+      const select = el('select', { class: 'tagger-name-select' }, []);
+      select.appendChild(el('option', { value: '' }, [document.createTextNode('— name —')]));
+      roster.forEach(n => select.appendChild(el('option', { value: n }, [document.createTextNode(n)])));
+      const label = el('div', { class: 'tagger-name' }, [select]);
+      circle.appendChild(handle);
+      circle.appendChild(removeBtn);
+      circle.appendChild(label);
+      stage.appendChild(circle);
+      t.circle = circle; t.select = select;
+      tags.push(t);
+      clampTag(t); place(t); refreshSelectStates();
+
+      select.addEventListener('change', () => { t.name = select.value; refreshSelectStates(); });
+      select.addEventListener('pointerdown', (e) => e.stopPropagation());
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        stage.removeChild(circle);
+        tags.splice(tags.indexOf(t), 1);
+        refreshSelectStates();
+      });
+
+      // drag the whole circle to reposition
+      let mode = null, lastX = 0, lastY = 0;
+      circle.addEventListener('pointerdown', (e) => {
+        if (e.target === select || e.target === removeBtn) return;
+        e.stopPropagation();
+        mode = (e.target === handle) ? 'resize' : 'move';
+        lastX = e.clientX; lastY = e.clientY;
+        circle.setPointerCapture(e.pointerId);
+      });
+      circle.addEventListener('pointermove', (e) => {
+        if (!mode) return;
+        const dx = (e.clientX - lastX) / scale, dy = (e.clientY - lastY) / scale;
+        lastX = e.clientX; lastY = e.clientY;
+        if (mode === 'move') { t.cx += dx; t.cy += dy; }
+        else { t.r += (dx + dy) / 2; }
+        clampTag(t); place(t);
+      });
+      function end(e) { if (mode) { mode = null; try { circle.releasePointerCapture(e.pointerId); } catch (err) {} } }
+      circle.addEventListener('pointerup', end);
+      circle.addEventListener('pointercancel', end);
+    }
+
+    // click on the photo background drops a new circle centred there
+    imgEl.addEventListener('click', (e) => {
+      const rect = stage.getBoundingClientRect();
+      addTag((e.clientX - rect.left) / scale, (e.clientY - rect.top) / scale);
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const out = {};
+      tags.forEach(t => {
+        if (!t.name) return;
+        const canvas = el('canvas', {}, []);
+        canvas.width = OUT; canvas.height = OUT;
+        const ctx = canvas.getContext('2d');
+        ctx.beginPath();
+        ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
+        ctx.clip();
+        // source square = the circle's bounding box in natural coords
+        ctx.drawImage(img, t.cx - t.r, t.cy - t.r, t.r * 2, t.r * 2, 0, 0, OUT, OUT);
+        try { out[t.name] = canvas.toDataURL('image/png'); } catch (err) {}
+      });
+      close();
+      if (Object.keys(out).length) onSaveMany(out);
+    });
+  }
 }
 
 // ---------- Season section (record, schedule, leaderboard) ----------
@@ -2420,6 +3503,9 @@ function buildSeasonSection() {
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Scoring Efficiency')]));
   section.appendChild(buildScoringEfficiencyWidget(REPORT.seasonScoringEfficiency));
 
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Clutch Efficiency')]));
+  section.appendChild(buildClutchEfficiencyWidget(REPORT.seasonClutchEfficiency));
+
   const leaderboardHeader = el('div', { class: 'section-title-row' }, [
     el('span', {}, [document.createTextNode('Season leaderboard')]),
   ]);
@@ -2461,13 +3547,18 @@ function formatTournamentLabel(dateKeys) {
   return `${MONTH_ABBR[fm - 1]} ${fd} – ${MONTH_ABBR[lm - 1]} ${ld} Tournament`;
 }
 
-// Groups games into tournaments: games on the same day or on consecutive
-// days (a gap of more than 1 calendar day starts a new tournament) are
-// treated as one event. Tournament ids are positional (sorted-ascending),
-// so -- like pointKey below -- they stay stable across regenerations as
-// long as new games are only appended, never inserted into a date gap that
-// would merge two existing tournaments into one.
-function identifyTournaments() {
+// Groups games into tournaments by date: games on the same day or on
+// consecutive days (a gap of more than 1 calendar day starts a new
+// tournament) are treated as one event. Tournament ids are positional
+// (sorted-ascending), so -- like pointKey below -- they stay stable across
+// regenerations as long as new games are only appended, never inserted into
+// a date gap that would merge two existing tournaments into one.
+//
+// This is only the *default* grouping now: the Set up tab lets the user
+// override game-to-tournament assignment and labels entirely (see
+// getTournaments / loadSetupData). This function seeds that first-run
+// default and is the fallback whenever no setup data is saved yet.
+function autoDetectTournaments() {
   const gameDates = REPORT.games.map((g, i) => ({ gameIndex: i, dateKey: (g.date || '').slice(0, 10) }));
   const dayKeys = [...new Set(gameDates.map(g => g.dateKey))].sort();
 
@@ -2484,9 +3575,69 @@ function identifyTournaments() {
   return dayGroups.map((keys, i) => {
     const keySet = new Set(keys);
     const gameIndices = gameDates.filter(g => keySet.has(g.dateKey)).map(g => g.gameIndex).sort((a, b) => a - b);
-    return { id: 'tournament-' + i, dateKeys: keys, gameIndices, label: formatTournamentLabel(keys) };
+    return { id: 'tournament-' + i, gameIndices, label: formatTournamentLabel(keys) };
   });
 }
+
+// The single source of truth for tournaments everywhere outside the Set up
+// tab (the game filter, Line Analysis). Returns the user's saved
+// configuration if they've set one up, else the date-based auto-detection.
+// Each tournament is { id, label, gameIndices } -- gameIndices already
+// filtered to valid, in-range indices and sorted, so callers can trust them.
+function getTournaments() {
+  const saved = loadSetupData().tournaments;
+  const source = (saved && saved.length) ? saved : autoDetectTournaments();
+  const maxIndex = REPORT.games.length;
+  return source.map(t => ({
+    id: t.id,
+    label: t.label,
+    gameIndices: (t.gameIndices || []).filter(i => Number.isInteger(i) && i >= 0 && i < maxIndex).sort((a, b) => a - b),
+  }));
+}
+
+// Game indices that belong to no tournament under the current configuration.
+function unassignedGameIndices(tournaments) {
+  const ts = tournaments || getTournaments();
+  const claimed = new Set();
+  ts.forEach(t => t.gameIndices.forEach(i => claimed.add(i)));
+  return REPORT.games.map((g, i) => i).filter(i => !claimed.has(i));
+}
+
+const SETUP_SCHEMA_VERSION = 1;
+
+function setupStorageKey() { return 'statto-report-setup::' + REPORT.teamName; }
+
+// Set up tab data: user-defined tournaments (game-to-tournament assignment +
+// labels), one video URL per game, and a circular-cropped photo per player.
+// Photos are stored as PNG data URLs, bounded to 256px on the crop side, so
+// even a full roster stays comfortably within localStorage's budget. All
+// three are independent maps so a partial/older saved blob still loads.
+function loadSetupData() {
+  try {
+    const raw = localStorage.getItem(setupStorageKey());
+    if (!raw) return { tournaments: [], videoLinks: {}, playerPhotos: {} };
+    const parsed = JSON.parse(raw) || {};
+    return {
+      tournaments: Array.isArray(parsed.tournaments) ? parsed.tournaments : [],
+      videoLinks: (parsed.videoLinks && typeof parsed.videoLinks === 'object') ? parsed.videoLinks : {},
+      playerPhotos: (parsed.playerPhotos && typeof parsed.playerPhotos === 'object') ? parsed.playerPhotos : {},
+    };
+  } catch (e) { return { tournaments: [], videoLinks: {}, playerPhotos: {} }; }
+}
+
+function saveSetupData(data) {
+  try {
+    localStorage.setItem(setupStorageKey(), JSON.stringify({
+      version: SETUP_SCHEMA_VERSION, teamName: REPORT.teamName,
+      tournaments: data.tournaments || [],
+      videoLinks: data.videoLinks || {},
+      playerPhotos: data.playerPhotos || {},
+    }));
+    return true;
+  } catch (e) { return false; }
+}
+
+function newTournamentId() { return 'tournament-' + Math.random().toString(36).slice(2, 10); }
 
 const LINES_SCHEMA_VERSION = 1;
 
@@ -2497,6 +3648,241 @@ const LINES_SCHEMA_VERSION = 1;
 function pointKey(gameIndex, pointNumber) { return gameIndex + '|' + pointNumber; }
 
 function linesStorageKey() { return 'statto-report-lines::' + REPORT.teamName; }
+
+// ---------- Data Editor: per-pass / per-block film annotations ----------
+// The Data Editor (a tab built in a later phase) lets you step through every
+// pass on a game's field diagram and tag it with descriptive attributes plus
+// a video timestamp, for querying later ("all inside-flick turnovers", "% of
+// turnovers that were around backhands", each deep-linking to the game video).
+//
+// Tags are modelled as several small, orthogonal fields rather than one flat
+// label, so questions compose: "inside flick turnover" is release:inside AND
+// hand:flick AND (the base pass is a turnover). Outcome (completed / throwaway
+// / drop / assist) already comes from Statto, so these fields are purely
+// descriptive. Vocabularies are fixed built-ins (below); values are stored as
+// plain strings, so the lists can grow later without a data migration.
+const ANNOTATION_VOCAB = {
+  hand: ['Backhand', 'Offhand backhand', 'Flick', 'Hammer', 'Scoober', 'Other'],
+  release: ['Forceside', 'Breakside around', 'Breakside inside', 'Over-the-top', 'Unmarked'],
+  distance: ['Reset', 'Under', 'Away', 'Huck', 'Other'],
+  stall: ['Low', 'Mid', 'High'],
+  // only meaningful when the base pass is a turnover
+  turnoverReason: ['Underthrown', 'Overthrown', 'Thrown OB', 'Into poach', 'Into doublecoverage', 'Miscommunication', 'Hand/foot blocked', 'Receiver not open', 'Drop'],
+  catch: ['Uncontested', 'Contested', 'Layout/difficult'],
+  highlight: ['Crazy highlight', 'Normal highlight'],
+};
+// Defensive blocks (Ds) get their own small vocab.
+const BLOCK_VOCAB = {
+  type: ['Layout/run-through D', 'Hand/foot block', 'Sky/boxout', 'Help/poach D', 'Stall D', 'Stand still D'],
+};
+// Point-level: our defensive scheme while the opponent is on offence, and how
+// the opponent gave the disc back when it wasn't one of our blocks.
+const POINT_VOCAB = {
+  defScheme: ['Zone', 'Force forehand', 'Force backhand', 'Force return'],
+  oppTurnover: ['Huck turnover', 'Throwing error', 'Receiver error'],
+};
+
+function annotationsStorageKey() { return 'statto-report-annotations::' + REPORT.teamName; }
+
+// Annotation store shape (one localStorage entry for the team):
+//   { version, teamName,
+//     passes:  { <passUUID>:  { hand, release, distance, stall, turnoverReason: [..], catch, timestamp, notes } },
+//     blocks:  { <blockUUID>: { type, timestamp, notes } },
+//     points:  { <pointUUID>: { defScheme } } }
+// turnoverReason is an array (a turnover can have more than one cause at
+// once, e.g. "Too far" AND "Into doublecoverage") -- every other tag field is
+// a single value. Every field is optional -- a pass with only a timestamp, or
+// only a hand, is valid. Annotations for a UUID no longer present in the report (e.g. a game
+// was re-logged) are kept rather than dropped, so nothing is silently lost.
+const ANNOTATIONS_SCHEMA_VERSION = 1;
+
+function loadAnnotations() {
+  try {
+    const raw = localStorage.getItem(annotationsStorageKey());
+    if (!raw) return { passes: {}, blocks: {}, points: {} };
+    const parsed = JSON.parse(raw);
+    return {
+      passes: (parsed && parsed.passes && typeof parsed.passes === 'object') ? parsed.passes : {},
+      blocks: (parsed && parsed.blocks && typeof parsed.blocks === 'object') ? parsed.blocks : {},
+      points: (parsed && parsed.points && typeof parsed.points === 'object') ? parsed.points : {},
+    };
+  } catch (e) { return { passes: {}, blocks: {}, points: {} }; }
+}
+
+function saveAnnotations(data) {
+  try {
+    localStorage.setItem(annotationsStorageKey(), JSON.stringify({
+      version: ANNOTATIONS_SCHEMA_VERSION,
+      teamName: REPORT.teamName,
+      passes: data.passes || {},
+      blocks: data.blocks || {},
+      points: data.points || {},
+    }));
+  } catch (e) {}
+}
+
+// Merge an incoming {uuid: {field: value}} store into a target one, per-field
+// (not per-record), so two taggers who annotated the same pass with different
+// fields both survive; on a same-field conflict the incoming value wins.
+function mergeAnnotationStore(target, incoming) {
+  if (!incoming || typeof incoming !== 'object') return;
+  Object.keys(incoming).forEach(uuid => {
+    const rec = incoming[uuid];
+    if (!rec || typeof rec !== 'object') return;
+    target[uuid] = Object.assign({}, target[uuid], rec);
+  });
+}
+
+// Pull the video id out of the game's Set up link -- handles youtu.be/ID,
+// youtube.com/watch?v=ID, /embed/ID and /shorts/ID (with any extra params).
+function parseYouTubeId(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(url, location.href);
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') return u.pathname.slice(1).split('/')[0] || null;
+    if (u.searchParams.get('v')) return u.searchParams.get('v');
+    const m = u.pathname.match(/\/(embed|shorts|v)\/([^/?#]+)/);
+    return m ? m[2] : null;
+  } catch (e) { return null; }
+}
+
+// The YouTube IFrame Player API is an external script -- only loaded here, on
+// the Data Editor, and only when a game actually has a video link. Everything
+// else in the report stays offline/self-contained; this is the one live-only
+// convenience (agreed for the editor, which is used while watching film).
+let _ytApiState = 'idle'; // idle | loading | ready
+const _ytReadyCbs = [];
+function ensureYouTubeAPI(cb) {
+  if (window.YT && window.YT.Player) { cb(); return; }
+  _ytReadyCbs.push(cb);
+  if (_ytApiState !== 'idle') return;
+  _ytApiState = 'loading';
+  const prev = window.onYouTubeIframeAPIReady;
+  window.onYouTubeIframeAPIReady = function () {
+    if (typeof prev === 'function') prev();
+    _ytApiState = 'ready';
+    _ytReadyCbs.splice(0).forEach(f => { try { f(); } catch (e) {} });
+  };
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+}
+
+function formatTimestamp(sec) {
+  if (sec == null || isNaN(sec)) return '';
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const mm = (h ? String(m).padStart(2, '0') : String(m));
+  return (h ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+}
+// Accepts "h:mm:ss", "mm:ss", or plain seconds; returns whole seconds or null.
+function parseTimestamp(str) {
+  if (str == null) return null;
+  str = String(str).trim();
+  if (!str) return null;
+  if (/^\d+$/.test(str)) return parseInt(str, 10);
+  const parts = str.split(':').map(p => p.trim());
+  if (!parts.every(p => /^\d+$/.test(p))) return null;
+  return parts.reduce((acc, p) => acc * 60 + parseInt(p, 10), 0);
+}
+
+// Bakes the current localStorage data (setup + lines, both scoped to this
+// team) into a fresh copy of the pristine report HTML and downloads it. The
+// injected seed runs before the main report script and only writes a key the
+// recipient doesn't already have, so opening the file preloads everything the
+// sharer entered without clobbering a recipient's own work on the same team.
+// The file stays fully self-contained -- no server, no separate import.
+function buildDistributableHtml(opts) {
+  opts = opts || {};
+  const seed = {};
+  [setupStorageKey(), linesStorageKey(), annotationsStorageKey()].forEach(k => {
+    const v = localStorage.getItem(k);
+    if (v !== null) seed[k] = v;
+  });
+  // < keeps any "<" in the data (e.g. a stray character in a label) from
+  // being read as markup once this sits inside a <script> tag.
+  const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
+  let inject = '<script>(function(){try{var d=' + seedJson +
+    ';for(var k in d){if(localStorage.getItem(k)===null){localStorage.setItem(k,d[k]);}}}catch(e){}})();<\/script>\n';
+  // Mode flags must be set before the report script reads VIEWER_MODE / TAGONLY_GAME.
+  if (opts.viewer) inject = '<script>window.__STATTO_VIEWER__=true;<\/script>\n' + inject;
+  if (opts.tagOnlyGame != null) inject = '<script>window.__STATTO_TAGONLY_GAME__=' + Number(opts.tagOnlyGame) + ';<\/script>\n' + inject;
+  const marker = '<script id="report-data"';
+  let html = PRISTINE_DOC_HTML;
+  return html.indexOf(marker) !== -1
+    ? html.replace(marker, inject + marker)
+    : html.replace('<\/body>', inject + '<\/body>');
+}
+
+// Locked-down viewer for the team -- Set up hidden, Data Editor reduced to a
+// read-only "Film Clips" browser (Line Analysis stays editable).
+function publishForTeam() {
+  downloadFile(buildDistributableHtml({ viewer: true }), slug(REPORT.teamName) + '_team_report.html', 'text/html;charset=utf-8;');
+}
+
+// A stripped page for one game: only the Data Editor, locked to that game, for
+// handing to a helper to do the video tagging. They export their annotations
+// JSON and send it back; it's re-imported per game on the Set up tab.
+function downloadGameTaggingPage(gameIndex) {
+  const g = REPORT.games[gameIndex];
+  downloadFile(buildDistributableHtml({ tagOnlyGame: gameIndex }),
+    slug(REPORT.teamName) + '_tag_' + slug(g.opponent) + '.html', 'text/html;charset=utf-8;');
+}
+
+// The pass/block UUIDs that belong to one game -- used to (a) count how much of
+// a game is tagged and (b) filter a re-imported annotations file to just that
+// game, so a mis-sent file can't pollute other games.
+function gameAnnotationUUIDs(gameIndex) {
+  const set = new Set();
+  const g = REPORT.games[gameIndex];
+  (g.points || []).forEach(pt => {
+    (pt.passes || []).forEach(p => { if (p.uuid) set.add(p.uuid); });
+    (pt.blocks || []).forEach(b => { if (b.uuid) set.add(b.uuid); });
+  });
+  return set;
+}
+function gameTaggedCount(gameIndex) {
+  const ann = loadAnnotations();
+  let n = 0;
+  gameAnnotationUUIDs(gameIndex).forEach(uuid => { if (ann.passes[uuid] || ann.blocks[uuid]) n++; });
+  return n;
+}
+function importGameAnnotationsFile(gameIndex, file, onDone) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      // Allow this game's pass/block UUIDs plus its per-possession defensive-
+      // scheme keys ("<pointUUID>#d<n>"), so a wrong file can't touch others.
+      const allowed = gameAnnotationUUIDs(gameIndex);
+      (REPORT.games[gameIndex].points || []).forEach(pt => {
+        if (!pt.uuid) return;
+        for (let d = 1; d <= (pt.defensivePossessions || 0); d++) {
+          allowed.add(pt.uuid + '#d' + d);
+          allowed.add(pt.uuid + '#o' + d);
+        }
+        allowed.add(pt.uuid + '#pull');
+      });
+      const ann = loadAnnotations();
+      let n = 0;
+      const merge = (target, incoming) => {
+        if (!incoming || typeof incoming !== 'object') return;
+        Object.keys(incoming).forEach(uuid => {
+          if (!allowed.has(uuid) || !incoming[uuid]) return;
+          target[uuid] = Object.assign({}, target[uuid], incoming[uuid]);
+          n++;
+        });
+      };
+      merge(ann.passes, parsed.passes);
+      merge(ann.blocks, parsed.blocks);
+      merge(ann.points, parsed.points);
+      saveAnnotations(ann);
+      onDone(n);
+    } catch (e) { alert('Could not read that annotations file.'); }
+  };
+  reader.readAsText(file);
+}
 
 // Both curated lines and any custom tournament names travel together --
 // one localStorage entry, and one exported lines.json covers both.
@@ -2664,6 +4050,7 @@ function computeLineStats(pointKeys, selectedGameIndices) {
   let offensePlayed = 0, defensePlayed = 0;
   let cleanHolds = 0, dirtyHolds = 0, breaks = 0, cleanBreaks = 0, pointsWon = 0;
   let assistAttempts = 0, assists = 0;
+  let leverageSum = 0;
   const ppNumer = { total: 0, offense: 0, defense: 0 };
   const ppDenom = { total: 0, offense: 0, defense: 0 };
 
@@ -2682,6 +4069,7 @@ function computeLineStats(pointKeys, selectedGameIndices) {
       if (scored) { breaks++; if (!hadTurnover) cleanBreaks++; }
     }
     if (scored) pointsWon++;
+    leverageSum += (pt.leverage || 0);
 
     let ptThrows = 0, ptCompletions = 0, ptHuckAttempts = 0, ptHuckCompletions = 0;
     const assistPass = passes.find(p => p.assist);
@@ -2739,6 +4127,7 @@ function computeLineStats(pointKeys, selectedGameIndices) {
 
   return {
     pointsPlayed: points.length,
+    avgLeverage: points.length ? Math.round((leverageSum / points.length) * 100) / 100 : null,
     offensePlayed, defensePlayed,
     holds, holdRate: pct(holds, offensePlayed),
     breaks, breakRate: pct(breaks, defensePlayed),
@@ -2796,6 +4185,7 @@ function computeLineFieldData(pointKeys, selectedGameIndices, categories) {
 
 const LINE_ROWS = [
   { label: 'Points played', get: l => l.pointsPlayed },
+  { label: 'Avg point leverage', get: l => l.avgLeverage },
   { label: 'Offensive points', get: l => l.offensePlayed },
   { label: 'Defensive points', get: l => l.defensePlayed },
   { label: 'Points won', main: l => fmtPct(l.pointsWonRate), sub: l => `${l.pointsWon}/${l.pointsPlayed}` },
@@ -2814,10 +4204,15 @@ function buildLineAnalysisSection() {
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Line Analysis')]));
   section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Detect recurring 7-person lineups, name them, then compare them like players.')]));
 
-  const TOURNAMENTS = identifyTournaments();
+  // Tournaments are now configured on the Set up tab (getTournaments); this
+  // tab just consumes them. Labels live there too, so there's no rename UI
+  // here anymore.
+  const TOURNAMENTS = getTournaments();
   const savedData = loadLinesData();
   let lines = savedData.lines;
-  let tournamentLabels = savedData.tournamentLabels; // tournament id -> custom name
+  // Carried through save/import untouched so any pre-existing custom labels in
+  // an older lines.json aren't destroyed, even though they're no longer edited here.
+  let tournamentLabels = savedData.tournamentLabels;
   let selectedGames = REPORT.games.map((g, i) => i);
   // Rosters often differ tournament to tournament, so a line's identity can
   // either span the whole season ('across', tournamentId: null on the line)
@@ -2872,15 +4267,8 @@ function buildLineAnalysisSection() {
   function persist() { saveLinesData(lines, tournamentLabels); }
   function renderAll() { renderManagement(); renderCompare(); }
 
-  // Display name for a tournament: the user's custom name with the default
-  // date range kept for context -- "Regionals (Jul 10–11)". Falling back to
-  // the plain date-based label keeps these unique even if two tournaments
-  // get typed the same custom name.
-  function tournamentDisplay(t) {
-    const custom = (tournamentLabels[t.id] || '').trim();
-    if (!custom) return t.label;
-    return custom + ' (' + t.label.replace(' Tournament', '') + ')';
-  }
+  // The tournament's configured label from the Set up tab.
+  function tournamentDisplay(t) { return t.label; }
 
   function buildConfirmedLineRow(line) {
     const row = el('div', { class: 'line-confirmed' }, []);
@@ -3107,23 +4495,9 @@ function buildLineAnalysisSection() {
   function buildScopeManagementBlock(scope) {
     const block = el('div', { class: 'line-scope-block' }, []);
     if (scope.tournament) {
-      // The tournament heading doubles as its rename field: type a custom
-      // name ("Regionals") or clear it to fall back to the date-based
-      // default. Saved alongside the lines themselves -- same localStorage
-      // entry, same exported lines.json.
-      const t = scope.tournament;
-      const labelInput = el('input', { type: 'text', class: 'line-name-input line-scope-title-input', placeholder: t.label }, []);
-      labelInput.value = tournamentLabels[t.id] || '';
-      labelInput.addEventListener('change', () => {
-        const v = labelInput.value.trim();
-        if (v) tournamentLabels[t.id] = v; else delete tournamentLabels[t.id];
-        persist();
-        renderTournamentSelector();
-        renderAll();
-      });
+      // Tournament name comes from the Set up tab now (rename it there).
       block.appendChild(el('div', { class: 'line-scope-title-row' }, [
-        labelInput,
-        el('span', { class: 'line-scope-dates' }, [document.createTextNode(t.label)]),
+        el('span', { class: 'line-scope-title' }, [document.createTextNode(scope.tournament.label)]),
       ]));
     }
 
@@ -3249,6 +4623,9 @@ function buildLineAnalysisSection() {
       const entities = selectedLines.map(l => Object.assign({ name: displayName(l) }, computeLineStats(l.pointKeys, selectedGames)));
 
       contentArea.appendChild(buildComparisonTable(LINE_ROWS, entities, 'name'));
+      contentArea.appendChild(el('p', { class: 'pitch-caption' }, [
+        document.createTextNode('Avg point leverage is the mean Leverage (0–10) across a line’s points — a line that only sees the field when the game is already decided will read lower here than one that gets deployed in close, high-stakes moments, even at the same points-played total.'),
+      ]));
 
       contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Scoring Efficiency')]));
       const gaugeGrid = el('div', { class: 'impact-grid' }, []);
@@ -3781,7 +5158,7 @@ function buildPairComparisonSection(pairs, gameIndices) {
       // independent of the category filter above -- it's showing the
       // connection's overall direction tendency, not one outcome slice of it.
       r.roseWrap.innerHTML = '';
-      r.roseWrap.appendChild(buildRoseChart(computeDirectionBins(tagged, 'thrower'), 130, 'var(--chalk)'));
+      r.roseWrap.appendChild(buildRoseChart(computeDirectionBins(tagged, 'thrower'), 130, 'var(--chalk)', 'Throws'));
     });
   }
 
@@ -3819,9 +5196,22 @@ function buildThrowerReceiverSection() {
   const compareWrap = el('div', {}, []);
   section.appendChild(compareWrap);
 
-  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('All pairs data')]));
+  const tableToggleBtn = el('button', { type: 'button', class: 'section-title-toggle' }, [
+    document.createTextNode('All pairs data'),
+    el('span', { class: 'section-title-toggle-arrow' }, [document.createTextNode('▸')]),
+  ]);
+  section.appendChild(tableToggleBtn);
   const tableWrap = el('div', {}, []);
+  // Collapsed by default -- the big sortable table duplicates the Compare
+  // Pairs table above for anyone who just wants to browse, not something a
+  // first-time visitor needs open immediately.
+  tableWrap.style.display = 'none';
   section.appendChild(tableWrap);
+  tableToggleBtn.addEventListener('click', () => {
+    const collapsed = tableWrap.style.display === 'none';
+    tableWrap.style.display = collapsed ? '' : 'none';
+    tableToggleBtn.classList.toggle('expanded', collapsed);
+  });
 
   let selectedGames = REPORT.games.map((g, i) => i);
   let pairStats = [];
@@ -3924,11 +5314,11 @@ const PASS_EXPORT_COLUMNS = [
   'opponent', 'date', 'pointNumber', 'possession', 'thrower', 'receiver',
   'startX', 'startY', 'endX', 'endY', 'completed', 'throwerError', 'receiverError',
   'assist', 'secondaryAssist', 'gainYards', 'distYards', 'isHuckAttempt', 'isAssistAttempt',
-  'pointIsOffense', 'pointScored', 'pointResult',
+  'pointIsOffense', 'pointScored', 'pointResult', 'pointLeverage',
 ];
 const POINT_EXPORT_COLUMNS = [
   'opponent', 'date', 'pointNumber', 'isOffense', 'scored', 'result',
-  'ourScoreBefore', 'oppScoreBefore', 'assist', 'secondaryAssist', 'goal',
+  'ourScoreBefore', 'oppScoreBefore', 'leverage', 'assist', 'secondaryAssist', 'goal',
   'passCount', 'blockCount', 'lineup',
 ];
 const BLOCK_EXPORT_COLUMNS = [
@@ -3953,6 +5343,7 @@ function passRowsForExport(gameIndices) {
           gainYards: Math.round(gain * 100) / 100, distYards: Math.round(dist * 100) / 100,
           isHuckAttempt: gain >= IMPACT_HUCK_YD, isAssistAttempt: p.endY < ENDZONE_FRAC,
           pointIsOffense: pt.isOffense, pointScored: pt.scored, pointResult: pt.result,
+          pointLeverage: pt.leverage,
         });
       });
     });
@@ -3971,7 +5362,7 @@ function pointRowsForExport(gameIndices) {
       rows.push({
         opponent: game.opponent, date: game.dateDisplay,
         pointNumber: pt.number, isOffense: pt.isOffense, scored: pt.scored, result: pt.result,
-        ourScoreBefore: pt.ourScoreBefore, oppScoreBefore: pt.oppScoreBefore,
+        ourScoreBefore: pt.ourScoreBefore, oppScoreBefore: pt.oppScoreBefore, leverage: pt.leverage,
         assist: pt.assist, secondaryAssist: pt.secondaryAssist, goal: pt.goal,
         passCount: (pt.passes || []).length, blockCount: (pt.blocks || []).length,
         lineup: (pt.lineup || []).map(e => e.player).join('; '),
@@ -4047,16 +5438,21 @@ const RAW_DATA_GLOSSARY = {
   'Offensive utilization': 'Of the points a player was on the field for that either started on offense or where their line got a block, the percentage where they recorded at least one touch.',
   'Scoring efficiency (Per Point / Per Possession / First Possession)': 'Three ways of measuring conversion rate -- by point, by individual possession (a point with a turnover-and-recovery has more than one), or restricted to clean, first-try conversions only.',
   'Plus/minus': 'Goals + assists - turnovers.',
+  'Leverage': "How much a single point's outcome could swing the game's eventual result, on a 0-10 scale (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = a game already decided, e.g. a big blowout). Modeled as a fair (50/50) race to this game's actual final winning score, with a square-root reshape so mid-to-late-game situations (e.g. tied with just a couple points left) read as meaningfully important rather than compressed near the bottom -- see the 'leverage' formula below for the exact computation.",
+  'High-leverage points played': "How many of a player's points had Leverage >= 7 (0-10 scale) -- points close to a coin flip on the game's outcome, typically late and close, as opposed to raw points played which counts every point regardless of how much it mattered.",
 };
 
 const RAW_DATA_NOTES = [
   'Coordinate system: startX/startY/endX/endY on every pass are fractions from 0 to 1 of the field. Y decreases toward the attacking endzone (Y=0 is inside it, Y=1 is this team’s own endzone); X is field width and has no directional meaning.',
-  'A pass is "completed" when both throwerError and receiverError are false. throwerError is the thrower’s own mistake (a bad throw); receiverError is a drop. They are mutually exclusive.',
+  'A pass is "completed" when both throwerError and receiverError are false. throwerError is the thrower’s own mistake (a bad throw); receiverError is a drop. A single turnover can be flagged as BOTH (shared blame) -- in that case the report charges the thrower 0.5 of a throwaway and the receiver 0.5 of a drop, so it still totals one turnover; per-player throwerErrors/receiverErrors/turnovers/plusMinus can therefore be half-integers.',
   '"assist" flags the pass that directly led to a goal; "secondaryAssist" flags the pass immediately before it.',
   'On a point: isOffense = this team started the point with the disc, trying to score ("O-point"); false = defense ("D-point"). scored / result=1 = this team scored that point; result=-1 = the opponent scored.',
   'Blocks are this team’s own defensive plays (turnovers forced on the opponent); locationX/locationY is where the block happened.',
   'Statto only records this team’s own actions -- a point the opponent won by simply holding their own possession has zero recorded passes for that point, so point and score counts should always come from the points data, never by counting passes.',
   'Player names (not IDs) are the join key across points, passes, blocks, lineup, and boxScore within this export.',
+  'roster (top level) lists every player who appears in a box score this season, with hasPhoto and photoFile. Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
+  'pullEvents (top level, separate from games) is a manually video-tagged list, one entry per defensive point that has been tagged: who pulled and where our pull landed. puller is the player name (or null if untagged). landX/landY are 0-1 field fractions in the same coordinate system as passes (null when outOfBounds is true, or when a spot wasn’t marked); outOfBounds=true means the pull sailed out. It is only present for points a tagger has marked, so it may be empty or cover only some defensive points.',
+  'opponentTurnoverEvents (top level) is the other manually video-tagged list: opponent turnovers that were NOT one of our blocks (those are in games[].points[].blocks). Statto records nothing for them, so each is inferred as an opponent possession we won the disc back from, identified by pointNumber + opponentPossession (their n-th offensive possession that point); type is one of Huck turnover / Throwing error / Receiver error, or null if untagged. Like pullEvents, only tagged ones appear.',
   'See "glossary" above for definitions of Huck, Red zone, Clean/Dirty hold, and the other Statto-specific terms used throughout this data.',
 ].join(' ');
 
@@ -4123,6 +5519,8 @@ const RAW_DATA_FORMULAS = {
   redZoneEntry: 'the pass ORIGINATES at startY < 20/110 of the attacking endzone -- a pass that merely lands in the red zone from farther out does not count',
   catchCompletionPct: 'catches / (catches + receiverErrors)   // deliberately excludes throwerErrors from the denominator -- a receiver’s catch rate shouldn’t be dinged for a bad throw they never had a chance at',
   plusMinus: 'goals + assists - turnovers   // turnovers = throwerErrors + receiverErrors',
+  leverage: 'a fair race-to-N win probability model, where N = this game’s actual final winning score and each point is an independent 50/50 coin flip. WP(i,j) = P(reach N before the opponent) from score state (i,j), via WP(i,j) = 0.5*WP(i+1,j) + 0.5*WP(i,j+1), boundary WP(N,j)=1 / WP(i,N)=0. rawSwing = abs(WP(ourScoreBefore+1, oppScoreBefore) - WP(ourScoreBefore, oppScoreBefore+1)) -- how far apart the two possible outcomes of this specific point are in win probability. leverage(point) = 10 * sqrt(rawSwing). The sqrt is a deliberate reshape, not part of the probability math: rawSwing alone decays like 1/sqrt(points remaining) for a tied score approaching the target, which on a straight *10 scale crushes everything short of the last point or two into single digits -- e.g. for a race to 15, tied 13-13 has exactly half the rawSwing of double-game-point 14-14. sqrt spreads that back out while keeping the double-game-point at exactly 10 and a decided blowout at ~0. p=0.5 is intentional: this measures game-state importance (score, points remaining), not team strength.',
+  highLeveragePointsPlayed: 'count of a player’s points with point.leverage >= 7 (0-10 scale) -- for player p: count(point for point in game.points if p in point.lineup and point.leverage >= 7, across whatever games are in scope).',
   throwerReceiverPair: 'group passes[] by (thrower, receiver) across whatever games/players the question needs: n = count, completed = count where completedPass, totalYards = sum of straight-line pass distance (Math.hypot((startX-endX)*40, (startY-endY)*110) yards), totalForwardYards = sum of max(0, (startY-endY)*110).',
   combiningRatesAcrossGames: 'GOTCHA: when combining a rate stat (scoring efficiency, hold rate, completion %, ...) across more than one game, sum the underlying counts first and divide once -- never average the per-game percentages. Games have different point/possession counts, so an unweighted average of percentages silently misrepresents the combined rate. Each game’s summary.scoringEfficiency.*.* already carries numer/denom for exactly this reason.',
 };
@@ -4142,6 +5540,62 @@ function rawDataSelectionMeta(gameIndices) {
   };
 }
 
+// Pull events are a video-tagging annotation (kept in localStorage, not in the
+// baseline REPORT), one per defensive point: where our pull landed. Collected
+// here so the machine-readable export carries them alongside the game data.
+function collectPullEvents(gameIndices) {
+  const points = (loadAnnotations().points) || {};
+  const out = [];
+  gameIndices.forEach(gi => {
+    const g = REPORT.games[gi];
+    (g.points || []).forEach(pt => {
+      if (pt.isOffense || !pt.uuid) return; // pulls only happen on our defensive points
+      const rec = points[pt.uuid + '#pull'];
+      if (!rec) return;
+      out.push({
+        opponent: g.opponent,
+        date: g.dateDisplay,
+        pointNumber: pt.number,
+        puller: rec.puller || null,
+        outOfBounds: !!rec.outOfBounds,
+        landX: (!rec.outOfBounds && rec.landX != null) ? rec.landX : null,
+        landY: (!rec.outOfBounds && rec.landY != null) ? rec.landY : null,
+        notes: rec.notes || null,
+        videoTimestampSec: (rec.timestamp != null ? rec.timestamp : null),
+      });
+    });
+  });
+  return out;
+}
+
+// Opponent turnovers that weren't our blocks are synthesized events too (see
+// the Data Editor's buildSteps): Statto records nothing for them, so a tagged
+// one only exists in the annotations store. Same collection treatment as pulls.
+function collectOppTurnoverEvents(gameIndices) {
+  const points = (loadAnnotations().points) || {};
+  const out = [];
+  gameIndices.forEach(gi => {
+    const g = REPORT.games[gi];
+    (g.points || []).forEach(pt => {
+      if (!pt.uuid) return;
+      for (let d = 1; d <= (pt.defensivePossessions || 0); d++) {
+        const rec = points[pt.uuid + '#o' + d];
+        if (!rec) continue;
+        out.push({
+          opponent: g.opponent,
+          date: g.dateDisplay,
+          pointNumber: pt.number,
+          opponentPossession: d,
+          type: rec.oppTurnover || null,
+          notes: rec.notes || null,
+          videoTimestampSec: (rec.timestamp != null ? rec.timestamp : null),
+        });
+      }
+    });
+  });
+  return out;
+}
+
 function buildRawDataExportJSON(gameIndices) {
   const meta = rawDataSelectionMeta(gameIndices);
   return {
@@ -4154,7 +5608,16 @@ function buildRawDataExportJSON(gameIndices) {
     styleGuide: RAW_DATA_STYLE_GUIDE,
     formulas: RAW_DATA_FORMULAS,
     games: meta.games,
+    // Names are the join key everywhere in this export; roster[] is the one
+    // place that also says whether a player has a photo and what it's called
+    // inside the companion player-photos ZIP.
+    roster: allPlayerNames().map(name => {
+      const has = !!(loadSetupData().playerPhotos || {})[name];
+      return { name, hasPhoto: has, photoFile: has ? 'photos/' + slug(name) + '.png' : null };
+    }),
     seasonLeaderboardForSelection: aggregateSeasonStats(gameIndices),
+    pullEvents: collectPullEvents(gameIndices),
+    opponentTurnoverEvents: collectOppTurnoverEvents(gameIndices),
   };
 }
 
@@ -4283,6 +5746,17 @@ The JSON has these top-level sections:
     by combined/offense/defense, and three scoring-efficiency views
 - \`seasonLeaderboardForSelection[]\` — the same kind of per-player stats as
   each game's \`boxScore\`, but totaled across every game in this export
+- \`roster[]\` — every player, with \`hasPhoto\` and \`photoFile\`. Photos are
+  deliberately **not** embedded in the JSON (base64 images would add
+  megabytes to a file meant to be pasted into a chat, and can't be viewed
+  out of a string field anyway). They come as a separate
+  \`${slug(REPORT.teamName)}_player_photos.zip\` from the same Raw Data tab,
+  where each file is named exactly as \`photoFile\` says. If you were handed
+  that ZIP too, use it to put faces to names — in a scouting one-pager, a
+  season-awards graphic, or player cards. If not, ignore \`roster[]\`.
+- \`pullEvents[]\` / \`opponentTurnoverEvents[]\` — video-tagged events that
+  exist nowhere in the underlying Statto data; only present for games
+  somebody has tagged
 - \`glossary\` / \`notes\` / \`styleGuide\` / \`formulas\` — the same reference
   material as the sections below, duplicated inside the JSON itself in case
   this file gets separated from it
@@ -4294,8 +5768,12 @@ The JSON has these top-level sections:
   inside it, Y=1 is this team's own endzone); X is field width and has no
   directional meaning.
 - A pass is "completed" when both \`throwerError\` and \`receiverError\` are
-  false. \`assist\` flags the pass that directly led to a goal;
-  \`secondaryAssist\` flags the pass immediately before it.
+  false. A single turnover can be flagged as **both** (shared blame); when
+  that happens the report charges 0.5 of a throwaway and 0.5 of a drop, so
+  per-player \`throwerErrors\`/\`receiverErrors\`/\`turnovers\`/\`plusMinus\`
+  can be half-integers while team turnover totals stay whole. \`assist\`
+  flags the pass that directly led to a goal; \`secondaryAssist\` flags the
+  pass immediately before it.
 - On a point: \`isOffense\` = this team started the point with the disc,
   trying to score ("O-point"); false = defense ("D-point"). \`scored\` /
   \`result=1\` = this team scored that point; \`result=-1\` = the opponent did.
@@ -4493,6 +5971,25 @@ function buildRawDataSection() {
   ));
   exportPairGrid.appendChild(mdCard);
 
+  // Photos ship as a ZIP rather than inside the JSON: base64-ing 256px PNGs
+  // into a text file would add megabytes to an export meant to be pasted into
+  // a chat, and an LLM can't view an image out of a JSON string field anyway.
+  // The JSON's roster[] carries each player's photoFile name so the two line up.
+  const photoCard = el('div', { class: 'export-card' }, [
+    el('div', { class: 'export-card-title' }, [document.createTextNode('Player photos (ZIP)')]),
+    el('p', { class: 'export-card-desc' }, [document.createTextNode('One PNG per player, named after them (photos/first_last.png) — the filenames match the roster[].photoFile field in the JSON, so an LLM or a slide deck can pair a face to a name.')]),
+  ]);
+  const photoCaption = el('p', { class: 'export-card-count' }, []);
+  photoCard.appendChild(photoCaption);
+  const photoBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Download photos (.zip)')]);
+  photoBtn.addEventListener('click', () => {
+    const files = playerPhotoFiles();
+    if (!files.length) return;
+    downloadFile(buildZip(files), `${slug(REPORT.teamName)}_player_photos.zip`, 'application/zip');
+  });
+  photoCard.appendChild(el('div', { class: 'controls-row' }, [photoBtn]));
+  exportPairGrid.appendChild(photoCard);
+
   function renderCounts() {
     captionEntries.forEach(({ def, caption }) => {
       const n = def.rowsFn(selectedGames).length;
@@ -4502,6 +5999,12 @@ function buildRawDataSection() {
     jsonCaption.textContent = `~${jsonKB.toLocaleString()} KB across ${selectedGames.length} game${selectedGames.length === 1 ? '' : 's'}`;
     const mdKB = Math.round(buildRawDataMarkdown(selectedGames).length / 1024);
     mdCaption.textContent = `~${mdKB.toLocaleString()} KB, same games as above`;
+    const files = playerPhotoFiles();
+    const photoKB = Math.round(files.reduce((s, f) => s + f.data.length, 0) / 1024);
+    photoBtn.disabled = files.length === 0;
+    photoCaption.textContent = files.length
+      ? `${files.length} photo${files.length === 1 ? '' : 's'}, ~${photoKB.toLocaleString()} KB`
+      : 'No player photos set yet — add them on the Set up tab.';
   }
 
   controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; renderCounts(); }));
@@ -4509,17 +6012,1186 @@ function buildRawDataSection() {
   return section;
 }
 
+// ---------- Taggable events ----------
+// Every taggable event in one point, in the order it happened. Shared by the
+// Data Editor's stepper and the Query pane so the two always agree on what
+// exists and -- for the synthesized events (pull, defensive possession,
+// opponent turnover) -- on the annotation key each one is stored under.
+function buildPointEvents(pt) {
+  const out = [];
+  // Every defensive point opens with a Pull (our pull to the opponent), ahead
+  // of the first defensive-possession/scheme event.
+  if (!pt.isOffense) out.push({ kind: 'pull', pt, uuid: pt.uuid + '#pull' });
+  // Interleave our offensive possessions (their passes) with the opponent's
+  // offensive possessions (= our defensive possessions), in chronological
+  // order: the disc starts with whoever received the pull (isOffense) and
+  // flips on every turnover. Each defensive possession becomes its own event
+  // so it can be tagged with its scheme -- and a clean opponent hold (no
+  // passes, no blocks of ours) stays reachable rather than being skipped.
+  const passesByPoss = new Map();
+  (pt.passes || []).forEach(p => {
+    if (!p.uuid) return;
+    if (!passesByPoss.has(p.possession)) passesByPoss.set(p.possession, []);
+    passesByPoss.get(p.possession).push(p);
+  });
+  const ourPossNums = [...passesByPoss.keys()].sort((a, b) => a - b);
+  const defCount = pt.defensivePossessions || 0;
+  // Blocks bucketed by how many of our possessions preceded them (from
+  // stats.py), so each block lands mid-point -- right after the opponent
+  // possession it ended and before the possession it handed us -- instead of
+  // all being dumped at the end of the point.
+  const blocksBefore = new Map();
+  (pt.blocks || []).forEach(b => {
+    if (!b.uuid) return;
+    const gi = (b.afterOurPossessions != null) ? b.afterOurPossessions : ourPossNums.length;
+    if (!blocksBefore.has(gi)) blocksBefore.set(gi, []);
+    blocksBefore.get(gi).push(b);
+  });
+  const emitBlocksBefore = (gi) => {
+    const list = blocksBefore.get(gi) || [];
+    list.forEach(b => out.push({ kind: 'block', pt, item: b, uuid: b.uuid }));
+    blocksBefore.delete(gi);
+    return list.length;
+  };
+  // Every opponent possession we won the disc back from ended in a turnover:
+  // either one of our blocks (a recorded event) or an unforced opponent error.
+  // Statto records nothing at all for the latter, so we synthesize the event
+  // here. Held pending until we see whether a block claimed it.
+  let ourIdx = 0, defIdx = 0;
+  let pendingOppTurn = null;
+  // Settles the pending turnover: if a block of ours is waiting at this point
+  // in the flow, that block WAS the turnover; otherwise it was unforced and we
+  // emit the synthesized event. Resolving the block here (rather than only on
+  // the way into one of our possessions) matters when we won the disc back but
+  // recorded no passes with it -- an immediate re-turnover leaves no possession
+  // to hang the block off, and the turnover would otherwise be double-counted.
+  const flushOppTurn = () => {
+    if (pendingOppTurn == null) return;
+    const n = pendingOppTurn;
+    pendingOppTurn = null;
+    if (emitBlocksBefore(ourIdx)) return;
+    out.push({ kind: 'oppTurn', pt, defN: n, uuid: pt.uuid + '#o' + n });
+  };
+  let turn = pt.isOffense ? 'us' : 'them';
+  const total = ourPossNums.length + defCount;
+  for (let s = 0; s < total; s++) {
+    const takeUs = (turn === 'us') ? (ourIdx < ourPossNums.length) : (defIdx >= defCount);
+    if (takeUs) {
+      flushOppTurn();
+      emitBlocksBefore(ourIdx); // any further blocks bucketed at this possession
+      passesByPoss.get(ourPossNums[ourIdx]).forEach(p => out.push({ kind: 'pass', pt, item: p, uuid: p.uuid }));
+      ourIdx++;
+      turn = 'them';
+    } else {
+      flushOppTurn();
+      defIdx++;
+      out.push({ kind: 'def', pt, defN: defIdx, uuid: pt.uuid + '#d' + defIdx });
+      // The opponent's last possession of a point they scored ended in a goal,
+      // not a turnover -- every other one gave us the disc back.
+      pendingOppTurn = (pt.result === -1 && defIdx === defCount) ? null : defIdx;
+      turn = 'us';
+    }
+  }
+  flushOppTurn();
+  // Any blocks after our last recorded possession (or missing order info).
+  [...blocksBefore.keys()].sort((a, b) => a - b).forEach(gi => emitBlocksBefore(gi));
+  return out;
+}
+
+// The stored annotation record for an event, whichever store it lives in.
+function annotationRecordFor(ann, ev) {
+  if (ev.kind === 'pass') return ann.passes[ev.uuid];
+  if (ev.kind === 'block') return ann.blocks[ev.uuid];
+  return (ann.points || {})[ev.uuid];  // pull / def / oppTurn
+}
+
+// ---------- Film tags on a game's point diagram ----------
+// The tag values stored on one annotation record, flattened to display strings
+// (a multi-select field like turnoverReason holds an array).
+function filmTagValues(rec, keys) {
+  const out = [];
+  if (!rec) return out;
+  keys.forEach(k => {
+    const v = rec[k];
+    if (Array.isArray(v)) { if (v.length) out.push(v.join(' + ')); }
+    else if (v) out.push(v);
+  });
+  return out;
+}
+const FILM_PASS_TAG_KEYS = ['hand', 'release', 'distance', 'stall', 'catch', 'highlight', 'turnoverReason'];
+
+// How one tagged event reads in the film strip: a short kind label, who/what it
+// was, and its tag values. Kept in one place so the strip and the diagram
+// tooltips describe an event the same way.
+function filmEventDescriptor(ev, rec) {
+  if (ev.kind === 'pass') {
+    const p = ev.item;
+    return { kind: 'Pass', main: `${p.thrower || '?'} → ${p.receiver || '?'}`, tags: filmTagValues(rec, FILM_PASS_TAG_KEYS) };
+  }
+  if (ev.kind === 'block') {
+    return { kind: 'Block', main: ev.item.player || '?', tags: filmTagValues(rec, ['type']) };
+  }
+  if (ev.kind === 'pull') {
+    const landing = rec.outOfBounds ? 'Out-of-bounds' : (rec.landX != null ? 'In-bounds' : null);
+    return { kind: 'Pull', main: rec.puller || 'Pull', tags: landing ? [landing] : [] };
+  }
+  if (ev.kind === 'def') {
+    return { kind: 'Defence', main: `Their possession ${ev.defN}`, tags: filmTagValues(rec, ['defScheme']) };
+  }
+  return { kind: 'Opp TO', main: `Their possession ${ev.defN}`, tags: filmTagValues(rec, ['oppTurnover']) };
+}
+
+// The tagged events of one point, in the order they happened. Empty when
+// nothing in this point has been tagged -- which is the normal case until
+// someone works through the game in the Data Editor, so every caller treats an
+// empty result as "show nothing at all" rather than as an empty state.
+function pointFilmRows(point) {
+  const ann = loadAnnotations();
+  const rows = [];
+  buildPointEvents(point).forEach(ev => {
+    const rec = annotationRecordFor(ann, ev);
+    if (rec && Object.keys(rec).length) rows.push({ ev, rec });
+  });
+  return rows;
+}
+
+function youtubeTimestampUrl(vid, secs) {
+  return `https://www.youtube.com/watch?v=${vid}&t=${secs}s`;
+}
+
+// Every player who appears in a box score this season -- the candidate pullers.
+function allPlayerNames() {
+  const set = new Set();
+  REPORT.games.forEach(g => (g.boxScore || []).forEach(r => { if (r.player) set.add(r.player); }));
+  return [...set].sort();
+}
+
+// The event kinds the Query pane can list, with the filter dropdowns each one
+// offers and the noun used in its "N of M ..." summary line.
+const QUERY_KINDS = {
+  pass: { label: 'Passes', word: 'passes', filterKeys: ['hand', 'release', 'distance', 'stall', 'catch', 'highlight', 'turnoverReason'] },
+  block: { label: 'Blocks', word: 'blocks', filterKeys: ['type'] },
+  pull: { label: 'Pulls', word: 'pulls', filterKeys: ['landing', 'puller'] },
+  def: { label: 'D-possessions', word: 'defensive possessions', filterKeys: ['defScheme'] },
+  oppTurn: { label: 'Opp turnovers', word: 'opponent turnovers', filterKeys: ['oppTurnover'] },
+};
+
+// ---------- Data Editor: Query pane ----------
+// Reads the film annotations back out: filter tagged passes (or blocks) across
+// any games and get a clip list, each result deep-linking to that moment in
+// the game's YouTube video. Percentages are relative to the chosen outcome
+// population, so "set Outcome = Turnover, Release = Around, Hand = Backhand"
+// directly answers "what share of turnovers were around backhands".
+function buildAnnotationQueryPane() {
+  const pane = el('div', { class: 'de-query' }, []);
+  pane.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Filter your tagged events — passes, blocks, pulls, defensive possessions or opponent turnovers — across any games. Each result deep-links to the moment in that game’s video. The percentage is the share of every event of that kind in scope, so e.g. Pulls + Landing = Out-of-bounds reads directly as “what fraction of our pulls went out”.')]));
+
+  let selectedGames = REPORT.games.map((g, i) => i);
+  let showKind = 'pass';
+  const filters = {};
+
+  function labeled(labelText, node) {
+    return el('div', { class: 'de-qfield' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), node]);
+  }
+
+  const topRow = el('div', { class: 'de-query-top' }, []);
+  pane.appendChild(topRow);
+  topRow.appendChild(labeled('Games', buildGameFilterDropdown(idx => { selectedGames = idx; render(); })));
+  topRow.appendChild(labeled('Show', buildSegToggle(
+    Object.keys(QUERY_KINDS).map(k => ({ key: k, label: QUERY_KINDS[k].label })),
+    (k) => { showKind = k; buildFilterControls(); render(); }, showKind)));
+
+  const filterRow = el('div', { class: 'de-query-filters' }, []);
+  pane.appendChild(filterRow);
+
+  const summary = el('div', { class: 'de-query-summary' }, []);
+  const copyBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Copy timestamp links')]);
+  copyBtn.addEventListener('click', copyLinks);
+  pane.appendChild(el('div', { class: 'controls-row de-query-summary-row' }, [summary, copyBtn]));
+
+  const results = el('div', { class: 'de-query-results' }, []);
+  pane.appendChild(results);
+
+  let lastLinks = [];
+
+  function dropdown(labelText, options, key) {
+    const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('Any')])]);
+    options.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+    sel.value = filters[key] || '';
+    sel.addEventListener('change', () => { filters[key] = sel.value; render(); });
+    return labeled(labelText, sel);
+  }
+
+  function buildFilterControls() {
+    Object.keys(filters).forEach(k => delete filters[k]);
+    filterRow.innerHTML = '';
+    if (showKind === 'pass') {
+      // Outcome comes from the pass data itself (not a tag), so it re-scopes
+      // the denominator: "of the turnovers, how many were around backhands".
+      filterRow.appendChild(dropdown('Outcome', ['Completed', 'Turnover', 'Assist'], 'outcome'));
+      filterRow.appendChild(dropdown('Hand', ANNOTATION_VOCAB.hand, 'hand'));
+      filterRow.appendChild(dropdown('Release', ANNOTATION_VOCAB.release, 'release'));
+      filterRow.appendChild(dropdown('Distance', ANNOTATION_VOCAB.distance, 'distance'));
+      filterRow.appendChild(dropdown('Stall', ANNOTATION_VOCAB.stall, 'stall'));
+      filterRow.appendChild(dropdown('Catch', ANNOTATION_VOCAB.catch, 'catch'));
+      filterRow.appendChild(dropdown('Highlight', ANNOTATION_VOCAB.highlight, 'highlight'));
+      filterRow.appendChild(dropdown('Turnover reason', ANNOTATION_VOCAB.turnoverReason, 'turnoverReason'));
+    } else if (showKind === 'block') {
+      filterRow.appendChild(dropdown('Block type', BLOCK_VOCAB.type, 'type'));
+    } else if (showKind === 'pull') {
+      filterRow.appendChild(dropdown('Landing', ['In-bounds', 'Out-of-bounds'], 'landing'));
+      filterRow.appendChild(dropdown('Puller', allPlayerNames(), 'puller'));
+    } else if (showKind === 'def') {
+      filterRow.appendChild(dropdown('Defensive scheme', POINT_VOCAB.defScheme, 'defScheme'));
+    } else if (showKind === 'oppTurn') {
+      filterRow.appendChild(dropdown('Turnover type', POINT_VOCAB.oppTurnover, 'oppTurnover'));
+    }
+  }
+
+  function outcomeMatch(rec, val) {
+    if (!val) return true;
+    if (val === 'Turnover') return !!rec.turnover;
+    if (val === 'Assist') return !!rec.assist;
+    if (val === 'Completed') return !rec.turnover;
+    return true;
+  }
+  const OUTCOME_WORD = { Turnover: 'turnovers', Assist: 'assists', Completed: 'completed passes' };
+
+  // One row per event of the selected kind, tagged or not -- untagged ones are
+  // the denominator; only tagged ones become results.
+  function describe(ev, a) {
+    if (ev.kind === 'pass') {
+      const p = ev.item;
+      return {
+        main: `${p.thrower || '?'} → ${p.receiver || '?'}`,
+        outcome: p.assist ? 'Assist' : (p.throwerError && p.receiverError) ? 'Throwaway + drop' : p.throwerError ? 'Throwaway' : p.receiverError ? 'Drop' : 'Completed',
+        turnover: p.turnover, assist: p.assist,
+      };
+    }
+    if (ev.kind === 'block') return { main: `${ev.item.player || '?'} — block`, outcome: '' };
+    if (ev.kind === 'pull') {
+      return {
+        main: a.puller ? `${a.puller} — pull` : 'Pull',
+        outcome: a.outOfBounds ? 'Out-of-bounds' : (a.landX != null ? 'In-bounds' : ''),
+      };
+    }
+    if (ev.kind === 'def') return { main: `Defensive possession ${ev.defN}`, outcome: '' };
+    return { main: `Opponent turnover (their possession ${ev.defN})`, outcome: '' };
+  }
+
+  function gather() {
+    const ann = loadAnnotations();
+    const setup = loadSetupData();
+    const rows = [];
+    selectedGames.forEach(gi => {
+      const g = REPORT.games[gi];
+      const vid = parseYouTubeId(setup.videoLinks[gi]);
+      (g.points || []).forEach(pt => {
+        buildPointEvents(pt).forEach(ev => {
+          if (ev.kind !== showKind) return;
+          const a = annotationRecordFor(ann, ev) || {};
+          rows.push(Object.assign({ opponent: g.opponent, point: pt.number, a, vid, timestamp: a.timestamp }, describe(ev, a)));
+        });
+      });
+    });
+    return rows;
+  }
+
+  function tagMatch(a) {
+    return (QUERY_KINDS[showKind].filterKeys || []).every(k => {
+      if (!filters[k]) return true;
+      // Landing isn't a stored string -- it's read off the pull's coordinates.
+      if (k === 'landing') {
+        return filters[k] === 'Out-of-bounds' ? !!a.outOfBounds : (!a.outOfBounds && a.landX != null);
+      }
+      // turnoverReason can hold several values at once -- match if the
+      // selected reason is one of them (also accepts an older single-string
+      // tag from before multi-select).
+      const v = a[k];
+      if (Array.isArray(v)) return v.includes(filters[k]);
+      return v === filters[k];
+    });
+  }
+
+  function render() {
+    const all = gather();
+    const population = showKind === 'pass' ? all.filter(r => outcomeMatch(r, filters.outcome)) : all;
+    // Results are always actual clips (rows with at least one tag), so the
+    // list stays meaningful even with no tag filter set; the percentage still
+    // uses the full outcome population as its denominator.
+    const matches = population.filter(r => Object.keys(r.a).length > 0 && tagMatch(r.a));
+    const pop = population.length;
+    const pct = pop ? Math.round((matches.length / pop) * 1000) / 10 : 0;
+    const popWord = (showKind === 'pass' && filters.outcome) ? OUTCOME_WORD[filters.outcome] : QUERY_KINDS[showKind].word;
+    summary.textContent = `${matches.length} of ${pop} ${popWord} in scope (${pct}%)`;
+
+    results.innerHTML = '';
+    lastLinks = [];
+    if (!matches.length) {
+      results.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(`No tagged ${QUERY_KINDS[showKind].word} match — tag some in the Tag view, or loosen the filters.`)]));
+      copyBtn.disabled = true;
+      return;
+    }
+    matches.forEach(r => {
+      // Every stored tag value worth showing, minus the ones already spelled
+      // out in the row's own label (a pull's puller, a pull's landing).
+      const tags = [];
+      ['hand', 'release', 'distance', 'stall', 'catch', 'highlight', 'turnoverReason', 'type', 'defScheme', 'oppTurnover'].forEach(k => {
+        const v = r.a[k];
+        if (Array.isArray(v)) { if (v.length) tags.push(v.join(' + ')); }
+        else if (v) tags.push(v);
+      });
+      if (r.a.notes) tags.push('“' + r.a.notes + '”');
+      const label = `vs ${r.opponent} · Pt ${r.point} · ${r.main}` + (r.outcome ? ` · ${r.outcome}` : '');
+      const meta = el('span', { class: 'de-result-meta' }, [document.createTextNode(label)]);
+      const tagsEl = el('span', { class: 'de-result-tags' }, [document.createTextNode(tags.join(' · '))]);
+      let linkEl;
+      if (r.vid && r.timestamp != null) {
+        const url = `https://www.youtube.com/watch?v=${r.vid}&t=${r.timestamp}s`;
+        lastLinks.push(url);
+        linkEl = el('a', { class: 'de-result-link', href: url, target: '_blank', rel: 'noopener noreferrer' }, [document.createTextNode('▶ ' + formatTimestamp(r.timestamp))]);
+      } else {
+        linkEl = el('span', { class: 'de-result-nolink' }, [document.createTextNode(r.timestamp != null ? formatTimestamp(r.timestamp) + ' (no video)' : 'no timestamp')]);
+      }
+      results.appendChild(el('div', { class: 'de-result-row' }, [meta, tagsEl, linkEl]));
+    });
+    copyBtn.disabled = lastLinks.length === 0;
+  }
+
+  function copyLinks() {
+    if (!lastLinks.length) return;
+    const text = lastLinks.join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => {});
+    const orig = 'Copy timestamp links';
+    copyBtn.textContent = `Copied ${lastLinks.length} link${lastLinks.length === 1 ? '' : 's'}`;
+    setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+  }
+
+  buildFilterControls();
+  render();
+  return { pane, refresh: render };
+}
+
+// ---------- Data Editor ----------
+// Draws a point's passes/blocks with a single item focused (full colour) and
+// the rest dimmed, so you can see exactly which pass/block you're tagging. No
+// entrance animation -- stepping needs to feel instant.
+function renderEditorItem(routeLayer, point, focus) {
+  routeLayer.innerHTML = '';
+  (point.passes || []).forEach(p => {
+    const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
+    const x2 = p.endX * PITCH_W, y2 = p.endY * PITCH_H;
+    const isFocus = focus.kind === 'pass' && p.uuid === focus.uuid;
+    let stroke = '#F3F1E9', markerEnd = 'url(#arrowhead)', width = 2, dash = '0';
+    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p); dash = '3 3'; }
+    else if (p.assist) { stroke = '#FFB800'; markerEnd = 'url(#arrowhead-goal)'; width = 3; }
+    const line = svgEl('line', {
+      x1, y1, x2, y2, stroke, 'stroke-width': isFocus ? width + 1.5 : width,
+      'marker-end': markerEnd, 'stroke-dasharray': dash === '0' ? 'none' : dash,
+      opacity: isFocus ? 1 : 0.22,
+    });
+    routeLayer.appendChild(line);
+    attachPassHover(routeLayer, x1, y1, x2, y2, p);
+    if (isFocus) {
+      routeLayer.appendChild(svgEl('circle', { cx: x1, cy: y1, r: 4, fill: '#0E2426', stroke, 'stroke-width': 1.6 }));
+      routeLayer.appendChild(svgEl('circle', { cx: x2, cy: y2, r: 4, fill: stroke, stroke: '#0E2426', 'stroke-width': 1.2 }));
+    }
+  });
+  (point.blocks || []).forEach(b => {
+    const cx = b.locationX * PITCH_W, cy = b.locationY * PITCH_H;
+    const isFocus = focus.kind === 'block' && b.uuid === focus.uuid;
+    // On a defensive-possession step our blocks are the relevant plays, so
+    // keep them full-strength even though no single one is "focused".
+    const emphasize = isFocus || focus.kind === 'def';
+    if (isFocus) routeLayer.appendChild(svgEl('circle', { cx, cy, r: 9, fill: 'none', stroke: '#4FD1AE', 'stroke-width': 2 }));
+    const c = svgEl('circle', { cx, cy, r: 5, fill: b.callahan ? '#FFB800' : '#F3F1E9', stroke: '#0E2426', 'stroke-width': 1.2, opacity: emphasize ? 1 : 0.35 });
+    const title = svgEl('title', {});
+    title.textContent = (b.player || 'Unknown') + (b.callahan ? ' — Callahan!' : ' — block');
+    c.appendChild(title);
+    routeLayer.appendChild(c);
+  });
+}
+
+function buildDataEditorSection(viewer, tagOnlyGame) {
+  const tagOnly = (tagOnlyGame != null);
+  const section = el('section', { class: 'view' + (tagOnly ? ' active' : ''), id: 'data-editor' }, []);
+
+  // In a published team report the whole tagging editor is stripped out --
+  // just the read-only clip browser remains, so the team can explore the film
+  // that was tagged without any authoring UI.
+  if (viewer) {
+    section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Film Clips')]));
+    section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Browse the tagged film: filter passes, blocks, pulls, defensive possessions or opponent turnovers, and jump straight to the moment in the game video.')]));
+    section.appendChild(buildAnnotationQueryPane().pane);
+    return section;
+  }
+
+  section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode(tagOnly ? 'Video Tagging' : 'Data Editor')]));
+  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode(tagOnly
+    ? 'Tag this game’s events — passes, blocks, pulls, defensive possessions and opponent turnovers — with throw type, release, outcome detail, and a video timestamp. When you’re done, click “Export annotations JSON” at the bottom and send the file back.'
+    : 'Step through a game’s events — passes, blocks, pulls, defensive possessions and opponent turnovers — and tag each one, to build a richer, queryable film dataset.')]));
+
+  const tagPane = el('div', {}, []);
+  if (!tagOnly) {
+    // Tag mode = the stepping editor; Query mode = filter the tagged data back
+    // out into a clip list. Both live in this one tab so the whole rich-dataset
+    // workflow stays together. (A single-game tagging page shows the tag editor
+    // only -- no query view.)
+    const queryPaneObj = buildAnnotationQueryPane();
+    const queryPane = queryPaneObj.pane;
+    queryPane.style.display = 'none';
+    section.appendChild(el('div', { class: 'controls-row de-mode-row' }, [buildSegToggle(
+      [{ key: 'tag', label: 'Tag' }, { key: 'query', label: 'Query' }],
+      (k) => {
+        const q = k === 'query';
+        tagPane.style.display = q ? 'none' : '';
+        queryPane.style.display = q ? '' : 'none';
+        if (q) queryPaneObj.refresh();
+      }
+    )]));
+    section.appendChild(tagPane);
+    section.appendChild(queryPane);
+  } else {
+    section.appendChild(tagPane);
+  }
+
+  let gameIndex = tagOnly ? tagOnlyGame : 0;
+  let allSteps = [];   // every event in the game
+  let steps = [];      // allSteps narrowed by the events filter -- what's stepped through
+  let eventFilter = 'all';
+  let stepIdx = 0;
+  let annotations = loadAnnotations();
+  let player = null, playerVideoId = null;
+
+  // ---- events filter (top of the tag pane, both here and on a tagging page) ----
+  tagPane.appendChild(el('div', { class: 'de-events-row' }, [
+    buildSegToggle([
+      { key: 'all', label: 'All events' },
+      { key: 'noThrows', label: 'All events except throws' },
+    ], (k) => setEventFilter(k), eventFilter),
+    el('span', { class: 'de-events-note' }, [document.createTextNode('“Except throws” skips completed passes that didn’t score — much faster to get through. Pulls, opponent turnovers, blocks, defensive possessions, turnovers and assists all stay, and your tags are kept either way.')]),
+  ]));
+
+  // ---- game picker (fixed to one game on a tagging page) ----
+  if (tagOnly) {
+    const g = REPORT.games[tagOnlyGame];
+    tagPane.appendChild(el('div', { class: 'controls-row de-game-row' }, [
+      el('span', { class: 'de-inline-label' }, [document.createTextNode('Game')]),
+      el('span', { class: 'de-game-fixed' }, [document.createTextNode(`vs ${g.opponent} — ${g.dateDisplay}`)]),
+    ]));
+  } else {
+    const gameSelect = el('select', { class: 'setup-select de-game-select' }, []);
+    REPORT.games.forEach((g, i) => gameSelect.appendChild(el('option', { value: String(i) }, [document.createTextNode(`vs ${g.opponent} — ${g.dateDisplay}`)])));
+    gameSelect.addEventListener('change', () => { gameIndex = parseInt(gameSelect.value, 10); loadGame(); });
+    tagPane.appendChild(el('div', { class: 'controls-row de-game-row' }, [el('span', { class: 'de-inline-label' }, [document.createTextNode('Game')]), gameSelect]));
+  }
+
+  // ---- layout: left column (video + field), right column (edit panel) ----
+  const layout = el('div', { class: 'de-layout' }, []);
+  tagPane.appendChild(layout);
+  const leftCol = el('div', { class: 'de-left' }, []);
+  const rightCol = el('div', { class: 'de-right' }, []);
+  layout.appendChild(leftCol);
+  layout.appendChild(rightCol);
+
+  // video
+  const playerHost = el('div', { class: 'de-player-host' }, []);
+  const noVideoMsg = el('p', { class: 'pitch-caption de-no-video' }, [document.createTextNode('No video link for this game yet — add one on the Set up tab to enable the embedded player and “grab current time.” You can still type a timestamp manually below.')]);
+  const playerNote = el('p', { class: 'pitch-caption de-player-note' }, []);
+  playerNote.style.display = 'none';
+  leftCol.appendChild(playerHost);
+  leftCol.appendChild(noVideoMsg);
+  leftCol.appendChild(playerNote);
+
+  // field diagram
+  const { svg, routeLayer } = buildPitch();
+  const pitchWrap = el('div', { class: 'pitch-wrap de-pitch' }, [svg]);
+  leftCol.appendChild(pitchWrap);
+  const stepCaption = el('p', { class: 'pitch-caption de-step-caption' }, []);
+  leftCol.appendChild(stepCaption);
+
+  // Translate a DOM click on the pitch to 0-1 field fractions (matches the
+  // startX/Y coordinate system used everywhere else).
+  function pitchClickFrac(evt) {
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const p = svg.createSVGPoint();
+    p.x = evt.clientX; p.y = evt.clientY;
+    const loc = p.matrixTransform(ctm.inverse());
+    const clamp = (v) => Math.max(0, Math.min(1, v));
+    return { x: Math.round(clamp(loc.x / PITCH_W) * 1000) / 1000, y: Math.round(clamp(loc.y / PITCH_H) * 1000) / 1000 };
+  }
+  // On a Pull step, clicking the field marks where the pull landed.
+  svg.addEventListener('click', (evt) => {
+    const step = steps[stepIdx];
+    if (!step || step.kind !== 'pull') return;
+    const frac = pitchClickFrac(evt);
+    if (!frac) return;
+    setPointField(step.uuid, 'landX', frac.x);
+    setPointField(step.uuid, 'landY', frac.y);
+    setPointField(step.uuid, 'outOfBounds', undefined);
+    render();
+  });
+  // Draws the recorded pull-landing spot on top of the (dimmed) point routes.
+  function drawPullMarker(fx, fy) {
+    const cx = fx * PITCH_W, cy = fy * PITCH_H;
+    routeLayer.appendChild(svgEl('circle', { cx, cy, r: 8, fill: 'none', stroke: '#4FD1AE', 'stroke-width': 2 }));
+    const c = svgEl('circle', { cx, cy, r: 4, fill: '#4FD1AE', stroke: '#0E2426', 'stroke-width': 1.2 });
+    const title = svgEl('title', {});
+    title.textContent = 'Pull landing';
+    c.appendChild(title);
+    routeLayer.appendChild(c);
+  }
+
+  // step controls
+  const prevBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('← Prev')]);
+  const nextBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Next →')]);
+  const stepCounter = el('span', { class: 'de-step-counter' }, []);
+  prevBtn.addEventListener('click', () => goToStep(stepIdx - 1));
+  nextBtn.addEventListener('click', () => goToStep(stepIdx + 1));
+  leftCol.appendChild(el('div', { class: 'controls-row de-step-nav' }, [prevBtn, stepCounter, nextBtn]));
+  leftCol.appendChild(el('p', { class: 'kbd-hint' }, [document.createTextNode('Tip: use ← / → to step through passes (arrow keys are ignored while typing in a field).')]));
+
+  // ---- edit panel (rebuilt per step) ----
+  const panel = el('div', { class: 'de-panel' }, []);
+  rightCol.appendChild(panel);
+
+  function currentRecord(create) {
+    const step = steps[stepIdx];
+    if (!step) return null;
+    const store = step.kind === 'pass' ? annotations.passes : annotations.blocks;
+    if (!store[step.uuid] && create) store[step.uuid] = {};
+    return store[step.uuid] || null;
+  }
+  function setField(key, value) {
+    const step = steps[stepIdx];
+    if (!step) return;
+    const store = step.kind === 'pass' ? annotations.passes : annotations.blocks;
+    const rec = store[step.uuid] || (store[step.uuid] = {});
+    if (value === undefined || value === '' || value === null) delete rec[key];
+    else rec[key] = value;
+    if (Object.keys(rec).length === 0) delete store[step.uuid];
+    saveAnnotations(annotations);
+    updateTaggedCount();
+  }
+  // Point/possession-level annotation (our defensive scheme while the opponent
+  // had it), keyed by "<pointUUID>#d<n>" for the opponent's n-th offensive
+  // possession that point -- independent of the focused pass/block.
+  function setPointField(annKey, field, value) {
+    const store = annotations.points || (annotations.points = {});
+    const rec = store[annKey] || (store[annKey] = {});
+    if (value === undefined || value === '' || value === null) delete rec[field];
+    else rec[field] = value;
+    if (Object.keys(rec).length === 0) delete store[annKey];
+    saveAnnotations(annotations);
+    updateTaggedCount();
+  }
+
+  function annField(labelText, vocabList, key, rec) {
+    const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('—')])]);
+    vocabList.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+    sel.value = (rec && rec[key]) || '';
+    sel.addEventListener('change', () => setField(key, sel.value || undefined));
+    return el('label', { class: 'de-field' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), sel]);
+  }
+
+  // Checkbox-group version of annField, for tags where more than one option
+  // can genuinely apply at once (e.g. a turnover can be both "Too far" and
+  // "Into doublecoverage"). Stored as an array; an emptied selection deletes
+  // the field entirely, same as annField's blank "—".
+  function annMultiField(labelText, vocabList, key, rec) {
+    const current = new Set(Array.isArray(rec && rec[key]) ? rec[key] : (rec && rec[key] ? [rec[key]] : []));
+    const box = el('div', { class: 'de-multi-box' }, []);
+    vocabList.forEach(v => {
+      const cb = el('input', { type: 'checkbox' }, []);
+      cb.checked = current.has(v);
+      cb.addEventListener('change', () => {
+        if (cb.checked) current.add(v); else current.delete(v);
+        setField(key, current.size ? Array.from(current) : undefined);
+      });
+      box.appendChild(el('label', { class: 'de-multi-option' }, [cb, document.createTextNode(v)]));
+    });
+    return el('div', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), box]);
+  }
+
+  // Notes + timestamp rows are shared by pass, block and defensive-possession
+  // panels; each passes its own writer (setField for pass/block records,
+  // setPointField for defensive possessions) so the same UI edits the right
+  // store.
+  function appendNotesRow(rec, write) {
+    const notes = el('textarea', { class: 'de-notes', rows: '2', placeholder: 'Notes (optional)' }, []);
+    notes.value = rec.notes || '';
+    notes.addEventListener('change', () => write(notes.value.trim() || undefined));
+    panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Notes')]), notes]));
+  }
+  function appendTimestampRow(rec, write) {
+    const tsInput = el('input', { type: 'text', class: 'de-ts-input', placeholder: 'mm:ss' }, []);
+    tsInput.value = formatTimestamp(rec.timestamp);
+    tsInput.addEventListener('change', () => {
+      const secs = parseTimestamp(tsInput.value);
+      write(secs == null ? undefined : secs);
+      tsInput.value = formatTimestamp(secs);
+    });
+    const grabBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Grab current time')]);
+    grabBtn.addEventListener('click', () => {
+      if (!player || !player.getCurrentTime) return;
+      const secs = Math.floor(player.getCurrentTime());
+      tsInput.value = formatTimestamp(secs);
+      write(secs);
+    });
+    const jumpBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Jump ▶')]);
+    jumpBtn.addEventListener('click', () => {
+      const secs = parseTimestamp(tsInput.value);
+      if (player && player.seekTo && secs != null) { player.seekTo(secs, true); player.playVideo && player.playVideo(); }
+    });
+    if (!player) { grabBtn.disabled = true; jumpBtn.disabled = true; }
+    panel.appendChild(el('div', { class: 'de-ts-row' }, [
+      el('span', { class: 'de-field-label' }, [document.createTextNode('Timestamp')]),
+      tsInput, grabBtn, jumpBtn,
+    ]));
+  }
+
+  function renderPanel() {
+    panel.innerHTML = '';
+    const step = steps[stepIdx];
+    if (!step) { panel.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No passes recorded for this game.')])); return; }
+
+    // Pull (defensive point opener): where our pull landed. Click the field to
+    // set a spot, or pick "Out-of-bounds". Keyed to "<pointUUID>#pull".
+    if (step.kind === 'pull') {
+      const annKey = step.uuid;
+      const rec = (annotations.points || {})[annKey] || {};
+      panel.appendChild(el('div', { class: 'de-panel-head' }, [
+        el('div', { class: 'de-panel-title' }, [document.createTextNode('Pull')]),
+        el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · Our pull (defensive point)`)]),
+      ]));
+      const status = rec.outOfBounds
+        ? 'Landed out-of-bounds.'
+        : (rec.landX != null && rec.landY != null)
+          ? `Landed at x ${rec.landX}, y ${rec.landY} on the field.`
+          : 'Not set yet — click the field to mark where the pull landed.';
+      panel.appendChild(el('p', { class: 'pitch-caption de-pull-status' }, [document.createTextNode(status)]));
+      const sel = el('select', { class: 'de-select' }, [
+        el('option', { value: '' }, [document.createTextNode('In-bounds (click the field)')]),
+        el('option', { value: 'oob' }, [document.createTextNode('Out-of-bounds')]),
+      ]);
+      sel.value = rec.outOfBounds ? 'oob' : '';
+      sel.addEventListener('change', () => {
+        if (sel.value === 'oob') {
+          setPointField(annKey, 'outOfBounds', true);
+          setPointField(annKey, 'landX', undefined);
+          setPointField(annKey, 'landY', undefined);
+        } else {
+          setPointField(annKey, 'outOfBounds', undefined);
+        }
+        render();
+      });
+      panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Landing')]), sel]));
+      // Who pulled -- one of the seven on the field for this defensive point.
+      const pullerNames = (step.pt.lineup || []).map(e => e.player).filter(Boolean).sort();
+      const pullerSel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('—')])]);
+      pullerNames.forEach(n => pullerSel.appendChild(el('option', { value: n }, [document.createTextNode(n)])));
+      // Keep a previously-tagged puller selectable even if they aren't in the
+      // recorded lineup (partial-lineup points).
+      if (rec.puller && !pullerNames.includes(rec.puller)) pullerSel.appendChild(el('option', { value: rec.puller }, [document.createTextNode(rec.puller)]));
+      pullerSel.value = rec.puller || '';
+      pullerSel.addEventListener('change', () => setPointField(annKey, 'puller', pullerSel.value || undefined));
+      panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Puller')]), pullerSel]));
+      appendNotesRow(rec, (v) => setPointField(annKey, 'notes', v));
+      appendTimestampRow(rec, (v) => setPointField(annKey, 'timestamp', v));
+      return;
+    }
+
+    // Opponent turnover that wasn't one of our blocks -- they gave the disc
+    // back on their own. Statto records nothing for these, so the step exists
+    // purely to be tagged. Keyed to "<pointUUID>#o<n>".
+    if (step.kind === 'oppTurn') {
+      const annKey = step.uuid;
+      const rec = (annotations.points || {})[annKey] || {};
+      panel.appendChild(el('div', { class: 'de-panel-head' }, [
+        el('div', { class: 'de-panel-title' }, [document.createTextNode('Opponent turnover')]),
+        el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · Ended their possession ${step.defN} (not one of our blocks)`)]),
+      ]));
+      const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('—')])]);
+      POINT_VOCAB.oppTurnover.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+      sel.value = rec.oppTurnover || '';
+      sel.addEventListener('change', () => setPointField(annKey, 'oppTurnover', sel.value || undefined));
+      panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Turnover type')]), sel]));
+      appendNotesRow(rec, (v) => setPointField(annKey, 'notes', v));
+      appendTimestampRow(rec, (v) => setPointField(annKey, 'timestamp', v));
+      return;
+    }
+
+    // Defensive possession: just our scheme for this one opponent possession
+    // (plus a timestamp/notes), keyed to "<pointUUID>#d<n>".
+    if (step.kind === 'def') {
+      const annKey = step.uuid;
+      const rec = (annotations.points || {})[annKey] || {};
+      panel.appendChild(el('div', { class: 'de-panel-head' }, [
+        el('div', { class: 'de-panel-title' }, [document.createTextNode('Defensive possession ' + step.defN)]),
+        el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · Defensive possession ${step.defN}`)]),
+      ]));
+      const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('—')])]);
+      POINT_VOCAB.defScheme.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+      sel.value = rec.defScheme || '';
+      sel.addEventListener('change', () => setPointField(annKey, 'defScheme', sel.value || undefined));
+      panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Defensive scheme')]), sel]));
+      appendNotesRow(rec, (v) => setPointField(annKey, 'notes', v));
+      appendTimestampRow(rec, (v) => setPointField(annKey, 'timestamp', v));
+      return;
+    }
+
+    const rec = currentRecord(false) || {};
+    if (step.kind === 'pass') {
+      const p = step.item;
+      const outcome = p.assist ? 'Assist (goal)' : (p.throwerError && p.receiverError) ? 'Throwaway + drop' : p.throwerError ? 'Throwaway' : p.receiverError ? 'Drop' : 'Completed';
+      panel.appendChild(el('div', { class: 'de-panel-head' }, [
+        el('div', { class: 'de-panel-title' }, [document.createTextNode(`${p.thrower || 'Unknown'} → ${p.receiver || 'Unknown'}`)]),
+        el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · ${outcome}`)]),
+      ]));
+      const grid = el('div', { class: 'de-field-grid' }, []);
+      grid.appendChild(annField('Hand', ANNOTATION_VOCAB.hand, 'hand', rec));
+      grid.appendChild(annField('Release', ANNOTATION_VOCAB.release, 'release', rec));
+      grid.appendChild(annField('Distance', ANNOTATION_VOCAB.distance, 'distance', rec));
+      grid.appendChild(annField('Stall', ANNOTATION_VOCAB.stall, 'stall', rec));
+      grid.appendChild(annField('Catch', ANNOTATION_VOCAB.catch, 'catch', rec));
+      grid.appendChild(annField('Highlight', ANNOTATION_VOCAB.highlight, 'highlight', rec));
+      panel.appendChild(grid);
+      // Turnover reason can genuinely be more than one thing at once (e.g.
+      // "Too far" AND "Into doublecoverage"), so it's a checkbox group rather
+      // than a single-choice dropdown like the fields above.
+      if (p.turnover) panel.appendChild(annMultiField('Turnover reason', ANNOTATION_VOCAB.turnoverReason, 'turnoverReason', rec));
+    } else {
+      const b = step.item;
+      panel.appendChild(el('div', { class: 'de-panel-head' }, [
+        el('div', { class: 'de-panel-title' }, [document.createTextNode(`${b.player || 'Unknown'} — block`)]),
+        el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · Defensive block`)]),
+      ]));
+      const grid = el('div', { class: 'de-field-grid' }, []);
+      grid.appendChild(annField('Block type', BLOCK_VOCAB.type, 'type', rec));
+      panel.appendChild(grid);
+    }
+
+    appendNotesRow(rec, (v) => setField('notes', v));
+    appendTimestampRow(rec, (v) => setField('timestamp', v));
+  }
+
+  // The stored record behind any step, whichever annotation store it lives in.
+  function stepRecord(step) {
+    if (!step) return null;
+    if (step.kind === 'pass') return annotations.passes[step.uuid];
+    if (step.kind === 'block') return annotations.blocks[step.uuid];
+    return (annotations.points || {})[step.uuid];  // pull / def / oppTurn
+  }
+  const taggedCount = el('span', { class: 'de-tagged-count' }, []);
+  // Counts the events currently in view, so it re-scopes with the events
+  // filter -- "12 of 40" while skipping throws, not 12 of every pass in the game.
+  function updateTaggedCount() {
+    let n = 0;
+    steps.forEach(st => { const rec = stepRecord(st); if (rec && Object.keys(rec).length) n++; });
+    taggedCount.textContent = `${n} of ${steps.length} events tagged in this view`;
+  }
+
+  function render() {
+    const step = steps[stepIdx];
+    if (step) {
+      renderEditorItem(routeLayer, step.pt, { kind: step.kind, uuid: step.uuid });
+      if (step.kind === 'pull') {
+        const rec = (annotations.points || {})[step.uuid] || {};
+        if (!rec.outOfBounds && rec.landX != null && rec.landY != null) drawPullMarker(rec.landX, rec.landY);
+      }
+      svg.style.cursor = step.kind === 'pull' ? 'crosshair' : '';
+      const kindLabel = step.kind === 'pass'
+        ? `Pass ${step.item.thrower || '?'} → ${step.item.receiver || '?'}`
+        : step.kind === 'block'
+          ? `Block by ${step.item.player || '?'}`
+          : step.kind === 'pull'
+            ? 'Pull'
+            : step.kind === 'oppTurn'
+              ? 'Opponent turnover'
+              : `Defensive possession ${step.defN}`;
+      stepCaption.textContent = `Point ${step.pt.number} · ${kindLabel}`;
+      stepCounter.textContent = `${stepIdx + 1} / ${steps.length}`;
+    } else {
+      routeLayer.innerHTML = '';
+      svg.style.cursor = '';
+      stepCaption.textContent = '';
+      stepCounter.textContent = '0 / 0';
+    }
+    prevBtn.disabled = stepIdx <= 0;
+    nextBtn.disabled = stepIdx >= steps.length - 1;
+    renderPanel();
+  }
+
+  function goToStep(idx) {
+    if (idx < 0 || idx >= steps.length) return;
+    stepIdx = idx;
+    render();
+  }
+
+  // Builds the complete event list for the selected game (allSteps), then
+  // narrows it to the current view (steps) via the events filter.
+  function buildSteps() {
+    allSteps = [];
+    REPORT.games[gameIndex].points.forEach(pt => {
+      buildPointEvents(pt).forEach(ev => allSteps.push(ev));
+    });
+    allSteps.forEach((st, i) => { st.ai = i; });
+    refilterSteps();
+  }
+
+  // "All events except throws" drops the routine passes -- the ones that were
+  // completed and didn't score -- and keeps every other event. It's purely a
+  // view filter: nothing is written, so tags made in either mode are all still
+  // there in the other.
+  function isPlainThrow(st) {
+    return st.kind === 'pass' && !st.item.turnover && !st.item.assist;
+  }
+  function refilterSteps() {
+    steps = (eventFilter === 'noThrows') ? allSteps.filter(st => !isPlainThrow(st)) : allSteps.slice();
+  }
+  function setEventFilter(mode) {
+    if (mode === eventFilter) return;
+    const cur = steps[stepIdx];
+    const curAi = cur ? cur.ai : 0;
+    eventFilter = mode;
+    refilterSteps();
+    // Stay on the same event if it survived the filter, else the next one along.
+    const idx = steps.findIndex(st => st.ai >= curAi);
+    stepIdx = (idx < 0) ? Math.max(0, steps.length - 1) : idx;
+    render();
+    updateTaggedCount();
+  }
+
+  // Fall back to a plain "watch on YouTube" link (+ manual timestamps) when
+  // the video can't be embedded -- opened as a local file, embedding disabled
+  // by the owner, a bad link, etc.
+  function showPlayerFallback(vid, reason) {
+    playerHost.style.display = 'none';
+    playerHost.innerHTML = '';
+    player = null; playerVideoId = null;
+    playerNote.innerHTML = '';
+    playerNote.appendChild(document.createTextNode(reason + ' '));
+    playerNote.appendChild(el('a', { href: 'https://www.youtube.com/watch?v=' + vid, target: '_blank', rel: 'noopener noreferrer', class: 'de-watch-inline' }, [document.createTextNode('Watch on YouTube ↗')]));
+    playerNote.style.display = '';
+    renderPanel();
+  }
+
+  function refreshPlayer() {
+    const url = loadSetupData().videoLinks[gameIndex];
+    const vid = parseYouTubeId(url);
+    playerNote.style.display = 'none';
+    if (!vid) { playerHost.style.display = 'none'; noVideoMsg.style.display = ''; player = null; playerVideoId = null; renderPanel(); return; }
+    noVideoMsg.style.display = 'none';
+    // The YouTube player needs a real http(s) origin to validate against.
+    // Opened straight off disk (file://) it can't, and rejects the embed with
+    // "error 153" -- so don't even try; offer the watch link instead.
+    if (location.protocol === 'file:') {
+      showPlayerFallback(vid, 'The embedded player needs the report opened from a web address (http/https), not a local file — serve the folder locally or host it to scrub inline. For now, type timestamps manually and');
+      return;
+    }
+    playerHost.style.display = '';
+    ensureYouTubeAPI(() => {
+      if (player && playerVideoId === vid) return;
+      if (player && player.loadVideoById) { player.loadVideoById(vid); playerVideoId = vid; renderPanel(); return; }
+      playerHost.innerHTML = '';
+      const target = el('div', {}, []);
+      target.id = 'de-yt-' + Math.random().toString(36).slice(2, 8);
+      playerHost.appendChild(target);
+      // Passing the page origin is what avoids the "error 153" configuration
+      // rejection on http(s) hosts.
+      const playerVars = { rel: 0, modestbranding: 1, enablejsapi: 1 };
+      if (location.origin && location.origin !== 'null') playerVars.origin = location.origin;
+      player = new YT.Player(target.id, {
+        videoId: vid, width: '100%', height: '100%',
+        playerVars: playerVars,
+        events: {
+          onReady: () => renderPanel(),
+          onError: (e) => {
+            const code = e && e.data;
+            let why = 'This video couldn’t be embedded here';
+            if (code === 101 || code === 150) why = 'The video’s owner has disabled embedding for this video';
+            else if (code === 100) why = 'The video wasn’t found — check the link on the Set up tab';
+            else if (code === 2 || code === 153) why = 'The player rejected this page’s configuration (often a missing origin or an unsupported host)';
+            showPlayerFallback(vid, why + '.');
+          },
+        },
+      });
+      playerVideoId = vid;
+    });
+  }
+
+  function loadGame() {
+    buildSteps();
+    stepIdx = 0;
+    updateTaggedCount();
+    refreshPlayer();
+    render();
+  }
+
+  // arrow-key stepping, ignored while typing in a field
+  document.addEventListener('keydown', (e) => {
+    if (!section.classList.contains('active')) return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); goToStep(stepIdx + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); goToStep(stepIdx - 1); }
+  });
+
+  // ---- export / import + tagged count ----
+  // On a single-game tagging page the file names itself after that game
+  // (mirroring the tagging page's own filename, plus the date so two games
+  // against the same opponent don't come back as identical files). In the full
+  // Data Editor the export spans every game, so it stays team-wide.
+  function annotationsFilename() {
+    if (!tagOnly) return slug(REPORT.teamName) + '_annotations.json';
+    const g = REPORT.games[tagOnlyGame];
+    return slug(REPORT.teamName) + '_tag_' + slug(g.opponent) + '_' + slug(g.dateDisplay) + '_annotations.json';
+  }
+  const exportBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Export annotations JSON')]);
+  exportBtn.addEventListener('click', () => {
+    downloadFile(JSON.stringify({ version: ANNOTATIONS_SCHEMA_VERSION, teamName: REPORT.teamName, passes: annotations.passes, blocks: annotations.blocks, points: annotations.points }, null, 2),
+      annotationsFilename(), 'application/json');
+  });
+  const importBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Import annotations JSON')]);
+  const importInput = el('input', { type: 'file', accept: 'application/json,.json' }, []);
+  importInput.style.display = 'none';
+  importBtn.addEventListener('click', () => importInput.click());
+  importInput.addEventListener('change', () => {
+    const file = importInput.files && importInput.files[0];
+    importInput.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        // Field-level merge (not whole-record replace) so combining several
+        // taggers who touched the same pass keeps everyone's fields -- e.g. one
+        // added Hand, another added Release. On a genuine conflict of the same
+        // field, the imported file wins.
+        mergeAnnotationStore(annotations.passes, parsed.passes);
+        mergeAnnotationStore(annotations.blocks, parsed.blocks);
+        mergeAnnotationStore(annotations.points || (annotations.points = {}), parsed.points);
+        saveAnnotations(annotations);
+        updateTaggedCount();
+        render();
+      } catch (e) { alert('Could not read that annotations file.'); }
+    };
+    reader.readAsText(file);
+  });
+  tagPane.appendChild(el('div', { class: 'controls-row de-io-row' }, [exportBtn, importBtn, taggedCount, importInput]));
+
+  // Refresh on every visit: pick up a video link added on Set up, or
+  // annotations changed by an import elsewhere, without a reload.
+  gameViewRefreshers.set('data-editor', () => { annotations = loadAnnotations(); refreshPlayer(); updateTaggedCount(); render(); });
+
+  loadGame();
+  return section;
+}
+
+// ---------- Advanced Stats: the "EDGE" goal-equivalent / efficiency family ----------
+// Implements Table 1 of the BBSM EDGE framework (minus EDGE-PM). The framework
+// is league-relative; this report has only one team, so:
+//   * game-condition adjustments (AdjT/AdjB) use this selection's own overall
+//     scoring efficiency as the "league" reference, and
+//   * the purely league-relative ratings (PER-O, PER) are omitted.
+// Every input comes from the per-game box score plus the per-point defensive-
+// possession count, so it recomputes for any game/tournament subset. Notable
+// interpretations (see the on-page descriptions too): "yards" = net downfield
+// throwing+receiving gain; the goal-equivalent pool (Goals + Turns*GmSE) is
+// split 75% to yardage share, 25% to scoring share; AdjB mirrors AdjT.
+function computeAdvancedStats(gameIndices) {
+  // ---- per-game team quantities + goal-equivalent coefficients ----
+  let sumGmG = 0, sumGmT = 0;
+  const perGame = gameIndices.map(gi => {
+    const g = REPORT.games[gi];
+    let tGoals = 0, tAssists = 0, tTurns = 0, tYards = 0;
+    (g.boxScore || []).forEach(r => {
+      tGoals += r.goals; tAssists += r.assists; tTurns += r.turnovers;
+      tYards += (r.throwGain || 0) + (r.catchGain || 0);
+    });
+    // Opponent turnovers we don't record directly, but each opponent offensive
+    // possession that didn't end in their goal is one -- and we know the number
+    // of their possessions per point and whether they scored it.
+    const oppTurns = (g.points || []).reduce((s, pt) => s + Math.max(0, (pt.defensivePossessions || 0) - (pt.result === -1 ? 1 : 0)), 0);
+    const GmG = g.ourScore + g.oppScore;
+    const GmT = tTurns + oppTurns;
+    const GmSE = (GmG + GmT) > 0 ? GmG / (GmG + GmT) : 0;
+    sumGmG += GmG; sumGmT += GmT;
+    const pool = tGoals + tTurns * GmSE; // total offensive goal-equivalent pool
+    const Ycoeff = tYards > 0 ? 0.75 * pool / tYards : 0;
+    const Scoeff = (tGoals + tAssists) > 0 ? 0.25 * pool / (tGoals + tAssists) : 0;
+    return { g, GmSE, Ycoeff, Scoeff };
+  });
+  // "League" scoring-efficiency stand-in = this whole selection (both teams).
+  const refSE = (sumGmG + sumGmT) > 0 ? sumGmG / (sumGmG + sumGmT) : 0.5;
+
+  // ---- per-player additive components ----
+  const byPlayer = new Map();
+  function acc(name) {
+    if (!byPlayer.has(name)) byPlayer.set(name, {
+      player: name, gamesPlayed: 0, edgeO: 0, edgeB: 0, thrge: 0, recge: 0,
+      tchPlus: 0, adjT: 0, adjB: 0, xOO: 0, xDO: 0, xOpPoss: 0,
+    });
+    return byPlayer.get(name);
+  }
+  perGame.forEach(({ g, GmSE, Ycoeff, Scoeff }) => {
+    (g.boxScore || []).forEach(r => {
+      const a = acc(r.player);
+      a.gamesPlayed += 1;
+      const yards = (r.throwGain || 0) + (r.catchGain || 0);
+      a.edgeO += yards * Ycoeff + (r.goals + r.assists) * Scoeff - r.turnovers * GmSE;
+      a.edgeB += r.blocks * GmSE;
+      a.thrge += (r.throwGain || 0) * Ycoeff + r.assists * Scoeff;
+      a.recge += (r.catchGain || 0) * Ycoeff + r.goals * Scoeff;
+      a.tchPlus += r.throws + r.receiverErrors + 0.5 * r.goals;
+      const seFactor = refSE > 0 ? GmSE / refSE : 1;
+      a.adjT += r.turnovers * seFactor;
+      a.adjB += r.blocks * seFactor;
+      const OLP = r.offensePlayed, DLP = r.defensePlayed, d = 2 - GmSE;
+      if (GmSE > 0 && d > 0) {
+        const xP = OLP * (1 / d) * (1 / GmSE) + DLP * ((1 - GmSE) / d) * (1 / GmSE);
+        const xOp = OLP * ((1 - GmSE) / d) * (1 / GmSE) + DLP * (1 / d) * (1 / GmSE);
+        a.xOpPoss += xOp;
+        a.xOO += xP * GmSE; a.xDO += xOp * GmSE;
+      }
+    });
+  });
+  const rows = [...byPlayer.values()];
+
+  // ---- xE priors: a fixed 30 "prior possessions" at the population rate ----
+  const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
+  const PRIOR = 30;
+  const aEO = PRIOR * (sum('xOO') > 0 ? sum('edgeO') / sum('xOO') : 0);
+  const aEB = PRIOR * (sum('xDO') > 0 ? sum('edgeB') / sum('xDO') : 0);
+  const aCP = PRIOR * (sum('tchPlus') > 0 ? (sum('tchPlus') - sum('adjT')) / sum('tchPlus') : 0);
+
+  // ---- PE priors: method-of-moments Beta fit to the per-player rate spread ----
+  function betaFit(rateFn) {
+    const rs = rows.map(rateFn).filter(x => x != null && isFinite(x) && x > 0 && x < 1);
+    if (rs.length < 3) return { a: 1, b: 1 };
+    const m = rs.reduce((s, x) => s + x, 0) / rs.length;
+    const v = rs.reduce((s, x) => s + (x - m) * (x - m), 0) / rs.length;
+    if (v <= 0 || v >= m * (1 - m)) return { a: 1, b: 1 };
+    const a = m * m * (1 - m) / v - m;   // = ((1-m)/v - 1/m) * m^2
+    const b = a * (1 / m - 1);
+    return (a > 0 && b > 0) ? { a, b } : { a: 1, b: 1 };
+  }
+  const peO = betaFit(r => { const den = r.thrge + r.recge + r.adjT; return den > 0 ? (r.thrge + r.recge) / den : null; });
+  const peB = betaFit(r => (r.xOpPoss > 0 ? r.adjB / r.xOpPoss : null));
+
+  rows.forEach(r => {
+    r.edge = r.edgeO + r.edgeB;
+    r.xEO = 100 * (r.edgeO + aEO) / (r.xOO + PRIOR);
+    r.xEB = 100 * (r.edgeB + aEB) / (r.xDO + PRIOR);
+    r.xE = r.xEO + r.xEB;
+    r.cpPlus = 100 * (r.tchPlus - r.adjT + aCP) / (r.tchPlus + PRIOR);
+    const peoNum = r.thrge + r.recge;
+    r.peO = (peoNum + peO.a) / (peoNum + r.adjT + peO.a + peO.b);
+    r.peB = (r.adjB + peB.a) / (r.xOpPoss + peB.a + peB.b);
+    r.pe = r.peO + r.peB;
+  });
+
+  // ---- CR: average percentile rank (0-100) in EDGE, xE, PE within the selection ----
+  function pctRanks(key) {
+    const sorted = [...rows].sort((x, y) => x[key] - y[key]);
+    const map = new Map();
+    sorted.forEach((r, i) => map.set(r, rows.length > 1 ? (i / (rows.length - 1)) * 100 : 100));
+    return map;
+  }
+  const rE = pctRanks('edge'), rX = pctRanks('xE'), rP = pctRanks('pe');
+  rows.forEach(r => { r.cr = (rE.get(r) + rX.get(r) + rP.get(r)) / 3; });
+
+  return rows;
+}
+
+const ADVANCED_COLUMNS = [
+  { key: 'player', label: 'Player', full: 'Player', numeric: false },
+  { key: 'gamesPlayed', label: 'GP', full: 'Games played in the current selection', numeric: true },
+  { key: 'edgeO', label: 'EDGE-O', full: 'Offensive goal equivalents = your share (by yards and by scores) of the team’s scoring value, minus the value of your turnovers. Team EDGE-O sums to the team’s goals.', numeric: true },
+  { key: 'edgeB', label: 'EDGE-B', full: 'Block goal equivalents = your blocks valued at what a turnover costs (block × game scoring efficiency).', numeric: true },
+  { key: 'edge', label: 'EDGE', full: 'Total goal equivalents produced (EDGE-O + EDGE-B).', numeric: true },
+  { key: 'xEO', label: 'xEO', full: 'Offensive goal equivalents per unit of expected offensive opportunity (×100), smoothed with a 30-possession prior.', numeric: true },
+  { key: 'xEB', label: 'xEB', full: 'Block goal equivalents per unit of expected defensive opportunity (×100), 30-possession prior.', numeric: true },
+  { key: 'xE', label: 'xE', full: 'Combined productivity (xEO + xEB).', numeric: true },
+  { key: 'cpPlus', label: 'CP+', full: 'Modified completion / disc-retention rate: touches you kept alive out of your touches (goals count as half a touch, drops as a full one), with turnovers adjusted for game scoring conditions.', numeric: true, percent: true },
+  { key: 'peO', label: 'PE-O', full: 'Offensive efficiency: throwing + receiving goal equivalents per player possession, empirical-Bayes smoothed.', numeric: true },
+  { key: 'peB', label: 'PE-B', full: 'Block efficiency: adjusted blocks per opponent possession, empirical-Bayes smoothed.', numeric: true },
+  { key: 'pe', label: 'PE', full: 'Player efficiency (PE-O + PE-B).', numeric: true },
+  { key: 'cr', label: 'CR', full: 'Composite rating (0–100): the average of your percentile ranks in EDGE, xE and PE within the current selection.', numeric: true },
+];
+
+const ADV_DESCRIPTIONS = [
+  ['EDGE-O', 'Offensive goal equivalents. A share-based allocation: the game’s scoring value (goals, plus the value tied up in turnovers) is split 75% by each player’s yardage share and 25% by their scoring share, then their own turnovers are subtracted. Across the team it sums to the goals scored.'],
+  ['EDGE-B', 'Block goal equivalents — a block is worth what a turnover costs (block × the game’s scoring efficiency).'],
+  ['EDGE', 'Total production: EDGE-O + EDGE-B.'],
+  ['xEO / xEB', 'The same production, expressed per unit of expected opportunity (offensive / defensive), scaled ×100 and smoothed toward the roster average with a 30-possession prior so small samples don’t dominate. Opportunities are estimated from O-line and D-line points played.'],
+  ['xE', 'Combined productivity, xEO + xEB.'],
+  ['CP+', 'A retention-rate twist on completion %: of your touches (a goal counts as half a touch, a drop as a full one), how many you kept alive — turnovers adjusted for game scoring conditions.'],
+  ['PE-O / PE-B / PE', 'Per-possession efficiency: goal equivalents per offensive possession (PE-O) and adjusted blocks per opponent possession (PE-B), each shrunk toward the roster distribution via an empirical-Bayes (Beta) prior. PE = PE-O + PE-B.'],
+  ['CR', 'A composite ranking (0–100): the average of your percentile ranks in EDGE, xE and PE among the players in the current selection.'],
+];
+
+function buildAdvancedStatsSection() {
+  const section = el('section', { class: 'view', id: 'advanced-stats' }, []);
+  section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Advanced Stats')]));
+  section.appendChild(el('h1', { class: 'adv-subtitle' }, [document.createTextNode('Ultiworld EDGE Stats')]));
+  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('The EDGE family of goal-equivalent and efficiency metrics, one row per player.')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [
+    document.createTextNode('These come from the “EDGE” framework, which is built to rank players against a whole league. This report has only your team’s season, so game-condition adjustments use your own season’s scoring efficiency as the reference, and the purely league-relative ratings (PER-O, PER) are left out. Read the numbers as comparable across your own roster, not against outside benchmarks. Percentages and rates shift as you change the game/tournament filter, since the priors and reference are recomputed over the selection. Full definitions and worked examples are in the '),
+    el('a', { href: 'https://docs.google.com/document/d/1ZgBKIX0DtGNomjwr1EuvsOkK4QRB6GP4/edit', target: '_blank', rel: 'noopener noreferrer' }, [document.createTextNode('Ultiworld EDGE reference page')]),
+    document.createTextNode('.'),
+  ]));
+
+  const filename = () => slug(REPORT.teamName) + '_advanced_stats.csv';
+  const header = el('div', { class: 'section-title-row' }, [el('span', {}, [document.createTextNode('Player metrics')])]);
+  const tableHolder = el('div', {}, []);
+  let current = buildStatsTable(computeAdvancedStats(REPORT.games.map((g, i) => i)), ADVANCED_COLUMNS, 'edge', filename());
+  tableHolder.appendChild(current);
+  header.appendChild(buildGameFilterDropdown((indices) => {
+    const fresh = buildStatsTable(computeAdvancedStats(indices), ADVANCED_COLUMNS, 'edge', filename());
+    tableHolder.replaceChild(fresh, current);
+    current = fresh;
+  }));
+  section.appendChild(header);
+  section.appendChild(tableHolder);
+
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('What these mean')]));
+  const list = el('div', { class: 'adv-desc' }, []);
+  ADV_DESCRIPTIONS.forEach(([term, body]) => {
+    list.appendChild(el('div', { class: 'adv-desc-item' }, [
+      el('div', { class: 'adv-desc-term' }, [document.createTextNode(term)]),
+      el('div', { class: 'adv-desc-body' }, [document.createTextNode(body)]),
+    ]));
+  });
+  section.appendChild(list);
+  return section;
+}
+
 // ---------- Bootstrap: build nav + all sections on load ----------
 function init() {
   buildNav();
   const main = document.getElementById('main');
-  main.appendChild(buildSeasonSection());
-  main.appendChild(buildPlayerAnalysisSection());
-  main.appendChild(buildLineAnalysisSection());
-  main.appendChild(buildThrowerReceiverSection());
-  main.appendChild(buildFieldAnalysisSection());
-  main.appendChild(buildGenderAnalysisSection());
-  main.appendChild(buildRawDataSection());
+  // Per-game tagging page: just the Data Editor, locked to one game.
+  if (TAGONLY_GAME != null) {
+    main.appendChild(buildDataEditorSection(false, TAGONLY_GAME));
+    return;
+  }
+
+  if (!VIEWER_MODE) main.appendChild(buildSetupSection());
+  main.appendChild(buildDataEditorSection(VIEWER_MODE));
+  // Every analysis tab groups/scopes by tournament, so each is registered as
+  // a rebuildable view -- see showView / tournamentsRevision -- to pick up
+  // tournament edits from the Set up tab on the next click into it.
+  mountRebuildableView(buildSeasonSection);
+  mountRebuildableView(buildPlayerAnalysisSection);
+  mountRebuildableView(buildLineAnalysisSection);
+  mountRebuildableView(buildThrowerReceiverSection);
+  mountRebuildableView(buildFieldAnalysisSection);
+  mountRebuildableView(buildGenderAnalysisSection);
+  mountRebuildableView(buildAdvancedStatsSection);
+  mountRebuildableView(buildRawDataSection);
   REPORT.games.forEach((g, i) => main.appendChild(buildGameSection(g, i)));
 }
 init();

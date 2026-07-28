@@ -101,10 +101,98 @@ def _index_game(game, all_points, all_possessions, all_blocks, all_opposition_er
 
 
 # ---------------------------------------------------------------------------
+# Point leverage: how much a single point's outcome could swing the game's
+# eventual result, on a 0-10 scale (10 = a true double-game-point, where
+# either team scoring next ends the game outright).
+#
+# Modeled as a fair race to N points (N = this game's actual final winning
+# score -- retroactive by design, so it sidesteps soft-cap/hard-cap/win-by-2
+# quirks entirely, since "double-game-point" just falls out as whatever
+# score state the game actually ended from). WP(i, j) is the win probability
+# from score state (i, j) assuming each point is an independent 50/50 coin
+# flip; the raw swing of the point about to be played from (i, j) is how far
+# apart WP(i+1, j) and WP(i, j+1) are -- i.e. how much this specific point
+# could move the needle, regardless of which way it goes.
+#
+# p=0.5 is deliberate, not a placeholder: leverage here is meant to measure
+# game-state importance (score, points remaining), not this team's own
+# quality, so it stays symmetric rather than baking in team strength.
+#
+# The raw swing decays like 1/sqrt(points remaining) for a tied score
+# approaching the target (fair-coin-race math, not a bug) -- e.g. for a race
+# to 15, tied at 13-13 (2 points needed each) has exactly half the raw swing
+# of tied at 14-14 (double-game-point), and tied at 8-8 (7 needed each) is
+# down to about a fifth. Displayed on a straight *10 scale that compresses
+# almost everything short of the literal last point or two into single
+# digits near the bottom, which undersells how much a "two points from
+# winning, tied" situation actually matters. A sqrt applied to the raw swing
+# before scaling spreads that range back out (double-game-point still hits
+# exactly 10, a decided game still hits ~0, everything stays monotonic) --
+# see _point_leverage.
+# ---------------------------------------------------------------------------
+
+def _leverage_win_prob_table(target):
+    """wp[i][j] = P(reach `target` before the opponent), racing from i-j,
+    fair coin per point. Backward recursion from the boundary (someone
+    already at `target`) down to 0-0 -- computing wp[i][j] only needs
+    wp[i+1][j] and wp[i][j+1], both already filled by the time we get there
+    with this loop order (i, j both counting down from target)."""
+    wp = [[0.0] * (target + 1) for _ in range(target + 1)]
+    for i in range(target, -1, -1):
+        for j in range(target, -1, -1):
+            if i == target:
+                wp[i][j] = 1.0
+            elif j == target:
+                wp[i][j] = 0.0
+            else:
+                wp[i][j] = 0.5 * wp[i + 1][j] + 0.5 * wp[i][j + 1]
+    return wp
+
+
+def _point_leverage(wp, our_before, opp_before, target):
+    if our_before >= target or opp_before >= target:
+        return 10.0  # shouldn't occur mid-game; treat as maximal rather than index error
+    wp_if_we_score = wp[our_before + 1][opp_before]
+    wp_if_they_score = wp[our_before][opp_before + 1]
+    raw_swing = abs(wp_if_we_score - wp_if_they_score)
+    return round((raw_swing ** 0.5) * 10, 2)
+
+
+# A point at leverage >= 7 is close to a coin flip on a fairly short race to
+# the end of the game (e.g. tied with ~2-3 points left in a race to 15) --
+# used to split hold/break/scoring-efficiency into "the moments that mattered
+# most" vs. everything else, for the Clutch Efficiency widget.
+HIGH_LEVERAGE_THRESHOLD = 7.0
+
+
+def _leverage_split_efficiency(point_log, threshold=HIGH_LEVERAGE_THRESHOLD):
+    """Hold rate / break rate / total scoring efficiency, split into points at
+    or above the leverage threshold vs. below it."""
+    def eff(numer, denom):
+        return {"numer": numer, "denom": denom, "pct": _pct(numer, denom)}
+
+    def bucket_summary(pts):
+        offense = [p for p in pts if p["isOffense"]]
+        defense = [p for p in pts if not p["isOffense"]]
+        offense_scored = sum(1 for p in offense if p["scored"])
+        defense_scored = sum(1 for p in defense if p["scored"])
+        return {
+            "pointCount": len(pts),
+            "holdRate": eff(offense_scored, len(offense)),
+            "breakRate": eff(defense_scored, len(defense)),
+            "totalScoringEfficiency": eff(offense_scored + defense_scored, len(pts)),
+        }
+
+    high = [p for p in point_log if p["leverage"] >= threshold]
+    low = [p for p in point_log if p["leverage"] < threshold]
+    return {"highLeverage": bucket_summary(high), "lowLeverage": bucket_summary(low)}
+
+
+# ---------------------------------------------------------------------------
 # Point log + team-wide (combined/offense/defense) line stats for one game:
 # clean/dirty holds, breaks, red-zone entries/conversions, and the per-point
-# log entries (score progression, passes, blocks, lineup) shown on each
-# game page.
+# log entries (score progression, passes, blocks, lineup, leverage) shown on
+# each game page.
 # ---------------------------------------------------------------------------
 
 def _build_point_log(idx, player_name):
@@ -168,6 +256,10 @@ def _build_point_log(idx, player_name):
                     if completed:
                         pt_huck_completions += 1
                 pass_entries.append({
+                    # Statto's own globally-unique pass id -- the stable key the
+                    # Data Editor's annotations attach to, so tags survive the
+                    # report being regenerated as more games are logged.
+                    "uuid": pa.get("uuid"),
                     "possession": possession_number[po["uuid"]],
                     "thrower": player_name(pa.get("throwerUUID")),
                     "receiver": player_name(pa.get("receiverUUID")),
@@ -181,12 +273,25 @@ def _build_point_log(idx, player_name):
 
         block_entries = []
         for bl in blocks_by_point.get(pt_uuid, []):
+            # A block ends an opponent possession, after which we regain the disc.
+            # We don't record opponent possessions individually, but we can place
+            # the block chronologically within the point by counting how many of
+            # OUR possessions started before it (pt_possessions is createdAt-sorted).
+            # The Data Editor uses this to interleave the block into the point's
+            # flow instead of dumping every block at the end of the point.
+            bl_created = bl.get("createdAt", "")
+            after_our_possessions = sum(
+                1 for po in pt_possessions if po.get("createdAt", "") < bl_created
+            )
             block_entries.append({
+                "uuid": bl.get("uuid"),  # stable key for Data Editor annotations (see pass uuid above)
                 "player": player_name(bl.get("playerUUID")),
                 "locationX": bl.get("locationX", 0.0),
                 "locationY": bl.get("locationY", 0.0),
                 "callahan": bool(bl.get("isCallahan")),
                 "stallOut": bool(bl.get("isStallOut")),
+                "createdAt": bl_created,
+                "afterOurPossessions": after_our_possessions,
             })
 
         touchers = set()
@@ -269,9 +374,24 @@ def _build_point_log(idx, player_name):
         for puuid in pt.get("playerUUIDs", []) or []:
             player_points_through[puuid] = player_points_through.get(puuid, 0) + 1
 
+        # Number of offensive possessions the OPPONENT had this point = number
+        # of times we were on defense. The disc strictly alternates from the
+        # pull, and only our own possessions are recorded, so we can infer the
+        # opponent's from our count + who started (isOffense) + who scored.
+        #   O-point (we received): us, them, us, ...  -> opp = k-1 (we scored) or k (broken)
+        #   D-point (they received): them, us, them, ...-> opp = k (we broke) or k+1 (opp held)
+        our_possessions = len(pt_possessions)
+        if is_offense:
+            defensive_possessions = (our_possessions - 1) if scored else our_possessions
+        else:
+            defensive_possessions = our_possessions if scored else (our_possessions + 1)
+        defensive_possessions = max(0, defensive_possessions)
+
         point_log.append({
+            "uuid": pt_uuid,  # stable key for point-level Data Editor annotations (e.g. defensive scheme)
             "number": point_number[pt_uuid],
             "isOffense": is_offense,
+            "defensivePossessions": defensive_possessions,
             "scored": scored,
             "result": result,
             "ourScoreBefore": our_score,
@@ -289,6 +409,15 @@ def _build_point_log(idx, player_name):
             our_score += 1
         elif result == -1:
             opp_score += 1
+
+    # Retroactive target: this game's actual final winning score, not a
+    # fixed constant -- see the module-level comment on _point_leverage.
+    leverage_target = max(our_score, opp_score, 1)
+    leverage_wp = _leverage_win_prob_table(leverage_target)
+    for entry in point_log:
+        entry["leverage"] = _point_leverage(
+            leverage_wp, entry["ourScoreBefore"], entry["oppScoreBefore"], leverage_target
+        )
 
     return {
         "point_log": point_log,
@@ -364,8 +493,10 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
                 continue
             game_player_points.setdefault(puuid, set()).add(point_number[pt["uuid"]])
 
-    game_passes = [pa for po in possessions for pa in passes_by_possession.get(po["uuid"], [])]
     uuid_by_number = {v: k for k, v in point_number.items()}
+    # number -> leverage, for High-leverage points played below.
+    leverage_by_number = {p["number"]: p["leverage"] for p in point_log_ctx["point_log"]}
+    game_passes = [pa for po in possessions for pa in passes_by_possession.get(po["uuid"], [])]
 
     box_score = []
     for puuid, points_played_set in game_player_points.items():
@@ -400,7 +531,11 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
             if pa.get("throwerUUID") == puuid:
                 throws += 1
                 if is_te:
-                    thrower_errors += 1
+                    # Statto can flag a turnover as the thrower's fault, the
+                    # receiver's, or BOTH (shared blame). When both, the one
+                    # turnover is split half-and-half, so summed team turnovers
+                    # stay at 1.0 rather than double-counting.
+                    thrower_errors += 0.5 if is_re else 1
                 if is_te or is_re:
                     throw_incomplete += 1
                     throw_incomplete_dist_total += dist_yd
@@ -420,7 +555,9 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
             if pa.get("receiverUUID") == puuid:
                 receiving_targets += 1
                 if is_re:
-                    receiver_errors += 1
+                    # See the thrower-side note: a both-fault turnover is 0.5
+                    # here and 0.5 there.
+                    receiver_errors += 0.5 if is_te else 1
                 if completed:
                     catches += 1
                     catch_dist_total += dist_yd
@@ -445,6 +582,12 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
         touches = catches + possessions_initiated
         throw_completions = throws - throw_incomplete
         plus_minus = goals + assists - turnovers
+        # High-leverage points played: how many of this player's points had
+        # Leverage >= HIGH_LEVERAGE_THRESHOLD, i.e. were close to a coin flip
+        # on the game's outcome -- a simple count, not leverage-weighted.
+        high_leverage_points_played = sum(
+            1 for n in points_played_set if leverage_by_number.get(n, 0.0) >= HIGH_LEVERAGE_THRESHOLD
+        )
 
         util_qualifying = 0
         util_touched = 0
@@ -472,6 +615,7 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
             "playerUUID": puuid,
             "player": player_name(puuid),
             "pointsPlayed": len(points_played_set),
+            "highLeveragePointsPlayed": high_leverage_points_played,
             "offensePlayed": offense_played,
             "defensePlayed": defense_played,
             "offenseWon": offense_won,
@@ -531,7 +675,7 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
         # accumulate season totals (raw/summable counts only; percentages are
         # re-derived after summing so they aren't just an average-of-averages)
         acc = season_stats.setdefault(puuid, {
-            "player": player_name(puuid), "pointsPlayed": 0, "offensePlayed": 0,
+            "player": player_name(puuid), "pointsPlayed": 0, "highLeveragePointsPlayed": 0, "offensePlayed": 0,
             "defensePlayed": 0, "offenseWon": 0, "defenseWon": 0, "touches": 0,
             "throws": 0, "throwCompletions": 0, "catches": 0, "receivingTargets": 0,
             "possessionsInitiated": 0, "assists": 0, "secondaryAssists": 0,
@@ -617,6 +761,7 @@ def _build_game_summary(point_log_ctx, pp_numer, pp_denom):
                 "defense": eff(clean_breaks, defense_points_total),
             },
         },
+        "clutchEfficiency": _leverage_split_efficiency(point_log_ctx["point_log"]),
     }
 
 
@@ -695,6 +840,23 @@ def _build_season_scoring_efficiency(game_reports):
     }
 
 
+def _build_season_clutch_efficiency(game_reports):
+    def sum_eff(bucket, category):
+        numer = sum(g["summary"]["clutchEfficiency"][bucket][category]["numer"] for g in game_reports)
+        denom = sum(g["summary"]["clutchEfficiency"][bucket][category]["denom"] for g in game_reports)
+        return {"numer": numer, "denom": denom, "pct": _pct(numer, denom)}
+
+    return {
+        bucket: {
+            "pointCount": sum(g["summary"]["clutchEfficiency"][bucket]["pointCount"] for g in game_reports),
+            "holdRate": sum_eff(bucket, "holdRate"),
+            "breakRate": sum_eff(bucket, "breakRate"),
+            "totalScoringEfficiency": sum_eff(bucket, "totalScoringEfficiency"),
+        }
+        for bucket in ("highLeverage", "lowLeverage")
+    }
+
+
 def compute_team_report(relations, team_name):
     """Build the full season report dict for one team from raw Statto relations."""
     players_by_uuid = {p["uuid"]: p for p in relations.get("players", [])}
@@ -740,5 +902,6 @@ def compute_team_report(relations, team_name):
         "games": game_reports,
         "seasonLeaderboard": _build_season_leaderboard(season_stats, season_games_played),
         "seasonScoringEfficiency": _build_season_scoring_efficiency(game_reports),
+        "seasonClutchEfficiency": _build_season_clutch_efficiency(game_reports),
         "playerGenders": player_genders,
     }
