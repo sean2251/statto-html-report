@@ -581,7 +581,7 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
         turnovers = thrower_errors + receiver_errors
         touches = catches + possessions_initiated
         throw_completions = throws - throw_incomplete
-        plus_minus = goals + assists - turnovers
+        plus_minus = goals + assists + def_blocks_count - turnovers
         # High-leverage points played: how many of this player's points had
         # Leverage >= HIGH_LEVERAGE_THRESHOLD, i.e. were close to a coin flip
         # on the game's outcome -- a simple count, not leverage-weighted.

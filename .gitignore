@@ -2,11 +2,12 @@
 *.statto
 *_report.html
 
-# Anything named after a real team. Catches hand-renamed downloads like
-# "RAMP 2026 Spectre.html" that don't match the generated-filename patterns
-# below. Both cases, since gitignore is case-sensitive by default.
-RAMP*
-ramp*
+# Anything named after a real team. "RAMP" anywhere in the name (not just as a
+# prefix) so year-prefixed files like "2026 RAMP/" and "2026_RAMP_Thru_SFI.html"
+# are caught too, alongside hand-renamed downloads. Both cases, since gitignore
+# is case-sensitive by default.
+*RAMP*
+*ramp*
 
 # Everything else the report generates, all of which carries real names:
 # single-game video-tagging pages, exported film annotations, curated lines,
@@ -35,3 +36,4 @@ README_files/
 # Editor/OS
 .DS_Store
 .Rhistory
+.claude/

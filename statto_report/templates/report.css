@@ -373,6 +373,12 @@
     color: var(--chalk-dim);
   }
   table.compare td.row-label { color: var(--chalk); }
+  /* Row labels with a hover explanation: dotted underline + help cursor. */
+  table.compare td.row-label.has-tip {
+    cursor: help;
+    text-decoration: underline dotted rgba(var(--chalk-rgb),0.4);
+    text-underline-offset: 3px;
+  }
   table.compare .rate-pct { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--chalk); }
   table.compare .rate-frac { font-size: 11px; color: var(--chalk-dim); margin-top: 2px; }
   .impact-grid {
@@ -780,6 +786,47 @@
     margin-bottom: 10px;
   }
   .line-candidate-meta { font-size: 11.5px; color: var(--chalk-dim); }
+
+  /* ---------- Line rosters (who's on each line + presence %) ---------- */
+  .line-rosters { margin-bottom: 8px; }
+  .line-roster-grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    margin-top: 4px;
+  }
+  .line-roster-card {
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.08);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .line-roster-name { font-weight: 700; font-size: 13.5px; color: var(--chalk); }
+  .line-roster-sub { font-size: 11px; color: var(--chalk-dim); margin-bottom: 8px; }
+  .line-roster-list { display: flex; flex-direction: column; gap: 3px; }
+  /* Each row is its own bar: a translucent fill sized to the presence %, with
+     the name and figure sitting on top. */
+  .line-roster-row {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 4px 8px; border-radius: 6px;
+    background: rgba(var(--chalk-rgb),0.05);
+    font-size: 12px;
+  }
+  .line-roster-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: rgba(var(--chalk-rgb),0.12);
+    z-index: 0;
+  }
+  .line-roster-player, .line-roster-pct { position: relative; z-index: 1; }
+  .line-roster-player { color: var(--chalk); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .line-roster-pct { color: var(--chalk-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* Shared players (on >1 of the shown lines) read gold, with a count chip. */
+  .line-roster-row.shared .line-roster-fill { background: rgba(255,184,0,0.15); }
+  .line-roster-row.shared .line-roster-player { color: #FFB800; }
+  .line-roster-chip {
+    font-size: 9px; font-weight: 800; line-height: 1;
+    color: var(--ink); background: #FFB800;
+    border-radius: 999px; padding: 2px 5px; font-variant-numeric: tabular-nums;
+  }
   .line-name-input {
     background: rgba(var(--chalk-rgb),0.06);
     border: 1px solid rgba(var(--chalk-rgb),0.2);
@@ -1089,9 +1136,48 @@
   .setup-tag-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .setup-tag-actions .pill-btn { margin-top: 0; padding: 5px 10px; }
   .setup-tag-count { font-size: 11.5px; color: var(--chalk-dim); font-family: ui-monospace, monospace; white-space: nowrap; }
-  .de-layout { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(280px, 380px); gap: 24px; align-items: start; margin-top: 8px; }
-  @media (max-width: 860px) { .de-layout { grid-template-columns: 1fr; } }
-  .de-left { min-width: 0; }
+  /* Video | field | tag panel. Deliberately not equal thirds -- each column has
+     a different natural shape: the video is 16:9 and wants the leftover width,
+     the field is portrait (110x40, so 2.75x taller than wide) and must stay
+     narrow or it grows taller than the screen, and the panel is a fixed-width
+     form. `auto` on the middle column lets the field's own resize handle set
+     its width, with the video column absorbing the difference.
+     align-items: stretch (not start) is what gives the sticky tag panel room
+     to travel -- a column sized to its own content has none. */
+  .de-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, 1fr) auto minmax(300px, 370px);
+    gap: 20px; align-items: stretch; margin-top: 8px;
+    /* Three columns don't fit the 1100px reading column -- it squeezes the
+       video down to its 300px minimum, too small to tag from. Widen this one
+       block toward the viewport and re-centre. Centring via margin rather than
+       a transform on purpose: a transformed ancestor changes the containing
+       block for the sticky tag panel inside. */
+    width: min(1500px, calc(100vw - 48px));
+    margin-left: calc((100% - min(1500px, 100vw - 48px)) / 2);
+  }
+  /* Too narrow for three: the panel drops to a full-width row underneath. */
+  @media (max-width: 1180px) {
+    .de-layout { grid-template-columns: minmax(0, 1fr) auto; }
+    .de-layout .de-right { grid-column: 1 / -1; }
+  }
+  @media (max-width: 860px) {
+    .de-layout { grid-template-columns: 1fr; }
+    .de-layout .de-right { grid-column: auto; }
+  }
+  /* Below the breakout width there's nothing to break out of. */
+  @media (max-width: 1150px) {
+    .de-layout { width: auto; margin-left: 0; }
+  }
+  .de-video-col { min-width: 0; }
+  .de-field-col { min-width: 0; }
+  .de-right { min-width: 0; }
+  /* The middle column is auto-sized, so its widest child sets its width. Cap
+     the captions/hints or a long sentence stretches the column well past the
+     pitch and pushes the tag panel away from the field. */
+  .de-field-col .de-pitch-hint,
+  .de-field-col .kbd-hint,
+  .de-field-col .de-step-caption { max-width: 340px; margin-left: auto; margin-right: auto; }
   .de-player-host {
     width: 100%; aspect-ratio: 16 / 9; background: #000;
     border-radius: 10px; overflow: hidden; margin-bottom: 12px;
@@ -1101,15 +1187,38 @@
   .de-player-note { margin: 0 0 12px; }
   .de-watch-inline { color: var(--good); text-decoration: none; white-space: nowrap; }
   .de-watch-inline:hover { text-decoration: underline; }
-  .de-pitch { margin: 0 auto 8px; }
+  /* .pitch-wrap is sticky so the game page's diagram stays put beside its long
+     point log. Here the caption, Prev/Next and the tip all sit *below* the
+     diagram in the same column, so sticking makes the field slide down over
+     them -- keep it in normal flow. */
+  .de-pitch {
+    position: static;
+    margin: 0 auto 8px;
+    /* Drag the bottom-right corner to resize. Only the width is draggable;
+       the SVG's viewBox fixes the aspect ratio, so the height follows and the
+       pitch can never be stretched out of shape. */
+    resize: horizontal;
+    overflow: hidden;
+    width: 340px;
+    max-width: 100%;
+    min-width: 200px;
+  }
+  /* buildPitch sets max-width:340px inline on every diagram, so beating it here
+     needs !important. Scoped to the tagging pitch only -- every other field
+     diagram keeps its inline cap. */
+  .de-pitch svg { max-width: none !important; width: 100%; height: auto; }
+  .de-pitch-hint { text-align: center; margin: 0 0 8px; font-size: 10.5px; color: var(--chalk-dim); opacity: 0.6; }
   .de-step-caption { text-align: center; margin: 0 0 8px; font-weight: 600; color: var(--chalk); }
   .de-step-nav { align-items: center; justify-content: center; gap: 14px; }
   .de-step-counter { font-family: ui-monospace, monospace; font-size: 12px; color: var(--chalk-dim); min-width: 60px; text-align: center; }
 
+  /* The panel and its shortcut legend stick together as one block. Sticking
+     the panel alone let it slide over the legend sitting below it. */
+  .de-panel-stack { position: sticky; top: 74px; }
   .de-panel {
     background: var(--ink-soft);
     border: 1px solid rgba(var(--chalk-rgb),0.1);
-    border-radius: 12px; padding: 16px; position: sticky; top: 74px;
+    border-radius: 12px; padding: 16px;
   }
   .de-panel-head { margin-bottom: 12px; }
   .de-panel-title { font-size: 15px; font-weight: 700; color: var(--chalk); }
@@ -1169,6 +1278,98 @@
   .de-result-link { margin-left: auto; font-family: ui-monospace, monospace; color: var(--good); text-decoration: none; white-space: nowrap; }
   .de-result-link:hover { text-decoration: underline; }
   .de-result-nolink { margin-left: auto; color: var(--chalk-dim); font-size: 12px; white-space: nowrap; }
+
+  /* ---------- Data Editor: keyboard shortcut legend ---------- */
+  .de-shortcuts {
+    margin-top: 14px; padding: 12px 14px;
+    border: 1px solid rgba(var(--chalk-rgb),0.12); border-radius: 10px;
+    background: rgba(var(--chalk-rgb),0.03);
+  }
+  .de-shortcuts-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+    font-weight: 700; color: var(--chalk-dim); margin-bottom: 8px;
+  }
+  .de-shortcut-list { display: flex; flex-direction: column; gap: 7px; }
+  .de-shortcut { display: flex; align-items: baseline; gap: 10px; }
+  .de-shortcut kbd {
+    flex: none; min-width: 26px; text-align: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    color: var(--chalk); background: rgba(var(--chalk-rgb),0.1);
+    border: 1px solid rgba(var(--chalk-rgb),0.2); border-bottom-width: 2px;
+    border-radius: 5px; padding: 2px 6px;
+  }
+  .de-shortcut-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .de-shortcut-name { font-size: 12.5px; font-weight: 600; color: var(--chalk); }
+  .de-shortcut-tags { font-size: 11px; line-height: 1.4; color: var(--chalk-dim); }
+  .de-shortcut-note {
+    margin: 10px 0 0; font-size: 11px; line-height: 1.45;
+    color: var(--chalk-dim); opacity: 0.8;
+  }
+
+  /* ---------- Possession-length histograms (Line Analysis) ---------- */
+  .histo-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .histo-svg { display: block; max-width: 100%; height: auto; }
+  .histo-foot {
+    font-family: var(--mono); font-size: 9.5px; color: var(--chalk-dim);
+    white-space: nowrap; opacity: 0.85;
+  }
+  .histo-empty { color: var(--chalk-dim); opacity: 0.6; }
+
+  /* ---------- Guided tour overlay (team report) ---------- */
+  /* The dim is a single huge box-shadow spilling out of the highlight box, so
+     there's no four-panel frame to keep in sync as the target moves. The
+     backdrop underneath is what actually swallows clicks. */
+  .tour-backdrop { position: fixed; inset: 0; z-index: 3000; background: transparent; }
+  .tour-hole {
+    position: fixed; z-index: 3001; pointer-events: none;
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.62), 0 0 0 2px var(--chalk) inset;
+    transition: top 0.18s ease, left 0.18s ease, width 0.18s ease, height 0.18s ease;
+  }
+  /* Intro steps point at nothing: collapsed to a point, so the same shadow
+     dims the screen evenly with no highlight ring showing. */
+  .tour-hole-empty { box-shadow: 0 0 0 9999px rgba(0,0,0,0.62); transition: none; }
+  .tour-pop {
+    position: fixed; z-index: 3002;
+    width: min(330px, calc(100vw - 32px));
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.18);
+    border-radius: 12px;
+    padding: 14px 16px 12px;
+    box-shadow: 0 12px 34px rgba(0,0,0,0.4);
+  }
+  .tour-pop-centered { top: 50% !important; left: 50% !important; transform: translate(-50%,-50%); }
+  .tour-count {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--chalk-dim); margin-bottom: 5px;
+  }
+  .tour-title { font-size: 15px; font-weight: 800; color: var(--chalk); margin-bottom: 5px; }
+  .tour-body { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--chalk-dim); }
+  .tour-actions { display: flex; align-items: center; gap: 8px; }
+  .tour-skip {
+    background: none; border: none; padding: 6px 2px; cursor: pointer;
+    font-family: var(--sans); font-size: 12px; color: var(--chalk-dim);
+    margin-right: auto;
+  }
+  .tour-skip:hover { color: var(--chalk); text-decoration: underline; }
+  .tour-btn {
+    font-family: var(--sans); font-size: 12.5px; font-weight: 600;
+    border-radius: 999px; padding: 7px 16px; cursor: pointer;
+    border: 1px solid rgba(var(--chalk-rgb),0.2);
+    background: transparent; color: var(--chalk);
+  }
+  .tour-btn:hover { border-color: var(--chalk); }
+  .tour-next { background: var(--chalk); color: var(--ink); border-color: var(--chalk); }
+  .tour-guide-btn {
+    margin-left: 6px;
+    font-family: var(--sans); font-size: 12px; font-weight: 600;
+    border-radius: 999px; padding: 5px 12px; cursor: pointer;
+    border: 1px solid rgba(var(--chalk-rgb),0.25);
+    background: transparent; color: var(--chalk-dim);
+    white-space: nowrap;
+  }
+  .tour-guide-btn:hover { color: var(--chalk); border-color: var(--chalk); }
+  @media (prefers-reduced-motion: reduce) { .tour-hole { transition: none; } }
 
   /* ---------- Player photos used around the report ---------- */
   .avatar {

@@ -124,27 +124,40 @@ browser), and don't forget the final **Export** step.
 ### The tagging screen
 
 However you open the file, you'll see one **Video Tagging** tab and a screen
-laid out like this:
+laid out in three columns — video, field, tags — so the diagram sits directly
+beside the boxes you fill in from it:
 
 ```
- ┌──────────────────────────┐   ┌─────────────────────────────┐
- │                          │   │  Thrower → Receiver          │
- │      GAME  VIDEO         │   │  Point 1 · Completed         │
- │   (or a "Watch on        │   │  Hand ▾      Release ▾       │
- │    YouTube" link if       │   │  Distance ▾  Stall ▾         │
- │    not self-hosting)      │   │  Catch ▾     Highlight ▾     │
- │                          │   │  Notes […]                   │
- ├──────────────────────────┤   │  Timestamp [mm:ss] [Grab]    │
- │   FIELD DIAGRAM          │   └─────────────────────────────┘
- │  (one pass highlighted)  │        the tagging panel for
- │  [← Prev]  3 / 60  [Next →]      the highlighted pass
- └──────────────────────────┘
+ ┌───────────────────┐  ┌──────────┐  ┌────────────────────────┐
+ │                   │  │          │  │ Thrower → Receiver     │
+ │    GAME VIDEO     │  │  FIELD   │  │ Point 1 · Completed    │
+ │  (or a "Watch on  │  │ DIAGRAM  │  │ Hand ▾     Release ▾   │
+ │   YouTube" link   │  │          │  │ Distance ▾ Stall ▾     │
+ │   if not hosting) │  │ (one     │  │ Catch ▾    Highlight ▾ │
+ │                   │  │  pass    │  │ Notes […]              │
+ │                   │  │  lit up) │  │ Timestamp [mm:ss]      │
+ │                   │  │          │  ├────────────────────────┤
+ │                   │  │ [←] 3/60 │  │ KEYBOARD SHORTCUTS     │
+ │                   │  │     [→]  │  │ 1 Flick under …        │
+ └───────────────────┘  └──────────┘  └────────────────────────┘
 ```
+
+The columns aren't equal thirds — each is sized to its own shape. The video is
+landscape and takes the leftover width; the field is portrait (110 × 40 yards,
+so nearly 3× taller than wide) and stays narrow; the tag panel is a fixed-width
+form that stays in view as you scroll. On a narrow screen the tag panel drops to
+a full-width row underneath, and below ~860px everything stacks.
 
 The field diagram shows the current pass (bright, with the others dimmed). The
 panel on the right is where you describe **that** pass. Use **← / →** on your
 keyboard (or the **Prev / Next** buttons) to move through every pass in the
 game, one at a time.
+
+**Resizing the field.** Drag the bottom-right corner of the field diagram to
+make it bigger or smaller. Only the width is draggable — the height follows
+automatically, so the pitch always keeps its true 110 × 40 yard proportions and
+can't be stretched out of shape. Your chosen size is remembered in this browser,
+so you only set it once.
 
 You step through more than just passes — a game's events, in the order they
 happened, are: the **Pull** (opening every defensive point — who pulled, and
@@ -177,10 +190,39 @@ between the two at any time without losing tags. The counters (`3 / 56` and the
    useful.
 3. Set the **Timestamp** (the moment in the video):
    - **Option B (self-hosting):** scrub the embedded video to the moment and
-     click **Grab current time**. Use **Jump ▶** to re-check it.
+     click **Grab current time**, or **Grab 2s before** — you usually notice a
+     throw a beat after it happens, so the useful moment is slightly behind
+     where the video is when you reach for the button. Use **Jump ▶** to
+     re-check it.
    - **Option A:** read the time off your video (e.g. `12:04`) and type it into
      the timestamp box as `mm:ss`.
 4. Press **→** for the next pass and repeat.
+
+### Keyboard shortcuts
+
+Most throws are one of a handful of common types, so the number keys fill those
+in at a stroke — each also stamps the video time 2 seconds back:
+
+| Key | Fills in |
+|---|---|
+| **1** | Flick under — Hand: Flick, Release: Forceside, Distance: Under, Stall: Mid, Catch: Uncontested |
+| **2** | Backhand reset — Hand: Backhand, Distance: Reset, Stall: High, Catch: Uncontested |
+| **3** | Break reset — Hand: Backhand, Release: Breakside around, Distance: Reset, Stall: High, Catch: Uncontested |
+
+The **Stall** dropdown spells out the stall count each band covers — *Low
+(< stall 3)*, *Mid (stall 3–7)*, *High (stall > 7)* — so taggers don't have to
+guess where the boundaries are. That's a display label only: the value saved in
+an annotation stays the short `Low` / `Mid` / `High`, so games tagged before the
+wording changed still read back correctly and still match a Stall filter.
+| **,** | Nudge the timestamp 1 second earlier |
+| **.** | Nudge the timestamp 1 second later |
+| **← →** | Previous / next event |
+
+The same list is printed on screen, under the tagging panel. Two things to know:
+a number key only applies to a **pass** (it does nothing on a pull, block or
+defensive possession), and it fills in **only** the tags listed — anything you
+set yourself is left alone, so pressing **2** after **1** keeps the Release
+from **1**. All shortcuts pause while you're typing in a text box.
 
 ### When you're finished → send it back
 
@@ -283,6 +325,15 @@ One-time (per browser) configuration that the rest of the report reads from.
 Everything here is saved in `localStorage`, not baked into the `.statto`
 file:
 
+- **Export / Import all custom data** — two buttons at the top. Because
+  everything you add on top of the report (tournament names, video links,
+  player photos, curated lines, and every video tag) lives only in this
+  browser, **Export all custom data** bundles all of it into one JSON file —
+  a backup, or a way to carry your work onto a freshly regenerated report when
+  new games are added. **Import all custom data** replaces the matching data in
+  this browser from such a file and reloads. It maps each section onto the
+  current report's storage, so an export made before a regenerate still lands.
+
 - **Tournaments** — name your tournaments and assign each game to one. This
   starts pre-filled from a date-based auto-grouping (games on the same or
   consecutive days), which you can rename, split, merge, or rebuild from
@@ -321,6 +372,15 @@ file:
   **Line Analysis stays editable** so a teammate can build their own lines on
   top of yours. The seed is non-destructive: a recipient who has already
   entered their own data for this team keeps theirs.
+
+  **Guided tours.** The team build — and only the team build — walks a first-time
+  visitor through each tab: a dimmed overlay highlights one element at a time
+  with a short explanation and a Next button. Each tab introduces itself once
+  per browser and then stays quiet; the **? Guide** button in the nav replays the
+  current tab's tour any time. Steps whose target isn't there are dropped before
+  the tour starts, so a game with no video link or no tagged film simply skips
+  those steps rather than pointing at nothing. Arrow keys step through it, Esc
+  or **Skip** closes it. The person building the report never sees any of this.
 
   **Collaborating on video tagging.** Split games among helpers. For each game,
   use **Create tagging page** to hand a helper a single-game tagging file (it
@@ -563,14 +623,34 @@ short:
    automatically pre-checked in its place, so confirming groups one after
    another converges toward just the one-off points. Flip **"Show all"** any
    time to bring already-assigned points back into view for editing
-4. **Compare** — once you have 1+ named lines, pick which ones to compare
+4. **See who's on each line** — a **Line rosters** section (above the
+   comparison) gives every named line its own card listing everyone who
+   played on it and the share of that line's points they were on the field
+   for (e.g. *86% · 12/14*), sorted most-present first. A player who appears
+   on more than one of the shown lines is **highlighted in gold** with a small
+   count chip, so overlap between lines — the same handful of people carrying
+   several lines — is obvious at a glance.
+5. **Compare** — once you have 1+ named lines, pick which ones to compare
    (and which games to include) for a stats table (points played, **avg
    point leverage** — the mean Leverage across a line's points, showing
    which lines get deployed in the tightest, highest-stakes moments vs.
    mostly decided games — hold/break rate, throw/huck/assist completion,
    blocks, opponent turnovers forced, red-zone conversion), per-line
    **Scoring Efficiency** gauges, and per-line **field diagrams** with the
-   same category filter used elsewhere
+   same category filter used elsewhere.
+
+   The last two rows are small **histograms of possession length** — how many
+   throws a possession took, split by how it ended: one for possessions that
+   scored, one for possessions that turned it over. Bars are that line's
+   *share* of possessions in each bucket (1–9 throws, then 10+), so lines that
+   played more points don't just look bigger, and the y-scale is shared across
+   the row so columns read against each other directly. Hover a bar for the
+   raw count; the caption gives the median and sample size. A possession that
+   neither scored nor turned — the point ended around it — is in neither
+   histogram.
+
+   In the **published team report** the point-picking panel moves below the
+   comparison, since teammates come here to read lines rather than curate them.
 
 A **"Clear all line data"** button (with a confirmation prompt first) wipes
 every saved line from this browser if you want to start over.
@@ -769,7 +849,7 @@ A few terms that come up throughout the report and aren't self-explanatory:
 | **Red zone** | Within 20 yd of the attacking endzone; a red-zone "entry" requires a throw that *originated* there, not one that merely lands there from farther out |
 | **Offensive utilization** | Of the points a player was on the field for that either started on offense or where their line got a block, the percentage where they recorded at least one touch |
 | **Scoring efficiency (Per Point / Per Possession / First Possession)** | Three ways of measuring conversion rate — by point, by individual possession (a point with a turnover-and-recovery has more than one), or restricted to clean, first-try conversions only |
-| **Plus/minus** | Goals + assists − turnovers |
+| **Plus/minus** | Goals + assists + blocks − turnovers |
 | **Leverage** | How much a single point's outcome could swing the game's eventual result, 0–10 (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = an already-decided blowout). Modeled as a fair (50/50) race to that game's actual final winning score, with a square-root reshape so mid-to-late-game situations don't read as more compressed than they feel — see [Games](#games-one-page-per-game-reached-via-the-games-dropdown) |
 | **High-leverage points played** | How many of a player's points had Leverage ≥ 7 — points close to a coin flip on the game's outcome, typically late and close — as opposed to raw points played, which counts every point regardless of how much it mattered |
 

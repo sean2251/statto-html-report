@@ -39,7 +39,7 @@ const STAT_COLUMNS = [
   { key: 'assistAttempts', label: 'Ast Att', full: 'Assist attempts (throws targeting the endzone, whether completed or not)', numeric: true },
   { key: 'assistCompletionPct', label: 'Ast Cmp%', full: 'Assists (count) and assist completion percentage (assists / assist attempts)', numeric: true, percent: true, comboCountKey: 'assists' },
   { key: 'goals', label: 'Goals', full: 'Goals scored', numeric: true },
-  { key: 'plusMinus', label: '+/-', full: 'Plus-minus (goals + assists − turnovers)', numeric: true },
+  { key: 'plusMinus', label: '+/-', full: 'Plus-minus (goals + assists + blocks − turnovers)', numeric: true },
   { key: 'turnovers', label: 'Turns', full: 'Turnovers (thrower errors + receiver errors)', numeric: true },
   { key: 'throwerErrors', label: 'Thr Err', full: 'Throwing errors (throwaways)', numeric: true },
   { key: 'receiverErrors', label: 'Rec Err', full: 'Receiving errors (drops)', numeric: true },
@@ -195,6 +195,13 @@ function buildNav() {
   nav.querySelectorAll('button.tab:not(.nav-games-btn)').forEach(btn => {
     btn.addEventListener('click', () => showView(btn.getAttribute('data-target')));
   });
+  // Replays the current tab's walkthrough. Team report only -- the person who
+  // built the report doesn't need talking through their own tabs.
+  if (VIEWER_MODE) {
+    const guideBtn = el('button', { class: 'tour-guide-btn', type: 'button', title: 'Show me around this tab' }, [document.createTextNode('? Guide')]);
+    guideBtn.addEventListener('click', () => { const id = currentViewId(); if (id) startTour(id); });
+    nav.appendChild(guideBtn);
+  }
   nav.appendChild(buildThemeToggle());
 }
 
@@ -247,6 +254,9 @@ function showView(id) {
   document.querySelectorAll('.nav-games-row').forEach(r => r.classList.toggle('active', r.getAttribute('data-target') === id));
   if (gameViewRefreshers.has(id)) gameViewRefreshers.get(id)();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  // A tour in progress belongs to the tab you just left.
+  endTour();
+  maybeAutoTour(id);
 }
 
 // ---------- Sortable stats tables & CSV export ----------
@@ -654,6 +664,7 @@ function attachPassHover(routeLayer, x1, y1, x2, y2, p, extra) {
   routeLayer.appendChild(hit);
 }
 
+let pitchSeq = 0;
 function buildPitch() {
   const svg = svgEl('svg', { viewBox: `0 0 ${PITCH_W} ${PITCH_H}`, width: '100%', style: 'max-width:340px; display:block; margin:0 auto;' });
   svg.appendChild(svgEl('rect', { x: 0, y: 0, width: PITCH_W, height: PITCH_H, fill: '#2E5339', rx: 6 }));
@@ -680,26 +691,34 @@ function buildPitch() {
   // End-markers are sized past their SVG default so the direction/outcome of
   // a route reads at a glance even in a dense, many-line diagram -- a marker
   // that only shows up under zoom defeats the point of it.
-  const marker = svgEl('marker', { id: 'arrowhead', markerWidth: 9, markerHeight: 9, refX: 7, refY: 3.5, orient: 'auto' });
+  // Marker ids are per-pitch. They used to be fixed strings, which meant every
+  // diagram on the page defined the same six ids and every url(#...) in the
+  // document resolved to the FIRST copy -- one that usually sits in an inactive,
+  // display:none section, so the browser had nothing to paint and the
+  // arrowheads/Xs/Os silently vanished on every diagram except whichever one
+  // happened to own the first definition.
+  const uid = ++pitchSeq;
+  svg.setAttribute('data-mk', uid);
+  const marker = svgEl('marker', { id: 'arrowhead-' + uid, markerWidth: 9, markerHeight: 9, refX: 7, refY: 3.5, orient: 'auto' });
   marker.appendChild(svgEl('path', { d: 'M0,0 L7,3.5 L0,7 Z', fill: '#F3F1E9' }));
   const defs = svgEl('defs', {});
   defs.appendChild(marker);
-  const markerTO = svgEl('marker', { id: 'arrowhead-to', markerWidth: 9, markerHeight: 9, refX: 7, refY: 3.5, orient: 'auto' });
+  const markerTO = svgEl('marker', { id: 'arrowhead-to-' + uid, markerWidth: 9, markerHeight: 9, refX: 7, refY: 3.5, orient: 'auto' });
   markerTO.appendChild(svgEl('path', { d: 'M0,0 L7,3.5 L0,7 Z', fill: '#E8604C' }));
   defs.appendChild(markerTO);
   // Turnovers split by whose mistake it was: a throwaway ends in an X (the
   // disc sailed off to nowhere), a drop ends in a hollow circle at the
   // receiver's spot (hands got there, didn't hold it). Shape -- not color --
   // carries the distinction, so it survives colorblindness and small sizes.
-  const markerThrowaway = svgEl('marker', { id: 'marker-throwaway', markerWidth: 9, markerHeight: 9, refX: 4.5, refY: 4.5, orient: 'auto' });
+  const markerThrowaway = svgEl('marker', { id: 'marker-throwaway-' + uid, markerWidth: 9, markerHeight: 9, refX: 4.5, refY: 4.5, orient: 'auto' });
   markerThrowaway.appendChild(svgEl('path', { d: 'M1.3,1.3 L7.7,7.7 M7.7,1.3 L1.3,7.7', stroke: '#E8604C', 'stroke-width': 1.6, fill: 'none' }));
   defs.appendChild(markerThrowaway);
-  const markerDrop = svgEl('marker', { id: 'marker-drop', markerWidth: 9, markerHeight: 9, refX: 4.5, refY: 4.5, orient: 'auto' });
+  const markerDrop = svgEl('marker', { id: 'marker-drop-' + uid, markerWidth: 9, markerHeight: 9, refX: 4.5, refY: 4.5, orient: 'auto' });
   markerDrop.appendChild(svgEl('circle', { cx: 4.5, cy: 4.5, r: 3, fill: 'none', stroke: '#E8604C', 'stroke-width': 1.6 }));
   defs.appendChild(markerDrop);
   // Both-fault turnover (thrower AND receiver error): the throwaway X inside
   // the drop's circle, so a shared-blame turnover reads as its own symbol.
-  const markerBoth = svgEl('marker', { id: 'marker-both', markerWidth: 11, markerHeight: 11, refX: 5.5, refY: 5.5, orient: 'auto' });
+  const markerBoth = svgEl('marker', { id: 'marker-both-' + uid, markerWidth: 11, markerHeight: 11, refX: 5.5, refY: 5.5, orient: 'auto' });
   markerBoth.appendChild(svgEl('circle', { cx: 5.5, cy: 5.5, r: 4.2, fill: 'none', stroke: '#E8604C', 'stroke-width': 1.4 }));
   markerBoth.appendChild(svgEl('path', { d: 'M3,3 L8,8 M8,3 L3,8', stroke: '#E8604C', 'stroke-width': 1.4, fill: 'none' }));
   defs.appendChild(markerBoth);
@@ -707,24 +726,33 @@ function buildPitch() {
   // regular pass), and a marker's size scales with its line's stroke-width
   // by default -- so this marker's own box is shrunk by that same 2/3 ratio,
   // keeping the rendered arrowhead the same on-screen size as every other one.
-  const markerGoal = svgEl('marker', { id: 'arrowhead-goal', markerWidth: 6, markerHeight: 6, refX: 4.67, refY: 2.33, orient: 'auto' });
+  const markerGoal = svgEl('marker', { id: 'arrowhead-goal-' + uid, markerWidth: 6, markerHeight: 6, refX: 4.67, refY: 2.33, orient: 'auto' });
   markerGoal.appendChild(svgEl('path', { d: 'M0,0 L4.67,2.33 L0,4.67 Z', fill: '#FFB800' }));
   defs.appendChild(markerGoal);
   svg.insertBefore(defs, svg.firstChild);
 
   const routeLayer = svgEl('g', { class: 'routes' });
+  routeLayer.setAttribute('data-mk', uid);
   svg.appendChild(routeLayer);
   return { svg, routeLayer };
+}
+
+// The end-marker reference for the pitch a route layer belongs to. Every
+// renderer goes through this rather than naming an id directly, so a diagram
+// can only ever point at its own markers.
+function markerRef(routeLayer, name) {
+  const uid = routeLayer && routeLayer.getAttribute('data-mk');
+  return uid ? `url(#${name}-${uid})` : 'none';
 }
 
 // Which end-marker a turnover pass gets: X for the thrower's mistake, hollow
 // circle for the receiver's. Falls back to the plain red arrowhead for a
 // turnover pass carrying neither flag (shouldn't happen in Statto data).
-function turnoverMarker(p) {
-  if (p.throwerError && p.receiverError) return 'url(#marker-both)';
-  if (p.throwerError) return 'url(#marker-throwaway)';
-  if (p.receiverError) return 'url(#marker-drop)';
-  return 'url(#arrowhead-to)';
+function turnoverMarker(p, routeLayer) {
+  if (p.throwerError && p.receiverError) return markerRef(routeLayer, 'marker-both');
+  if (p.throwerError) return markerRef(routeLayer, 'marker-throwaway');
+  if (p.receiverError) return markerRef(routeLayer, 'marker-drop');
+  return markerRef(routeLayer, 'arrowhead-to');
 }
 
 // One shared legend under every field diagram, decoding the line colors and
@@ -824,9 +852,9 @@ function renderPoint(routeLayer, point, focusPossession) {
     const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
     const x2 = p.endX * PITCH_W, y2 = p.endY * PITCH_H;
     const isFocused = !multi || focusPossession == null || p.possession === focusPossession;
-    let stroke = '#F3F1E9', markerEnd = 'url(#arrowhead)', width = 2, dash = '0';
-    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p); dash = '3 3'; }
-    else if (p.assist) { stroke = '#FFB800'; markerEnd = 'url(#arrowhead-goal)'; width = 3; }
+    let stroke = '#F3F1E9', markerEnd = markerRef(routeLayer, 'arrowhead'), width = 2, dash = '0';
+    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p, routeLayer); dash = '3 3'; }
+    else if (p.assist) { stroke = '#FFB800'; markerEnd = markerRef(routeLayer, 'arrowhead-goal'); width = 3; }
 
     if (!isFocused) {
       // Ghost line: a faint, thin trace so the shape of other possessions stays
@@ -1565,9 +1593,9 @@ function renderPlayerImpact(routeLayer, passes, blocks) {
   passes.forEach(({ pass: p, gameIndex }) => {
     const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
     const x2 = p.endX * PITCH_W, y2 = p.endY * PITCH_H;
-    let stroke = '#F3F1E9', markerEnd = 'url(#arrowhead)', width = 2, dash = '0';
-    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p); dash = '3 3'; }
-    else if (p.assist) { stroke = '#FFB800'; markerEnd = 'url(#arrowhead-goal)'; width = 3; }
+    let stroke = '#F3F1E9', markerEnd = markerRef(routeLayer, 'arrowhead'), width = 2, dash = '0';
+    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p, routeLayer); dash = '3 3'; }
+    else if (p.assist) { stroke = '#FFB800'; markerEnd = markerRef(routeLayer, 'arrowhead-goal'); width = 3; }
     const line = svgEl('line', {
       x1, y1, x2, y2, stroke, 'stroke-width': width, 'marker-end': markerEnd,
       'stroke-dasharray': dash === '0' ? 'none' : dash,
@@ -2722,11 +2750,11 @@ const PLAYER_BASIC_ROWS = [
   { label: 'Thrower errors', get: p => p.throwerErrors },
   { label: 'Receiver errors', get: p => p.receiverErrors },
   { label: 'Plus/minus', get: p => p.plusMinus },
-  { label: 'Total scoring efficiency', get: p => fmtPct(p.totalScoringEfficiency) },
-  { label: 'Offensive scoring efficiency', get: p => fmtPct(p.offensiveScoringEfficiency) },
-  { label: 'Defensive scoring efficiency', get: p => fmtPct(p.defensiveScoringEfficiency) },
-  { label: 'Defensive turnover efficiency', get: p => fmtPct(p.defensiveTurnoverEfficiency) },
-  { label: 'Point recovery', get: p => fmtPct(p.pointRecovery) },
+  { label: 'Total scoring efficiency', tip: 'Share of all points this player was on the field for that their team scored.', get: p => fmtPct(p.totalScoringEfficiency) },
+  { label: 'Offensive scoring efficiency', tip: 'Of the offensive (O-line) points they played, the share scored — the hold rate while they were on.', get: p => fmtPct(p.offensiveScoringEfficiency) },
+  { label: 'Defensive scoring efficiency', tip: 'Of the defensive (D-line) points they played, the share scored — the break rate while they were on.', get: p => fmtPct(p.defensiveScoringEfficiency) },
+  { label: 'Defensive turnover efficiency', tip: 'Of the defensive points they played, the share where the opponent turned the disc over at least once — whether or not the team then scored.', get: p => fmtPct(p.defensiveTurnoverEfficiency) },
+  { label: 'Point recovery', tip: 'Of the points they played where their team turned the disc over at least once, the share still won.', get: p => fmtPct(p.pointRecovery) },
 ];
 const PLAYER_THROWER_RATE_ROWS = [
   { label: 'Throw completion', main: p => fmtPct(p.throwCompletionPct), sub: p => `${p.throwCompletions}/${p.throws}` },
@@ -2772,10 +2800,19 @@ function buildComparisonTable(rowDefs, players, labelKey) {
   table.appendChild(thead);
   const tbody = el('tbody', {}, []);
   rowDefs.forEach(rd => {
-    const tr = el('tr', {}, [el('td', { class: 'row-label' }, [document.createTextNode(rd.label)])]);
+    // A row can carry a `tip`: a hover explanation on its label, marked with a
+    // dotted underline + help cursor so it reads as "there's more here."
+    const labelCell = rd.tip
+      ? el('td', { class: 'row-label has-tip', title: rd.tip }, [document.createTextNode(rd.label)])
+      : el('td', { class: 'row-label' }, [document.createTextNode(rd.label)]);
+    const tr = el('tr', {}, [labelCell]);
     players.forEach(p => {
       let cellChildren;
-      if (rd.main) {
+      // A row can render its own cell content (a mini chart rather than a
+      // number); it gets every column's row object so it can share a scale.
+      if (rd.render) {
+        cellChildren = [rd.render(p, players)];
+      } else if (rd.main) {
         const mainVal = rd.main(p);
         cellChildren = [
           el('div', { class: 'rate-pct' }, [document.createTextNode(mainVal)]),
@@ -2961,6 +2998,21 @@ function buildSetupSection() {
   const section = el('section', { class: 'view', id: 'setup' }, []);
   section.appendChild(text('p', 'eyebrow', 'Set up'));
   section.appendChild(text('p', 'hero-sub', 'Group games into tournaments, add a video link per game, and set player photos. Everything here is saved in this browser.'));
+
+  // ---- Back up / restore everything you've added on top of the report ----
+  const exportAllBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Export all custom data')]);
+  exportAllBtn.addEventListener('click', exportAllCustomData);
+  const importAllBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Import all custom data')]);
+  const importAllInput = el('input', { type: 'file', accept: 'application/json,.json' }, []);
+  importAllInput.style.display = 'none';
+  importAllBtn.addEventListener('click', () => importAllInput.click());
+  importAllInput.addEventListener('change', () => {
+    const file = importAllInput.files && importAllInput.files[0];
+    importAllInput.value = '';
+    if (file) importAllCustomData(file);
+  });
+  section.appendChild(el('div', { class: 'controls-row de-io-row' }, [exportAllBtn, importAllBtn, importAllInput]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Everything you add on top of the report — tournament names, video links, player photos, curated lines and video tags — is saved only in this browser. Export it to one file to back it up or move it onto a freshly regenerated report; importing replaces the matching data here and reloads.')]));
 
   const data = loadSetupData();
   // Seed the working tournament list from any saved config, else from the
@@ -3664,17 +3716,57 @@ function linesStorageKey() { return 'statto-report-lines::' + REPORT.teamName; }
 const ANNOTATION_VOCAB = {
   hand: ['Backhand', 'Offhand backhand', 'Flick', 'Hammer', 'Scoober', 'Other'],
   release: ['Forceside', 'Breakside around', 'Breakside inside', 'Over-the-top', 'Unmarked'],
-  distance: ['Reset', 'Under', 'Away', 'Huck', 'Other'],
+  distance: ['Reset', 'Under', 'Upline', 'Away', 'Huck', 'Other'],
   stall: ['Low', 'Mid', 'High'],
   // only meaningful when the base pass is a turnover
   turnoverReason: ['Underthrown', 'Overthrown', 'Thrown OB', 'Into poach', 'Into doublecoverage', 'Miscommunication', 'Hand/foot blocked', 'Receiver not open', 'Drop'],
   catch: ['Uncontested', 'Contested', 'Layout/difficult'],
   highlight: ['Crazy highlight', 'Normal highlight'],
 };
+
+// Longer wording for a dropdown, where the stored value alone doesn't say
+// enough. Only the *label* changes -- the value written to an annotation stays
+// the short string, so games tagged before this existed keep matching, the
+// keyboard presets keep working, and compact places (the film strip, the query
+// result tags) stay readable.
+const VOCAB_LABELS = {
+  stall: {
+    'Low': 'Low (< stall 3)',
+    'Mid': 'Mid (stall 3–7)',
+    'High': 'High (stall > 7)',
+  },
+};
+function vocabLabel(field, value) {
+  const map = VOCAB_LABELS[field];
+  return (map && map[value]) || value;
+}
+
 // Defensive blocks (Ds) get their own small vocab.
 const BLOCK_VOCAB = {
-  type: ['Layout/run-through D', 'Hand/foot block', 'Sky/boxout', 'Help/poach D', 'Stall D', 'Stand still D'],
+  type: ['Layout/run-through D', 'Hand/foot block', 'Sky/boxout', 'Help/poach D', 'Stall D', 'Stand still D', 'Reset D'],
 };
+// Number-key shortcuts for the throws that come up over and over, so the
+// common case is one keystroke instead of five dropdowns. Each also stamps the
+// video time 2s back (see applyPreset). The on-screen legend is generated from
+// this object, so the keys and their descriptions can't drift apart.
+const TAG_PRESETS = {
+  '1': {
+    label: 'Flick under',
+    tags: { hand: 'Flick', release: 'Forceside', distance: 'Under', stall: 'Mid', catch: 'Uncontested' },
+  },
+  '2': {
+    label: 'Backhand reset',
+    tags: { hand: 'Backhand', distance: 'Reset', stall: 'High', catch: 'Uncontested' },
+  },
+  '3': {
+    label: 'Break reset',
+    tags: { hand: 'Backhand', release: 'Breakside around', distance: 'Reset', stall: 'High', catch: 'Uncontested' },
+  },
+};
+const TAG_PRESET_FIELD_LABELS = {
+  hand: 'Hand', release: 'Release', distance: 'Distance', stall: 'Stall', catch: 'Catch',
+};
+
 // Point-level: our defensive scheme while the opponent is on offence, and how
 // the opponent gave the disc back when it wasn't one of our blocks.
 const POINT_VOCAB = {
@@ -3821,6 +3913,70 @@ function publishForTeam() {
   downloadFile(buildDistributableHtml({ viewer: true }), slug(REPORT.teamName) + '_team_report.html', 'text/html;charset=utf-8;');
 }
 
+// ---------- Export / import ALL custom data (Set up tab) ----------
+// Everything a user adds on top of the generated report -- tournament names,
+// per-game video links, player photos, curated lines, and every video-tagging
+// annotation -- lives in exactly these three localStorage keys. This bundles
+// all three into one file (and restores from it) so a season's worth of setup
+// and tagging can be backed up, or moved onto a freshly regenerated report,
+// in a single step.
+const CUSTOM_DATA_VERSION = 1;
+function customDataSections() {
+  return [
+    { name: 'setup', key: setupStorageKey(), label: 'tournaments, video links & photos' },
+    { name: 'lines', key: linesStorageKey(), label: 'curated lines' },
+    { name: 'annotations', key: annotationsStorageKey(), label: 'video tags' },
+  ];
+}
+function buildCustomDataBundle() {
+  const bundle = {
+    statto: 'custom-data', version: CUSTOM_DATA_VERSION,
+    teamName: REPORT.teamName, exportedAt: new Date().toISOString(),
+  };
+  customDataSections().forEach(({ name, key }) => {
+    const raw = localStorage.getItem(key);
+    let val = null;
+    if (raw) { try { val = JSON.parse(raw); } catch (e) { val = null; } }
+    bundle[name] = val;
+  });
+  return bundle;
+}
+function exportAllCustomData() {
+  downloadFile(JSON.stringify(buildCustomDataBundle(), null, 2),
+    slug(REPORT.teamName) + '_custom_data.json', 'application/json');
+}
+// Rewrites each present section under THIS report's storage keys (not the
+// file's), so a bundle exported before a regenerate still lands even if the
+// team name changed. Reloads afterwards so every tab rebuilds from the
+// imported data rather than trying to live-patch each one.
+function importAllCustomData(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try { parsed = JSON.parse(reader.result); } catch (e) { alert('That file isn’t valid JSON.'); return; }
+    if (!parsed || parsed.statto !== 'custom-data') {
+      alert('That doesn’t look like a Statto “custom data” export.');
+      return;
+    }
+    const present = customDataSections().filter(({ name }) => parsed[name] && typeof parsed[name] === 'object');
+    if (!present.length) { alert('That file has no custom data in it.'); return; }
+    const teamNote = (parsed.teamName && parsed.teamName !== REPORT.teamName)
+      ? `\n\nNote: this file was exported from “${parsed.teamName}”, but this report is “${REPORT.teamName}”. Import anyway only if it’s the same team.`
+      : '';
+    const ok = window.confirm(
+      'Import custom data (' + present.map(p => p.label).join(', ') + ')?\n\n' +
+      'This replaces the matching data currently saved in this browser, then reloads the page. ' +
+      'Export a backup first if you might want the current data back.' + teamNote
+    );
+    if (!ok) return;
+    present.forEach(({ name, key }) => {
+      try { localStorage.setItem(key, JSON.stringify(parsed[name])); } catch (e) {}
+    });
+    location.reload();
+  };
+  reader.readAsText(file);
+}
+
 // A stripped page for one game: only the Data Editor, locked to that game, for
 // handing to a helper to do the video tagging. They export their annotations
 // JSON and send it back; it's re-imported per game on the Set up tab.
@@ -3960,6 +4116,25 @@ function modeLineupForKeys(keys) {
   return best ? best.names : [];
 }
 
+// Who actually played on a line and how often: for each of the line's points,
+// count every player in that point's lineup. Returns the point total and a
+// name -> points-present map, so a caller can show "on 12 of 14 points (86%)".
+// Uses the line's full point set (not the compare-tab games filter), so a
+// line's roster reads the same however the comparison below it is scoped.
+function lineRosterPresence(pointKeys) {
+  let total = 0;
+  const counts = new Map();
+  pointKeys.forEach(key => {
+    const [giStr, pnStr] = key.split('|');
+    const game = REPORT.games[Number(giStr)];
+    const pt = game && (game.points || []).find(p => p.number === Number(pnStr));
+    if (!pt) return;
+    total++;
+    new Set((pt.lineup || []).map(e => e.player)).forEach(n => counts.set(n, (counts.get(n) || 0) + 1));
+  });
+  return { total, counts };
+}
+
 // Permissive enough that a line which occasionally subs a player or two
 // still gets grouped rather than fragmenting into many near-duplicate
 // candidates. Previously an adjustable toggle in the UI; fixed now since
@@ -4053,6 +4228,10 @@ function computeLineStats(pointKeys, selectedGameIndices) {
   let leverageSum = 0;
   const ppNumer = { total: 0, offense: 0, defense: 0 };
   const ppDenom = { total: 0, offense: 0, defense: 0 };
+  // Throw counts of individual possessions, kept as raw samples so the compare
+  // table can draw their distribution rather than just an average.
+  const scoringPossThrows = [];
+  const turnoverPossThrows = [];
 
   points.forEach(pt => {
     const isOffense = !!pt.isOffense;
@@ -4107,6 +4286,11 @@ function computeLineStats(pointKeys, selectedGameIndices) {
       const possScored = !!(last && last.assist);
       ppDenom.total++; if (possScored) ppNumer.total++;
       ppDenom[bucketKey]++; if (possScored) ppNumer[bucketKey]++;
+      // How long a possession ran before it ended, split by how it ended.
+      // A possession that neither scored nor turned (the point ended around it,
+      // or the log stops) belongs to neither distribution.
+      if (possScored) scoringPossThrows.push(possPasses.length);
+      else if (last && last.turnover) turnoverPossThrows.push(possPasses.length);
     });
   });
 
@@ -4135,6 +4319,7 @@ function computeLineStats(pointKeys, selectedGameIndices) {
     throws: combined.throws, throwCompletions: combined.completions, throwCompletionPct: pct(combined.completions, combined.throws),
     huckAttempts: combined.huckAttempts, huckCompletions: combined.huckCompletions, huckCompletionPct: pct(combined.huckCompletions, combined.huckAttempts),
     assistAttempts, assists, assistCompletionPct: pct(assists, assistAttempts),
+    scoringPossThrows, turnoverPossThrows,
     blocks: combined.blocks, oppTurnovers: combined.oppTurnovers,
     redZoneEntries: combined.redZoneEntries, redZoneConversions: combined.redZoneConversions, redZoneRate: pct(combined.redZoneConversions, combined.redZoneEntries),
     lineStats: { combined: lineTypeSummary(buckets.combined), offense: lineTypeSummary(buckets.offense), defense: lineTypeSummary(buckets.defense) },
@@ -4183,6 +4368,78 @@ function computeLineFieldData(pointKeys, selectedGameIndices, categories) {
   return { passes, blocks };
 }
 
+// ---------- Possession-length histogram (Line Analysis compare table) ----------
+// Buckets are 1..9 throws then "10+", fixed rather than data-driven so the
+// same bar means the same thing in every column of the row.
+const POSS_HISTO_BUCKETS = 10;
+function possHistoCounts(values) {
+  const counts = new Array(POSS_HISTO_BUCKETS).fill(0);
+  (values || []).forEach(n => {
+    const i = Math.min(Math.max(n, 1), POSS_HISTO_BUCKETS) - 1;
+    counts[i]++;
+  });
+  return counts;
+}
+function medianOf(values) {
+  if (!values || !values.length) return null;
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+// `allSeries` is every column's raw sample array for this row. Bars are drawn as
+// a share of that line's own possessions (lines play different numbers of
+// points, so raw counts would just show who played more), on a y-scale shared
+// across the row so the columns can be read against each other.
+function buildPossHistogram(values, allSeries, color) {
+  const counts = possHistoCounts(values);
+  const total = counts.reduce((a, b) => a + b, 0);
+  if (!total) return el('span', { class: 'histo-empty' }, [document.createTextNode('–')]);
+
+  let maxShare = 0;
+  (allSeries || []).forEach(series => {
+    const c = possHistoCounts(series);
+    const t = c.reduce((a, b) => a + b, 0);
+    if (t) c.forEach(v => { maxShare = Math.max(maxShare, v / t); });
+  });
+  if (!maxShare) maxShare = 1;
+
+  const W = 132, H = 46, gap = 2;
+  const barW = (W - gap * (POSS_HISTO_BUCKETS - 1)) / POSS_HISTO_BUCKETS;
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H + 12}`, width: W, height: H + 12, class: 'histo-svg' });
+  counts.forEach((n, i) => {
+    const share = n / total;
+    const h = Math.max(n ? 1.5 : 0, (share / maxShare) * H);
+    const x = i * (barW + gap);
+    const rect = svgEl('rect', {
+      x, y: H - h, width: barW, height: h, rx: 1.5,
+      fill: color, opacity: n ? 0.9 : 0.16,
+    });
+    const title = svgEl('title', {});
+    const label = (i === POSS_HISTO_BUCKETS - 1) ? '10+ throws' : `${i + 1} throw${i ? 's' : ''}`;
+    title.textContent = `${label}: ${n} possession${n === 1 ? '' : 's'} (${Math.round(share * 100)}%)`;
+    rect.appendChild(title);
+    svg.appendChild(rect);
+  });
+  svg.appendChild(svgEl('line', {
+    x1: 0, y1: H + 0.5, x2: W, y2: H + 0.5,
+    stroke: 'rgba(var(--chalk-rgb),0.25)', 'stroke-width': 1,
+  }));
+  [[0, '1'], [4, '5'], [9, '10+']].forEach(([i, txt]) => {
+    const t = svgEl('text', {
+      x: i * (barW + gap) + barW / 2, y: H + 10, 'text-anchor': 'middle',
+      'font-size': 7, fill: 'var(--chalk-dim)', 'font-family': 'ui-monospace, monospace',
+    });
+    t.textContent = txt;
+    svg.appendChild(t);
+  });
+
+  const med = medianOf(values);
+  return el('div', { class: 'histo-cell' }, [
+    svg,
+    el('div', { class: 'histo-foot' }, [document.createTextNode(`median ${med} · n=${total}`)]),
+  ]);
+}
+
 const LINE_ROWS = [
   { label: 'Points played', get: l => l.pointsPlayed },
   { label: 'Avg point leverage', get: l => l.avgLeverage },
@@ -4197,6 +4454,14 @@ const LINE_ROWS = [
   { label: 'Blocks', get: l => l.blocks },
   { label: 'Opponent turnovers forced', get: l => l.oppTurnovers },
   { label: 'Red zone conversion', main: l => fmtPct(l.redZoneRate), sub: l => `${l.redZoneConversions}/${l.redZoneEntries}` },
+  {
+    label: 'Throws per scoring possession',
+    render: (l, all) => buildPossHistogram(l.scoringPossThrows, all.map(x => x.scoringPossThrows), 'var(--good)'),
+  },
+  {
+    label: 'Throws per turnover possession',
+    render: (l, all) => buildPossHistogram(l.turnoverPossThrows, all.map(x => x.turnoverPossThrows), 'var(--bad)'),
+  },
 ];
 
 function buildLineAnalysisSection() {
@@ -4234,8 +4499,16 @@ function buildLineAnalysisSection() {
 
   const managementWrap = el('div', { class: 'line-mgmt' }, []);
   const compareWrap = el('div', {}, []);
-  section.appendChild(managementWrap);
-  section.appendChild(compareWrap);
+  // Teammates come here to read the comparison, not to curate lines, so in the
+  // published report the line-picking panel drops below it. In the editing
+  // report the picker is the job, so it stays on top.
+  if (VIEWER_MODE) {
+    section.appendChild(compareWrap);
+    section.appendChild(managementWrap);
+  } else {
+    section.appendChild(managementWrap);
+    section.appendChild(compareWrap);
+  }
 
   function renderTournamentSelector() {
     tournamentSelectorHolder.innerHTML = '';
@@ -4595,12 +4868,65 @@ function buildLineAnalysisSection() {
     return line.name + (t ? ' · ' + tournamentDisplay(t) : '');
   }
 
+  // One card per line listing who played on it and how often, sitting above the
+  // comparison. Players who appear on more than one of the shown lines are
+  // highlighted so overlap between lines is obvious at a glance.
+  function buildLineRostersSection(relevantLines) {
+    const wrap = el('div', { class: 'line-rosters' }, []);
+    wrap.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Line rosters')]));
+
+    const rosters = relevantLines.map(line => Object.assign({ line }, lineRosterPresence(line.pointKeys)));
+    // How many of these lines each player appears on, so shared players stand out.
+    const lineCountByName = new Map();
+    rosters.forEach(r => r.counts.forEach((_, name) => lineCountByName.set(name, (lineCountByName.get(name) || 0) + 1)));
+    const anyShared = [...lineCountByName.values()].some(n => n > 1);
+
+    wrap.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(
+      'Everyone who played on each line, and the share of that line’s points they were on the field for.' +
+      (anyShared ? ' Players highlighted in gold appear on more than one of these lines.' : '')
+    )]));
+
+    const grid = el('div', { class: 'line-roster-grid' }, []);
+    rosters.forEach(({ line, total, counts }) => {
+      const card = el('div', { class: 'line-roster-card' }, []);
+      card.appendChild(el('div', { class: 'line-roster-name' }, [document.createTextNode(displayName(line))]));
+      card.appendChild(el('div', { class: 'line-roster-sub' }, [document.createTextNode(`${total} point${total === 1 ? '' : 's'}`)]));
+      if (!total) {
+        card.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No points with a full lineup recorded.')]));
+        grid.appendChild(card);
+        return;
+      }
+      const list = el('div', { class: 'line-roster-list' }, []);
+      [...counts.entries()]
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+        .forEach(([name, n]) => {
+          const pct = Math.round((n / total) * 100);
+          const nLines = lineCountByName.get(name) || 1;
+          const shared = nLines > 1;
+          const rowEl = el('div', { class: 'line-roster-row' + (shared ? ' shared' : '') }, []);
+          if (shared) rowEl.title = `${name} plays on ${nLines} of these lines`;
+          rowEl.appendChild(el('span', { class: 'line-roster-fill', style: `width:${pct}%;` }, []));
+          const nameEl = el('span', { class: 'line-roster-player' }, [document.createTextNode(name)]);
+          if (shared) nameEl.appendChild(el('span', { class: 'line-roster-chip' }, [document.createTextNode(String(nLines))]));
+          rowEl.appendChild(nameEl);
+          rowEl.appendChild(el('span', { class: 'line-roster-pct' }, [document.createTextNode(`${pct}% · ${n}/${total}`)]));
+          list.appendChild(rowEl);
+        });
+      card.appendChild(list);
+      grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
   function renderCompare() {
     compareWrap.innerHTML = '';
     const relevantLines = scopeMode === 'across'
       ? lines.filter(l => !l.tournamentId)
       : lines.filter(l => l.tournamentId && selectedTournamentIds.includes(l.tournamentId));
     if (!relevantLines.length) return;
+
+    compareWrap.appendChild(buildLineRostersSection(relevantLines));
 
     compareWrap.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Compare lines')]));
     const controlsRow = el('div', { class: 'controls-row' }, []);
@@ -5437,7 +5763,7 @@ const RAW_DATA_GLOSSARY = {
   'Red zone': 'Within 20 yd of the attacking endzone; a red-zone entry requires a throw that originated there, not one that merely lands there from farther out.',
   'Offensive utilization': 'Of the points a player was on the field for that either started on offense or where their line got a block, the percentage where they recorded at least one touch.',
   'Scoring efficiency (Per Point / Per Possession / First Possession)': 'Three ways of measuring conversion rate -- by point, by individual possession (a point with a turnover-and-recovery has more than one), or restricted to clean, first-try conversions only.',
-  'Plus/minus': 'Goals + assists - turnovers.',
+  'Plus/minus': 'Goals + assists + blocks - turnovers.',
   'Leverage': "How much a single point's outcome could swing the game's eventual result, on a 0-10 scale (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = a game already decided, e.g. a big blowout). Modeled as a fair (50/50) race to this game's actual final winning score, with a square-root reshape so mid-to-late-game situations (e.g. tied with just a couple points left) read as meaningfully important rather than compressed near the bottom -- see the 'leverage' formula below for the exact computation.",
   'High-leverage points played': "How many of a player's points had Leverage >= 7 (0-10 scale) -- points close to a coin flip on the game's outcome, typically late and close, as opposed to raw points played which counts every point regardless of how much it mattered.",
 };
@@ -5518,7 +5844,7 @@ const RAW_DATA_FORMULAS = {
   assistAttempt: 'pass.endY < 20/110   // the target location is inside the attacking endzone, whether or not it was caught',
   redZoneEntry: 'the pass ORIGINATES at startY < 20/110 of the attacking endzone -- a pass that merely lands in the red zone from farther out does not count',
   catchCompletionPct: 'catches / (catches + receiverErrors)   // deliberately excludes throwerErrors from the denominator -- a receiver’s catch rate shouldn’t be dinged for a bad throw they never had a chance at',
-  plusMinus: 'goals + assists - turnovers   // turnovers = throwerErrors + receiverErrors',
+  plusMinus: 'goals + assists + blocks - turnovers   // turnovers = throwerErrors + receiverErrors',
   leverage: 'a fair race-to-N win probability model, where N = this game’s actual final winning score and each point is an independent 50/50 coin flip. WP(i,j) = P(reach N before the opponent) from score state (i,j), via WP(i,j) = 0.5*WP(i+1,j) + 0.5*WP(i,j+1), boundary WP(N,j)=1 / WP(i,N)=0. rawSwing = abs(WP(ourScoreBefore+1, oppScoreBefore) - WP(ourScoreBefore, oppScoreBefore+1)) -- how far apart the two possible outcomes of this specific point are in win probability. leverage(point) = 10 * sqrt(rawSwing). The sqrt is a deliberate reshape, not part of the probability math: rawSwing alone decays like 1/sqrt(points remaining) for a tied score approaching the target, which on a straight *10 scale crushes everything short of the last point or two into single digits -- e.g. for a race to 15, tied 13-13 has exactly half the rawSwing of double-game-point 14-14. sqrt spreads that back out while keeping the double-game-point at exactly 10 and a decided blowout at ~0. p=0.5 is intentional: this measures game-state importance (score, points remaining), not team strength.',
   highLeveragePointsPlayed: 'count of a player’s points with point.leverage >= 7 (0-10 scale) -- for player p: count(point for point in game.points if p in point.lineup and point.leverage >= 7, across whatever games are in scope).',
   throwerReceiverPair: 'group passes[] by (thrower, receiver) across whatever games/players the question needs: n = count, completed = count where completedPass, totalYards = sum of straight-line pass distance (Math.hypot((startX-endX)*40, (startY-endY)*110) yards), totalForwardYards = sum of max(0, (startY-endY)*110).',
@@ -6216,7 +6542,7 @@ function buildAnnotationQueryPane() {
 
   function dropdown(labelText, options, key) {
     const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('Any')])]);
-    options.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+    options.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(vocabLabel(key, v))])));
     sel.value = filters[key] || '';
     sel.addEventListener('change', () => { filters[key] = sel.value; render(); });
     return labeled(labelText, sel);
@@ -6382,9 +6708,9 @@ function renderEditorItem(routeLayer, point, focus) {
     const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
     const x2 = p.endX * PITCH_W, y2 = p.endY * PITCH_H;
     const isFocus = focus.kind === 'pass' && p.uuid === focus.uuid;
-    let stroke = '#F3F1E9', markerEnd = 'url(#arrowhead)', width = 2, dash = '0';
-    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p); dash = '3 3'; }
-    else if (p.assist) { stroke = '#FFB800'; markerEnd = 'url(#arrowhead-goal)'; width = 3; }
+    let stroke = '#F3F1E9', markerEnd = markerRef(routeLayer, 'arrowhead'), width = 2, dash = '0';
+    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p, routeLayer); dash = '3 3'; }
+    else if (p.assist) { stroke = '#FFB800'; markerEnd = markerRef(routeLayer, 'arrowhead-goal'); width = 3; }
     const line = svgEl('line', {
       x1, y1, x2, y2, stroke, 'stroke-width': isFocus ? width + 1.5 : width,
       'marker-end': markerEnd, 'stroke-dasharray': dash === '0' ? 'none' : dash,
@@ -6486,12 +6812,18 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     tagPane.appendChild(el('div', { class: 'controls-row de-game-row' }, [el('span', { class: 'de-inline-label' }, [document.createTextNode('Game')]), gameSelect]));
   }
 
-  // ---- layout: left column (video + field), right column (edit panel) ----
+  // ---- layout: video | field | tag panel ----
+  // Three columns rather than two so the field sits directly beside the tags
+  // you're filling in from it. Widths are deliberately NOT equal thirds: the
+  // video is landscape and wants width, the field is portrait and wants a
+  // narrow column, the panel is a fixed-width form. See .de-layout.
   const layout = el('div', { class: 'de-layout' }, []);
   tagPane.appendChild(layout);
-  const leftCol = el('div', { class: 'de-left' }, []);
+  const videoCol = el('div', { class: 'de-video-col' }, []);
+  const fieldCol = el('div', { class: 'de-field-col' }, []);
   const rightCol = el('div', { class: 'de-right' }, []);
-  layout.appendChild(leftCol);
+  layout.appendChild(videoCol);
+  layout.appendChild(fieldCol);
   layout.appendChild(rightCol);
 
   // video
@@ -6499,16 +6831,41 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   const noVideoMsg = el('p', { class: 'pitch-caption de-no-video' }, [document.createTextNode('No video link for this game yet — add one on the Set up tab to enable the embedded player and “grab current time.” You can still type a timestamp manually below.')]);
   const playerNote = el('p', { class: 'pitch-caption de-player-note' }, []);
   playerNote.style.display = 'none';
-  leftCol.appendChild(playerHost);
-  leftCol.appendChild(noVideoMsg);
-  leftCol.appendChild(playerNote);
+  videoCol.appendChild(playerHost);
+  videoCol.appendChild(noVideoMsg);
+  videoCol.appendChild(playerNote);
 
   // field diagram
   const { svg, routeLayer } = buildPitch();
   const pitchWrap = el('div', { class: 'pitch-wrap de-pitch' }, [svg]);
-  leftCol.appendChild(pitchWrap);
+  fieldCol.appendChild(pitchWrap);
+  // Remembered across sessions -- a tagger who sizes the pitch to their screen
+  // shouldn't have to do it again every time they reopen the page.
+  const PITCH_SIZE_KEY = 'statto-report-tag-pitch-width::' + REPORT.teamName;
+  try {
+    const saved = parseInt(localStorage.getItem(PITCH_SIZE_KEY), 10);
+    if (saved > 0) pitchWrap.style.width = saved + 'px';
+  } catch (e) {}
+  function savePitchWidth() {
+    try { localStorage.setItem(PITCH_SIZE_KEY, String(Math.round(pitchWrap.getBoundingClientRect().width))); } catch (e) {}
+  }
+  // A corner drag always ends in a pointer release, so that's what commits the
+  // size. Deliberately not ResizeObserver alone: like requestAnimationFrame it
+  // rides the rendering pipeline, which a browser stops for a background tab --
+  // the size would silently fail to save. The observer is a supplement for
+  // resizes that don't come from a drag.
+  pitchWrap.addEventListener('pointerup', savePitchWidth);
+  pitchWrap.addEventListener('mouseup', savePitchWidth);
+  if (typeof ResizeObserver === 'function') {
+    let saveTimer = null;
+    new ResizeObserver(() => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(savePitchWidth, 300);
+    }).observe(pitchWrap);
+  }
+  fieldCol.appendChild(el('p', { class: 'de-pitch-hint' }, [document.createTextNode('Drag the bottom-right corner of the field to resize it.')]));
   const stepCaption = el('p', { class: 'pitch-caption de-step-caption' }, []);
-  leftCol.appendChild(stepCaption);
+  fieldCol.appendChild(stepCaption);
 
   // Translate a DOM click on the pitch to 0-1 field fractions (matches the
   // startX/Y coordinate system used everywhere else).
@@ -6549,12 +6906,52 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   const stepCounter = el('span', { class: 'de-step-counter' }, []);
   prevBtn.addEventListener('click', () => goToStep(stepIdx - 1));
   nextBtn.addEventListener('click', () => goToStep(stepIdx + 1));
-  leftCol.appendChild(el('div', { class: 'controls-row de-step-nav' }, [prevBtn, stepCounter, nextBtn]));
-  leftCol.appendChild(el('p', { class: 'kbd-hint' }, [document.createTextNode('Tip: use ← / → to step through passes (arrow keys are ignored while typing in a field).')]));
+  fieldCol.appendChild(el('div', { class: 'controls-row de-step-nav' }, [prevBtn, stepCounter, nextBtn]));
+  fieldCol.appendChild(el('p', { class: 'kbd-hint' }, [document.createTextNode('Tip: use ← / → to step through passes (arrow keys are ignored while typing in a field).')]));
 
   // ---- edit panel (rebuilt per step) ----
+  // Panel + shortcut legend share one sticky wrapper so they travel together;
+  // sticking the panel on its own made it ride over the legend below it.
+  const panelStack = el('div', { class: 'de-panel-stack' }, []);
+  rightCol.appendChild(panelStack);
   const panel = el('div', { class: 'de-panel' }, []);
-  rightCol.appendChild(panel);
+  panelStack.appendChild(panel);
+
+  // Shortcut legend, sitting under the tag panel it applies to. Built from
+  // TAG_PRESETS so it always describes what the keys actually do.
+  const shortcutBox = el('div', { class: 'de-shortcuts' }, [
+    el('div', { class: 'de-shortcuts-title' }, [document.createTextNode('Keyboard shortcuts')]),
+  ]);
+  const shortcutList = el('div', { class: 'de-shortcut-list' }, []);
+  Object.keys(TAG_PRESETS).forEach(key => {
+    const preset = TAG_PRESETS[key];
+    const parts = Object.keys(preset.tags).map(f => `${TAG_PRESET_FIELD_LABELS[f] || f}: ${vocabLabel(f, preset.tags[f])}`);
+    shortcutList.appendChild(el('div', { class: 'de-shortcut' }, [
+      el('kbd', {}, [document.createTextNode(key)]),
+      el('div', { class: 'de-shortcut-body' }, [
+        el('span', { class: 'de-shortcut-name' }, [document.createTextNode(preset.label)]),
+        el('span', { class: 'de-shortcut-tags' }, [document.createTextNode(parts.join(' · ') + ' · stamps 2s back')]),
+      ]),
+    ]));
+  });
+  [
+    [',', 'Timestamp −1s', 'Nudge the recorded moment one second earlier'],
+    ['.', 'Timestamp +1s', 'Nudge the recorded moment one second later'],
+    ['←  →', 'Previous / next event', 'Step through the game'],
+  ].forEach(([key, name, desc]) => {
+    shortcutList.appendChild(el('div', { class: 'de-shortcut' }, [
+      el('kbd', {}, [document.createTextNode(key)]),
+      el('div', { class: 'de-shortcut-body' }, [
+        el('span', { class: 'de-shortcut-name' }, [document.createTextNode(name)]),
+        el('span', { class: 'de-shortcut-tags' }, [document.createTextNode(desc)]),
+      ]),
+    ]));
+  });
+  shortcutBox.appendChild(shortcutList);
+  shortcutBox.appendChild(el('p', { class: 'de-shortcut-note' }, [
+    document.createTextNode('The number keys only apply to a pass, and fill in just the tags listed — anything you set yourself is left alone. Shortcuts pause while you’re typing in a box.'),
+  ]));
+  panelStack.appendChild(shortcutBox);
 
   function currentRecord(create) {
     const step = steps[stepIdx];
@@ -6589,7 +6986,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
 
   function annField(labelText, vocabList, key, rec) {
     const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('—')])]);
-    vocabList.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+    vocabList.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(vocabLabel(key, v))])));
     sel.value = (rec && rec[key]) || '';
     sel.addEventListener('change', () => setField(key, sel.value || undefined));
     return el('label', { class: 'de-field' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), sel]);
@@ -6639,15 +7036,24 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
       tsInput.value = formatTimestamp(secs);
       write(secs);
     });
+    // You notice a throw a beat after it happens, so the useful timestamp is
+    // almost always slightly behind where the video is when you reach for it.
+    const grabBackBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Grab 2s before')]);
+    grabBackBtn.addEventListener('click', () => {
+      if (!player || !player.getCurrentTime) return;
+      const secs = Math.max(0, Math.floor(player.getCurrentTime()) - 2);
+      tsInput.value = formatTimestamp(secs);
+      write(secs);
+    });
     const jumpBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Jump ▶')]);
     jumpBtn.addEventListener('click', () => {
       const secs = parseTimestamp(tsInput.value);
       if (player && player.seekTo && secs != null) { player.seekTo(secs, true); player.playVideo && player.playVideo(); }
     });
-    if (!player) { grabBtn.disabled = true; jumpBtn.disabled = true; }
+    if (!player) { grabBtn.disabled = true; grabBackBtn.disabled = true; jumpBtn.disabled = true; }
     panel.appendChild(el('div', { class: 'de-ts-row' }, [
       el('span', { class: 'de-field-label' }, [document.createTextNode('Timestamp')]),
-      tsInput, grabBtn, jumpBtn,
+      tsInput, grabBtn, grabBackBtn, jumpBtn,
     ]));
   }
 
@@ -6929,7 +7335,46 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     render();
   }
 
-  // arrow-key stepping, ignored while typing in a field
+  // ---- keyboard shortcuts ----
+  // Writes a field on whichever kind of event is selected: passes and blocks
+  // are keyed by their own uuid, the synthesized events by their point key.
+  function setCurrentField(key, value) {
+    const step = steps[stepIdx];
+    if (!step) return;
+    if (step.kind === 'pass' || step.kind === 'block') setField(key, value);
+    else setPointField(step.uuid, key, value);
+  }
+  function grabTimeWithOffset(offset) {
+    if (!player || !player.getCurrentTime) return false;
+    setCurrentField('timestamp', Math.max(0, Math.floor(player.getCurrentTime()) + offset));
+    return true;
+  }
+  // Nudging works off the timestamp already recorded; with none yet it falls
+  // back to where the video is, so "," / "." are useful before a grab too.
+  function nudgeTimestamp(delta) {
+    const step = steps[stepIdx];
+    if (!step) return;
+    const rec = stepRecord(step) || {};
+    let base = rec.timestamp;
+    if (base == null) {
+      if (!player || !player.getCurrentTime) return;
+      base = Math.floor(player.getCurrentTime());
+    }
+    setCurrentField('timestamp', Math.max(0, base + delta));
+    renderPanel();
+  }
+  function applyPreset(key) {
+    const step = steps[stepIdx];
+    const preset = TAG_PRESETS[key];
+    if (!preset || !step || step.kind !== 'pass') return;
+    // Only the fields a preset names are written -- it tops up the tag rather
+    // than resetting the whole record, so anything you set by hand survives.
+    Object.keys(preset.tags).forEach(field => setField(field, preset.tags[field]));
+    grabTimeWithOffset(-2);
+    renderPanel();
+  }
+
+  // arrow-key stepping + tagging shortcuts, all ignored while typing in a field
   document.addEventListener('keydown', (e) => {
     if (!section.classList.contains('active')) return;
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -6937,6 +7382,9 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.key === 'ArrowRight') { e.preventDefault(); goToStep(stepIdx + 1); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); goToStep(stepIdx - 1); }
+    else if (TAG_PRESETS[e.key]) { e.preventDefault(); applyPreset(e.key); }
+    else if (e.key === ',') { e.preventDefault(); nudgeTimestamp(-1); }
+    else if (e.key === '.') { e.preventDefault(); nudgeTimestamp(1); }
   });
 
   // ---- export / import + tagged count ----
@@ -7169,6 +7617,263 @@ function buildAdvancedStatsSection() {
   return section;
 }
 
+// ---------- Guided tours (published team report only) ----------
+// A short walkthrough per tab: dim everything, cut a hole around one element,
+// explain it, Next. Teammates open this report cold and with no one to ask, so
+// each tab introduces itself once and then gets out of the way -- the "Guide"
+// button in the nav replays it on demand.
+//
+// Steps name their target with a selector scoped to the section. A step whose
+// target is missing or hidden is dropped before the tour starts, so the same
+// script works whether or not a game has film tagged, a video link, or lines
+// built yet.
+const TOURS = {
+  season: [
+    { title: 'Welcome', body: 'This is your season report — every game, point and throw the team logged, in one page. Nothing here is live: it’s a snapshot you can explore freely, and you can’t break it.' },
+    { sel: '#topnav', title: 'The tabs', body: 'Each tab is a different way to slice the same season. Work left to right the first time — Season for the overview, Games for a single game, then the analysis tabs.' },
+    { sel: '.hero-record', title: 'Season record', body: 'Wins–losses, and how the team scored overall. The number underneath is total point differential across the season.' },
+    { sel: '.schedule-grid', title: 'Every game', body: 'Click any game card to jump straight to that game’s page.' },
+    { sel: '.eff-widget', title: 'Scoring efficiency', body: 'How often a possession, a point, or a red-zone trip ended in a goal. Hover a gauge for the raw counts behind the percentage.' },
+    { sel: '.section-title-row', title: 'Filter to what you care about', body: 'This dropdown scopes the leaderboard below to any games you pick — one game, one tournament, or the whole season.' },
+    { sel: '.stats-block', title: 'Season leaderboard', body: 'Every tracked stat, per player. Click a column header to sort by it, hover a header to see what it means, and use Download CSV for a spreadsheet.' },
+  ],
+  game: [
+    { title: 'A single game', body: 'This page replays one game from the score down to individual throws. Use the Games menu up top to switch games.' },
+    { sel: '.score-bug', title: 'Final score', body: 'The result, and who it was against.' },
+    { sel: '.game-watch-wrap', title: 'Game video', body: 'Opens the full game footage in a new tab.' },
+    { sel: '.diff-chart-wrap', title: 'How the game flowed', body: 'Score margin point by point — the shape shows runs and collapses. The colour strip underneath is each point’s Leverage: gold means the game hinged on it. Click any dot to open that point.' },
+    { sel: '.point-log', title: 'Point by point', body: 'One row per point: the score, what happened, and which line was on. Click a row — or use the ← / → arrow keys — to load that point into the diagram.' },
+    { sel: '.pitch-wrap', title: 'The field diagram', body: 'Every throw in the selected point. White means completed, gold is the assist, red dashed is a turnover. Each circle is a player at the spot they threw or caught from; hover a throw for detail.' },
+    { sel: '.film-strip', title: 'Tagged film', body: 'If someone has tagged this point from the video, its events are listed here — and each ▶ jumps straight to that moment in the footage.' },
+    { sel: '.stats-block', title: 'Box score', body: 'Every player’s numbers for this game, sortable and downloadable.' },
+  ],
+  'data-editor': [
+    { title: 'Film Clips', body: 'A searchable index of everything tagged from the game videos. Build a filter, get a clip list, jump to each moment.' },
+    { sel: '.de-query-top', title: 'Pick your scope', body: 'Choose which games to search, and which kind of event — passes, blocks, pulls, defensive possessions or opponent turnovers.' },
+    { sel: '.de-query-filters', title: 'Narrow it down', body: 'Combine tags to answer a question: outcome Turnover plus hand Backhand plus release Around gives you every around-backhand turnover.' },
+    { sel: '.de-query-summary-row', title: 'How common is it?', body: 'The count and percentage are out of every event of that kind in scope — so it reads as “this happened in 12% of our turnovers”. Copy timestamp links grabs the whole list of video links at once.' },
+    { sel: '.de-query-results', title: 'The clips', body: 'Each result shows its tags and links straight to that moment in the game video.' },
+  ],
+  'player-analysis': [
+    { title: 'Player Analysis', body: 'Put players side by side across whichever games you choose.' },
+    { sel: '.section-title-row', title: 'Choose players and games', body: 'Add up to 7 players from the dropdown. The games filter beside it scopes every number to the games you pick.' },
+    { sel: '#player-analysis > div:last-child', title: 'The comparison', body: 'Once you’ve picked players, each gets a column: their stats, a map of where they throw and catch, and a rose diagram of their throwing directions.' },
+  ],
+  'line-analysis': [
+    { title: 'Line Analysis', body: 'Treat a recurring 7-person lineup as if it were a player, and compare lines the same way.' },
+    { sel: '#line-analysis > .controls-row', title: 'Across or within tournaments', body: 'Choose whether a line means the same 7 all season, or the same 7 within one tournament.' },
+    { sel: '.line-mgmt', title: 'Build your lines', body: 'The report finds lineups that played together repeatedly; you confirm and name the ones that are real. This is editable — your lines are saved in this browser.' },
+    { sel: '#line-analysis > div:last-child', title: 'Compare them', body: 'Named lines get compared here on hold rate, break rate, efficiency and average leverage.' },
+  ],
+  'thrower-receiver-analysis': [
+    { title: 'Thrower-Receiver Analysis', body: 'Which connections the team actually uses, and which ones work.' },
+    { sel: '#thrower-receiver-analysis > .controls-row', title: 'Scope and filters', body: 'Pick games, and optionally limit to a category of throw like hucks or turnovers.' },
+    { sel: '.pair-heatmap-wrap', title: 'The connection matrix', body: 'Throwers down the side, receivers across the top; the brighter the cell the more that connection happened. Switch the metric above to view completion rate or yards instead. Click any cell to add that pair to the comparison below.' },
+    { sel: '#thrower-receiver-analysis .section-title-toggle', title: 'All pairs', body: 'Expand this for the full sortable table of every pair, downloadable as a CSV.' },
+  ],
+  'field-analysis': [
+    { title: 'Field Analysis', body: 'Every throw the team made, overlaid on one pitch — useful for spotting where the offence actually lives.' },
+    { sel: '.field-analysis-controls', title: 'Choose what to plot', body: 'Filter by players, games and throw category. Everything you pick is drawn on the same field.' },
+    { sel: '.field-analysis-pitch-wrap', title: 'The overlay', body: 'Each line is one throw. Patterns show up fast: a wall of short resets, or hucks all going to one side.' },
+    { sel: '.field-analysis-export-row', title: 'Save the picture', body: 'Export the diagram as a PNG to drop into a team chat or a scouting doc.' },
+  ],
+  'gender-analysis': [
+    { title: 'Gender Analysis', body: 'In mixed ultimate, touch distribution is worth watching. This tab measures it directly rather than by feel.' },
+    { sel: '.gender-explainer', title: 'How to read it', body: 'Worth reading once — it explains what the chart measures and what counts as balanced given who was on the field.' },
+    { sel: '#gender-analysis > .controls-row', title: 'Pick a view', body: 'Switch between metrics and scope the chart to whichever games you want.' },
+    { sel: '.gender-chart-wrap', title: 'The chart', body: 'Each dot is a player against the fairness line. Distance from that line is how far their share of touches sits from an even split.' },
+  ],
+  'advanced-stats': [
+    { title: 'Advanced Stats', body: 'The Ultiworld EDGE metrics: a way of valuing every yard, score and turnover on one scale so players can be compared with a single number.' },
+    { sel: '#advanced-stats .pitch-caption', title: 'Read this first', body: 'These were designed to rank players across a whole league. This report only has your season, so treat the numbers as comparing your own roster to each other — not to outside benchmarks.' },
+    { sel: '#advanced-stats .section-title-row', title: 'Scope it', body: 'The filter recomputes everything for the games you pick, including the baselines the ratings are measured against.' },
+    { sel: '#advanced-stats .stats-block, #advanced-stats table.stats', title: 'The table', body: 'One row per player. Sort by any column; hover a header for a one-line definition.' },
+    { sel: '.adv-desc', title: 'What each one means', body: 'Plain-language definitions of every column, in case a header tooltip isn’t enough.' },
+  ],
+  'raw-data': [
+    { title: 'Raw Data', body: 'The underlying data, for when you want to do your own analysis rather than read someone else’s.' },
+    { sel: '#raw-data > .controls-row', title: 'Scope every export', body: 'This filter applies to all the downloads below.' },
+    { sel: '#raw-data .export-grid', title: 'Spreadsheet exports', body: 'One CSV per kind of record — passes, points, blocks, box scores. Each card tells you how many rows you’ll get.' },
+    { sel: '#raw-data .export-grid:last-of-type', title: 'For asking an AI', body: 'The JSON is the data; the Markdown explains what every field means and suggests questions worth asking. Hand an assistant both together.' },
+  ],
+};
+
+const TOUR_PAD = 6;
+let tourState = null;
+
+function toursSeenKey() { return 'statto-report-tours-seen::' + REPORT.teamName; }
+function loadToursSeen() {
+  try { return JSON.parse(localStorage.getItem(toursSeenKey())) || {}; } catch (e) { return {}; }
+}
+function saveToursSeen(seen) {
+  try { localStorage.setItem(toursSeenKey(), JSON.stringify(seen)); } catch (e) {}
+}
+// Game pages all share one tour; every other view is keyed by its own id.
+function tourKeyForView(id) { return String(id).startsWith('game-') ? 'game' : id; }
+
+function tourTargetFor(step, viewId) {
+  if (!step.sel) return null;
+  const section = document.getElementById(viewId);
+  if (!section) return null;
+  // A selector starting with "#" is already absolute; anything else is scoped
+  // to the section being toured, so the same step works on any game page.
+  const found = step.sel.split(',')
+    .map(s => s.trim())
+    .map(s => (s.charAt(0) === '#' ? document.querySelector(s) : section.querySelector(s)))
+    .find(Boolean);
+  if (!found) return null;
+  const r = found.getBoundingClientRect();
+  // Hidden or collapsed (a film strip with nothing tagged, a missing video
+  // link) -- drop the step rather than pointing at nothing.
+  if (!found.offsetParent && found !== document.body) return null;
+  if (r.width < 2 || r.height < 2) return null;
+  return found;
+}
+
+function endTour() {
+  if (!tourState) return;
+  window.removeEventListener('resize', tourState.reposition);
+  window.removeEventListener('scroll', tourState.reposition, true);
+  document.removeEventListener('keydown', tourState.onKey, true);
+  document.documentElement.style.scrollBehavior = tourState.priorScrollBehavior;
+  tourState.root.remove();
+  tourState = null;
+}
+
+function startTour(viewId) {
+  endTour();
+  const key = tourKeyForView(viewId);
+  const defs = TOURS[key];
+  if (!defs) return;
+  // Resolve now: an unavailable target drops its step, so the counter is honest.
+  const steps = defs.filter(s => !s.sel || tourTargetFor(s, viewId));
+  if (!steps.length) return;
+
+  const root = el('div', { class: 'tour-root' }, []);
+  const backdrop = el('div', { class: 'tour-backdrop' }, []);
+  const hole = el('div', { class: 'tour-hole' }, []);
+  const pop = el('div', { class: 'tour-pop', role: 'dialog', 'aria-modal': 'true' }, []);
+  root.appendChild(backdrop);
+  root.appendChild(hole);
+  root.appendChild(pop);
+  document.body.appendChild(root);
+
+  let i = 0;
+  const priorScrollBehavior = document.documentElement.style.scrollBehavior;
+  // Measuring straight after scrollIntoView needs the scroll to be instant;
+  // the stylesheet sets smooth scrolling globally.
+  document.documentElement.style.scrollBehavior = 'auto';
+
+  function reposition() {
+    if (!tourState) return;
+    const step = steps[i];
+    const target = step.sel ? tourTargetFor(step, viewId) : null;
+    if (!target) {
+      // No element to point at (the intro step): collapse the highlight to a
+      // zero-size box so its box-shadow still dims the whole screen, and centre
+      // the card. Hiding the box outright would take the dim with it.
+      hole.classList.add('tour-hole-empty');
+      hole.style.top = Math.round(window.innerHeight / 2) + 'px';
+      hole.style.left = Math.round(window.innerWidth / 2) + 'px';
+      hole.style.width = '0px';
+      hole.style.height = '0px';
+      pop.classList.add('tour-pop-centered');
+      pop.style.top = ''; pop.style.left = '';
+      return;
+    }
+    pop.classList.remove('tour-pop-centered');
+    hole.classList.remove('tour-hole-empty');
+    const r = target.getBoundingClientRect();
+    const top = Math.max(4, r.top - TOUR_PAD);
+    const left = Math.max(4, r.left - TOUR_PAD);
+    const height = Math.min(r.height + TOUR_PAD * 2, window.innerHeight - top - 4);
+    const width = Math.min(r.width + TOUR_PAD * 2, window.innerWidth - left - 4);
+    hole.style.top = top + 'px';
+    hole.style.left = left + 'px';
+    hole.style.width = width + 'px';
+    hole.style.height = height + 'px';
+
+    // Prefer below the target, flip above when there isn't room.
+    const pr = pop.getBoundingClientRect();
+    const below = top + height + 12;
+    const popTop = (below + pr.height < window.innerHeight - 8)
+      ? below
+      : Math.max(8, top - pr.height - 12);
+    const popLeft = Math.min(
+      Math.max(8, left + width / 2 - pr.width / 2),
+      window.innerWidth - pr.width - 8
+    );
+    pop.style.top = popTop + 'px';
+    pop.style.left = popLeft + 'px';
+  }
+
+  function render() {
+    const step = steps[i];
+    pop.innerHTML = '';
+    pop.appendChild(el('div', { class: 'tour-count' }, [document.createTextNode(`${i + 1} of ${steps.length}`)]));
+    pop.appendChild(el('div', { class: 'tour-title' }, [document.createTextNode(step.title)]));
+    pop.appendChild(el('p', { class: 'tour-body' }, [document.createTextNode(step.body)]));
+    const row = el('div', { class: 'tour-actions' }, []);
+    const skip = el('button', { class: 'tour-skip', type: 'button' }, [document.createTextNode(i === steps.length - 1 ? '' : 'Skip')]);
+    skip.addEventListener('click', endTour);
+    if (i < steps.length - 1) row.appendChild(skip);
+    if (i > 0) {
+      const back = el('button', { class: 'tour-btn tour-back', type: 'button' }, [document.createTextNode('Back')]);
+      back.addEventListener('click', () => { i--; render(); });
+      row.appendChild(back);
+    }
+    const next = el('button', { class: 'tour-btn tour-next', type: 'button' }, [document.createTextNode(i === steps.length - 1 ? 'Done' : 'Next')]);
+    next.addEventListener('click', () => {
+      if (i === steps.length - 1) { endTour(); return; }
+      i++; render();
+    });
+    row.appendChild(next);
+    pop.appendChild(row);
+
+    const target = step.sel ? tourTargetFor(step, viewId) : null;
+    // Scrolling is forced instant while a tour is open, so the element is
+    // already in its final place and can be measured straight away. The extra
+    // frame afterwards only refines it -- positioning must not depend on a
+    // callback that never fires in a background tab.
+    if (target) target.scrollIntoView({ block: 'center', inline: 'nearest' });
+    reposition();
+    next.focus();
+    requestAnimationFrame(reposition);
+  }
+
+  function onKey(e) {
+    if (!tourState) return;
+    if (e.key === 'Escape') { e.preventDefault(); endTour(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); if (i < steps.length - 1) { i++; render(); } else endTour(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); if (i > 0) { i--; render(); } }
+  }
+
+  tourState = { root, reposition, onKey, priorScrollBehavior };
+  window.addEventListener('resize', reposition);
+  window.addEventListener('scroll', reposition, true);
+  document.addEventListener('keydown', onKey, true);
+  render();
+}
+
+// First visit to a tab in the team report runs its tour once, then never again
+// on this browser unless the Guide button is used.
+function maybeAutoTour(viewId) {
+  if (!VIEWER_MODE) return;
+  const key = tourKeyForView(viewId);
+  if (!TOURS[key]) return;
+  const seen = loadToursSeen();
+  if (seen[key]) return;
+  seen[key] = true;
+  saveToursSeen(seen);
+  // Let the view finish rendering (some rebuild on show) before measuring it.
+  setTimeout(() => { if (document.getElementById(viewId)) startTour(viewId); }, 400);
+}
+
+function currentViewId() {
+  const active = document.querySelector('main section.view.active');
+  return active ? active.id : null;
+}
+
 // ---------- Bootstrap: build nav + all sections on load ----------
 function init() {
   buildNav();
@@ -7193,5 +7898,8 @@ function init() {
   mountRebuildableView(buildAdvancedStatsSection);
   mountRebuildableView(buildRawDataSection);
   REPORT.games.forEach((g, i) => main.appendChild(buildGameSection(g, i)));
+  // Season is active on load without going through showView, so its tour has
+  // to be kicked off here.
+  maybeAutoTour('season');
 }
 init();
