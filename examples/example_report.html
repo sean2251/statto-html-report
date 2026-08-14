@@ -7280,6 +7280,11 @@ const RAW_DATA_NOTES = [
   'roster (top level) lists every player who appears in a box score this season, with hasPhoto and photoFile. Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
   'pullEvents (top level, separate from games) is a manually video-tagged list, one entry per defensive point that has been tagged: who pulled and where our pull landed. puller is the player name (or null if untagged). landX/landY are 0-1 field fractions in the same coordinate system as passes (null when outOfBounds is true, or when a spot wasn’t marked); outOfBounds=true means the pull sailed out. It is only present for points a tagger has marked, so it may be empty or cover only some defensive points.',
   'opponentTurnoverEvents (top level) is the other manually video-tagged list: opponent turnovers that were NOT one of our blocks (those are in games[].points[].blocks). Statto records nothing for them, so each is inferred as an opponent possession we won the disc back from, identified by pointNumber + opponentPossession (their n-th offensive possession that point); type is one of Huck turnover / Throwing error / Receiver error, or null if untagged. Like pullEvents, only tagged ones appear.',
+  'Film tags: a pass or block in games[].points[] may carry a "filmTags" object when someone has video-tagged it. On a pass: hand (backhand/forehand/etc.), release, distance, stall (Low/Mid/High), catch, highlight, turnoverReason (an ARRAY -- a turnover can have several causes), plus timestamp (seconds into that game’s video) and notes. On a block: type, timestamp, notes. A point may also carry filmTags: defScheme (the defence called), pull (where our pull landed -- puller, landX/landY 0-1 or outOfBounds), defensivePossessions[] (each with defScheme), and opponentTurnovers[] (each with a type). Every field is optional and tags exist only where a tagger added them, so most passes have none. (pullEvents/opponentTurnoverEvents above are flattened, game-context copies of the same point-level tags, handy for "list every tagged pull".)',
+  'videoLinks (top level) maps each selected game to its YouTube URL. To deep-link a tagged moment, append the tag’s timestamp: `<url>&t=<timestamp>s`.',
+  'lines (top level) is the user’s curated line groupings (e.g. "O line", "D line"): each has a name, optional tournament, pointCount, the points it covers (gameIndex + pointNumber), and a roster listing how many of the line’s points each player was on (pctOfLinePoints). Lines are a season-level curation and are deliberately NOT filtered by the selected games.',
+  'tournaments (top level) groups the selected games the way the report does -- custom names if the user set them, else auto-detected -- so questions can be scoped to an event ("at Regionals...").',
+  'advancedStatsForSelection (top level) is one row per player of the Ultiworld "EDGE" goal-equivalent / efficiency metrics (EDGE-O, EDGE-B, EDGE, xE, CP+, PE, CR, ...) for the selected games; advancedStatsGlossary defines every column. EDGE is a league-ranking framework adapted here to a single team, so game-condition adjustments use this season’s own scoring efficiency as the reference and the purely league-relative ratings are omitted -- read these as relative across your own roster, not against outside benchmarks.',
   'See "glossary" above for definitions of Huck, Red zone, Clean/Dirty hold, and the other Statto-specific terms used throughout this data.',
 ].join(' ');
 
@@ -7423,8 +7428,114 @@ function collectOppTurnoverEvents(gameIndices) {
   return out;
 }
 
+// Drop undefined/null/empty-array fields from a tag record so the export
+// carries only what was actually set (every annotation field is optional).
+function cleanTagRecord(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const out = {};
+  Object.keys(obj).forEach(k => {
+    const v = obj[k];
+    if (v === undefined || v === null) return;
+    if (Array.isArray(v) && v.length === 0) return;
+    out[k] = v;
+  });
+  return Object.keys(out).length ? out : null;
+}
+
+// Merge the video-tagging annotations (localStorage, not baked into REPORT)
+// onto a COPY of the games slice: per-pass and per-block tags as `filmTags`,
+// and point-level tags (defence called, pull, defensive possessions, opponent
+// turnovers) as a point `filmTags`. Mutates the passed-in clone and returns it.
+function mergeFilmTagsIntoGames(games) {
+  const ann = loadAnnotations();
+  games.forEach(g => {
+    (g.points || []).forEach(pt => {
+      (pt.passes || []).forEach(p => {
+        const t = p.uuid && cleanTagRecord(ann.passes[p.uuid]);
+        if (t) p.filmTags = t;
+      });
+      (pt.blocks || []).forEach(b => {
+        const t = b.uuid && cleanTagRecord(ann.blocks[b.uuid]);
+        if (t) b.filmTags = t;
+      });
+      if (!pt.uuid) return;
+      const tags = cleanTagRecord(ann.points[pt.uuid]) || {};
+      const pull = cleanTagRecord(ann.points[pt.uuid + '#pull']);
+      if (pull) tags.pull = pull;
+      const defPoss = [], oppTOs = [];
+      for (let d = 1; d <= (pt.defensivePossessions || 0); d++) {
+        const dr = cleanTagRecord(ann.points[pt.uuid + '#d' + d]);
+        if (dr) defPoss.push(Object.assign({ possession: d }, dr));
+        const or = cleanTagRecord(ann.points[pt.uuid + '#o' + d]);
+        if (or) oppTOs.push(Object.assign({ possession: d }, or));
+      }
+      if (defPoss.length) tags.defensivePossessions = defPoss;
+      if (oppTOs.length) tags.opponentTurnovers = oppTOs;
+      if (Object.keys(tags).length) pt.filmTags = tags;
+    });
+  });
+  return games;
+}
+
+// Per-game YouTube links for the selected games (Set up tab, localStorage).
+function collectVideoLinks(gameIndices) {
+  const vl = loadSetupData().videoLinks || {};
+  return gameIndices.filter(gi => vl[gi]).map(gi => ({
+    gameIndex: gi, opponent: REPORT.games[gi].opponent,
+    date: REPORT.games[gi].dateDisplay, url: vl[gi],
+  }));
+}
+
+// How the selected games group into tournaments (custom labels if the user set
+// them, else auto-detected), matching the report's own grouping.
+function collectTournamentsForExport(gameIndices) {
+  const sel = new Set(gameIndices);
+  return getTournaments().map(t => ({
+    label: t.label,
+    games: t.gameIndices.filter(i => sel.has(i)).map(i => ({
+      gameIndex: i, opponent: REPORT.games[i].opponent, date: REPORT.games[i].dateDisplay,
+    })),
+  })).filter(t => t.games.length);
+}
+
+// The user's curated lines (Line Analysis). Season-level curation, so NOT
+// filtered by the game selection -- each line carries the points it covers and
+// a roster with how often each player was on it.
+function collectLinesForExport() {
+  const data = loadLinesData();
+  const labelById = {};
+  getTournaments().forEach(t => { labelById[t.id] = t.label; });
+  return (data.lines || []).map(l => {
+    const presence = lineRosterPresence(l.pointKeys);
+    const roster = [...presence.counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([player, n]) => ({
+        player, pointsPresent: n,
+        pctOfLinePoints: presence.total ? Math.round((n / presence.total) * 1000) / 10 : 0,
+      }));
+    return {
+      name: l.name,
+      tournament: l.tournamentId ? (labelById[l.tournamentId] || null) : null,
+      pointCount: l.pointKeys.length,
+      points: l.pointKeys.map(k => ({ gameIndex: Number(k.split('|')[0]), pointNumber: Number(k.split('|')[1]) })),
+      roster,
+    };
+  });
+}
+
+// field key -> { label, description } for every Advanced Stats (EDGE) column,
+// keyed by the SAME field name the advancedStatsForSelection rows use so the two
+// join directly, so each number can be cited with a name and an explanation.
+function advancedStatsGlossary() {
+  const g = {};
+  ADVANCED_COLUMNS.forEach(c => { if (c.key !== 'player') g[c.key] = { label: c.label, description: c.full }; });
+  return g;
+}
+
 function buildRawDataExportJSON(gameIndices) {
   const meta = rawDataSelectionMeta(gameIndices);
+  // Deep-clone so merging film tags never mutates the live REPORT.games.
+  const gamesWithTags = mergeFilmTagsIntoGames(JSON.parse(JSON.stringify(meta.games)));
   return {
     exportedAt: new Date().toISOString(),
     teamName: REPORT.teamName,
@@ -7434,7 +7545,7 @@ function buildRawDataExportJSON(gameIndices) {
     notes: RAW_DATA_NOTES,
     styleGuide: RAW_DATA_STYLE_GUIDE,
     formulas: RAW_DATA_FORMULAS,
-    games: meta.games,
+    games: gamesWithTags,
     // Names are the join key everywhere in this export; roster[] is the one
     // place that also says whether a player has a photo and what it's called
     // inside the companion player-photos ZIP.
@@ -7443,6 +7554,18 @@ function buildRawDataExportJSON(gameIndices) {
       return { name, hasPhoto: has, photoFile: has ? 'photos/' + slug(name) + '.png' : null };
     }),
     seasonLeaderboardForSelection: aggregateSeasonStats(gameIndices),
+    // Project each row down to the documented columns only -- computeAdvancedStats
+    // also carries internal intermediates (thrge, adjT, ...) that aren't in the
+    // glossary and would just be noise in the export.
+    advancedStatsForSelection: computeAdvancedStats(gameIndices).map(r => {
+      const o = {};
+      ADVANCED_COLUMNS.forEach(c => { o[c.key] = r[c.key]; });
+      return o;
+    }),
+    advancedStatsGlossary: advancedStatsGlossary(),
+    lines: collectLinesForExport(),
+    videoLinks: collectVideoLinks(gameIndices),
+    tournaments: collectTournamentsForExport(gameIndices),
     pullEvents: collectPullEvents(gameIndices),
     opponentTurnoverEvents: collectOppTurnoverEvents(gameIndices),
   };
@@ -7566,13 +7689,28 @@ The JSON has these top-level sections:
 
 - \`games[]\` — one entry per game (opponent, date, score, result), each with:
   - \`points[]\` — one entry per point played, with \`passes[]\` (every throw),
-    \`blocks[]\` (every defensive block), and \`lineup[]\` (who was on the field)
+    \`blocks[]\` (every defensive block), and \`lineup[]\` (who was on the field).
+    A tagged pass or block also carries \`filmTags\` (throw hand/release/
+    distance/stall, or block type, plus a video \`timestamp\` and notes); a
+    point may carry \`filmTags\` too (defence called, pull spot, defensive
+    possessions, opponent turnovers)
   - \`boxScore[]\` — every player's per-game stats (throws, completions,
     blocks, scoring efficiency, and more)
   - \`summary\` — team-level game stats: hold/break rates, line stats split
     by combined/offense/defense, and three scoring-efficiency views
 - \`seasonLeaderboardForSelection[]\` — the same kind of per-player stats as
   each game's \`boxScore\`, but totaled across every game in this export
+- \`advancedStatsForSelection[]\` — one row per player of the Ultiworld **EDGE**
+  goal-equivalent / efficiency metrics for the selection; \`advancedStatsGlossary\`
+  defines each column. Adapted to a single team, so read them as relative
+  across your own roster, not against outside benchmarks
+- \`lines[]\` — the user's curated line groupings (name, the points each
+  covers, and a per-player presence roster). Season-level, **not** filtered by
+  the game selection
+- \`videoLinks[]\` — the YouTube URL per selected game; append \`&t=<timestamp>s\`
+  from any \`filmTags.timestamp\` to deep-link a tagged moment
+- \`tournaments[]\` — how the selected games group into tournaments (custom
+  names if set), for event-scoped questions
 - \`roster[]\` — every player, with \`hasPhoto\` and \`photoFile\`. Photos are
   deliberately **not** embedded in the JSON (base64 images would add
   megabytes to a file meant to be pasted into a chat, and can't be viewed
@@ -7583,7 +7721,7 @@ The JSON has these top-level sections:
   season-awards graphic, or player cards. If not, ignore \`roster[]\`.
 - \`pullEvents[]\` / \`opponentTurnoverEvents[]\` — video-tagged events that
   exist nowhere in the underlying Statto data; only present for games
-  somebody has tagged
+  somebody has tagged (flattened copies of the point \`filmTags\` above)
 - \`glossary\` / \`notes\` / \`styleGuide\` / \`formulas\` — the same reference
   material as the sections below, duplicated inside the JSON itself in case
   this file gets separated from it
