@@ -7264,6 +7264,7 @@ const RAW_DATA_GLOSSARY = {
   'Red zone': 'Within 20 yd of the attacking endzone; a red-zone entry requires a throw that originated there, not one that merely lands there from farther out.',
   'Offensive utilization': 'Of the points a player was on the field for that either started on offense or where their line got a block, the percentage where they recorded at least one touch.',
   'Scoring efficiency (Per Point / Per Possession / First Possession)': 'Three ways of measuring conversion rate -- by point, by individual possession (a point with a turnover-and-recovery has more than one), or restricted to clean, first-try conversions only.',
+  'WMP / MMP': 'Gender-matching designation for mixed-gender ultimate: WMP = women-matching player, MMP = men-matching player. Every mixed point is 4 WMP + 3 MMP or 3 WMP + 4 MMP. Each player’s designation is in roster[].gender.',
   'Plus/minus': 'Goals + assists + blocks - turnovers.',
   'Leverage': "How much a single point's outcome could swing the game's eventual result, on a 0-10 scale (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = a game already decided, e.g. a big blowout). Modeled as a fair (50/50) race to this game's actual final winning score, with a square-root reshape so mid-to-late-game situations (e.g. tied with just a couple points left) read as meaningfully important rather than compressed near the bottom -- see the 'leverage' formula below for the exact computation.",
   'High-leverage points played': "How many of a player's points had Leverage >= 7 (0-10 scale) -- points close to a coin flip on the game's outcome, typically late and close, as opposed to raw points played which counts every point regardless of how much it mattered.",
@@ -7277,7 +7278,7 @@ const RAW_DATA_NOTES = [
   'Blocks are this team’s own defensive plays (turnovers forced on the opponent); locationX/locationY is where the block happened.',
   'Statto only records this team’s own actions -- a point the opponent won by simply holding their own possession has zero recorded passes for that point, so point and score counts should always come from the points data, never by counting passes.',
   'Player names (not IDs) are the join key across points, passes, blocks, lineup, and boxScore within this export.',
-  'roster (top level) lists every player who appears in a box score this season, with hasPhoto and photoFile. Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
+  'roster (top level) lists every player who appears in a box score this season. Each entry carries their mixed-line gender designation -- gender is "WMP" (women-matching player) or "MMP" (men-matching player), with genderCode 1 or 0 respectively (both null if the player has no gender set) -- and hasPhoto and photoFile. Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
   'pullEvents (top level, separate from games) is a manually video-tagged list, one entry per defensive point that has been tagged: who pulled and where our pull landed. puller is the player name (or null if untagged). landX/landY are 0-1 field fractions in the same coordinate system as passes (null when outOfBounds is true, or when a spot wasn’t marked); outOfBounds=true means the pull sailed out. It is only present for points a tagger has marked, so it may be empty or cover only some defensive points.',
   'opponentTurnoverEvents (top level) is the other manually video-tagged list: opponent turnovers that were NOT one of our blocks (those are in games[].points[].blocks). Statto records nothing for them, so each is inferred as an opponent possession we won the disc back from, identified by pointNumber + opponentPossession (their n-th offensive possession that point); type is one of Huck turnover / Throwing error / Receiver error, or null if untagged. Like pullEvents, only tagged ones appear.',
   'Film tags: a pass or block in games[].points[] may carry a "filmTags" object when someone has video-tagged it. On a pass: hand (backhand/forehand/etc.), release, distance, stall (Low/Mid/High), catch, highlight, turnoverReason (an ARRAY -- a turnover can have several causes), plus timestamp (seconds into that game’s video) and notes. On a block: type, timestamp, notes. A point may also carry filmTags: defScheme (the defence called), pull (where our pull landed -- puller, landX/landY 0-1 or outOfBounds), defensivePossessions[] (each with defScheme), and opponentTurnovers[] (each with a type). Every field is optional and tags exist only where a tagger added them, so most passes have none. (pullEvents/opponentTurnoverEvents above are flattened, game-context copies of the same point-level tags, handy for "list every tagged pull".)',
@@ -7547,11 +7548,18 @@ function buildRawDataExportJSON(gameIndices) {
     formulas: RAW_DATA_FORMULAS,
     games: gamesWithTags,
     // Names are the join key everywhere in this export; roster[] is the one
-    // place that also says whether a player has a photo and what it's called
-    // inside the companion player-photos ZIP.
+    // place that also carries each player's gender designation (for mixed lines)
+    // and whether they have a photo in the companion player-photos ZIP.
     roster: allPlayerNames().map(name => {
       const has = !!(loadSetupData().playerPhotos || {})[name];
-      return { name, hasPhoto: has, photoFile: has ? 'photos/' + slug(name) + '.png' : null };
+      const gc = (REPORT.playerGenders || {})[name];
+      return {
+        name,
+        gender: gc === 1 ? 'WMP' : (gc === 0 ? 'MMP' : null),
+        genderCode: (gc === 1 || gc === 0) ? gc : null,
+        hasPhoto: has,
+        photoFile: has ? 'photos/' + slug(name) + '.png' : null,
+      };
     }),
     seasonLeaderboardForSelection: aggregateSeasonStats(gameIndices),
     // Project each row down to the documented columns only -- computeAdvancedStats
@@ -7711,7 +7719,9 @@ The JSON has these top-level sections:
   from any \`filmTags.timestamp\` to deep-link a tagged moment
 - \`tournaments[]\` — how the selected games group into tournaments (custom
   names if set), for event-scoped questions
-- \`roster[]\` — every player, with \`hasPhoto\` and \`photoFile\`. Photos are
+- \`roster[]\` — every player, with their mixed-line gender designation
+  (\`gender\`: \`"WMP"\`/\`"MMP"\`, \`genderCode\`: \`1\`/\`0\`, both \`null\` if unset),
+  plus \`hasPhoto\` and \`photoFile\`. Photos are
   deliberately **not** embedded in the JSON (base64 images would add
   megabytes to a file meant to be pasted into a chat, and can't be viewed
   out of a string field anyway). They come as a separate
