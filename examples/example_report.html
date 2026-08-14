@@ -5370,12 +5370,20 @@ function parseTimestamp(str) {
   return parts.reduce((acc, p) => acc * 60 + parseInt(p, 10), 0);
 }
 
-// Bakes the current localStorage data (setup + lines, both scoped to this
-// team) into a fresh copy of the pristine report HTML and downloads it. The
-// injected seed runs before the main report script and only writes a key the
-// recipient doesn't already have, so opening the file preloads everything the
-// sharer entered without clobbering a recipient's own work on the same team.
-// The file stays fully self-contained -- no server, no separate import.
+// Bakes the current localStorage data (setup + lines + annotations, all scoped
+// to this team) into a fresh copy of the pristine report HTML and downloads it.
+// The injected seed runs before the main report script.
+//
+// By default a key is written only if the recipient doesn't already have it, so
+// opening the file never clobbers their own work on the same team. But in a
+// team (viewer) report the recipient can ONLY edit lines -- Set up is hidden and
+// the Data Editor is read-only -- so the setup config (tournaments, video links,
+// photos) and the annotations are the sharer's alone. Those are force-refreshed
+// on every open, otherwise a browser that opened an older team report keeps its
+// stale setup blob forever and never picks up newly added video links, photos or
+// tags (the missing "Watch"/timestamp links being the visible symptom). Lines
+// stay non-destructive in every build; annotations stay non-destructive on a
+// tagging page, where the recipient is the one creating them.
 function buildDistributableHtml(opts) {
   opts = opts || {};
   const seed = {};
@@ -5383,11 +5391,13 @@ function buildDistributableHtml(opts) {
     const v = localStorage.getItem(k);
     if (v !== null) seed[k] = v;
   });
+  const forceKeys = opts.viewer ? [setupStorageKey(), annotationsStorageKey()] : [];
   // < keeps any "<" in the data (e.g. a stray character in a label) from
   // being read as markup once this sits inside a <script> tag.
   const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
-  let inject = '<script>(function(){try{var d=' + seedJson +
-    ';for(var k in d){if(localStorage.getItem(k)===null){localStorage.setItem(k,d[k]);}}}catch(e){}})();<\/script>\n';
+  const forceJson = JSON.stringify(forceKeys).replace(/</g, '\\u003c');
+  let inject = '<script>(function(){try{var d=' + seedJson + ',f=' + forceJson +
+    ';for(var k in d){if(f.indexOf(k)>=0||localStorage.getItem(k)===null){localStorage.setItem(k,d[k]);}}}catch(e){}})();<\/script>\n';
   // Mode flags must be set before the report script reads VIEWER_MODE / TAGONLY_GAME.
   if (opts.viewer) inject = '<script>window.__STATTO_VIEWER__=true;<\/script>\n' + inject;
   if (opts.tagOnlyGame != null) inject = '<script>window.__STATTO_TAGONLY_GAME__=' + Number(opts.tagOnlyGame) + ';<\/script>\n' + inject;

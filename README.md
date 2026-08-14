@@ -100,8 +100,11 @@ etc.) to share a link.
 > (`file://`) — YouTube blocks the embed otherwise. The simplest fix is to
 > serve the folder locally: in a terminal, `cd` into the report's folder and
 > run `python3 -m http.server`, then open the `http://localhost:8000/…` URL it
-> prints. (Hosting the report online works too.) Everything else in the report
-> works fine straight off disk.
+> prints. (Hosting the report online works too.) The same applies to a
+> **published team report**: its baked-in tags, video links and photos load
+> from the browser's storage, which is also blocked off `file://`, so serve it
+> over `http(s)` too. Your own authoring report — where you entered the data —
+> works fine straight off disk apart from the embedded player.
 
 ## For video-tagging helpers (no coding needed)
 
@@ -370,8 +373,18 @@ file:
   tab, the Data Editor becomes a read-only **Film Clips** browser (positioned
   right of Games — filter tags → jump to video clips, no editing), while
   **Line Analysis stays editable** so a teammate can build their own lines on
-  top of yours. The seed is non-destructive: a recipient who has already
-  entered their own data for this team keeps theirs.
+  top of yours. Because Line Analysis is the only thing a teammate can change,
+  re-opening a newer team report refreshes the film tags, video links and
+  photos (the sharer's, always the latest) while keeping the recipient's own
+  lines untouched — so a browser that opened an earlier build always catches up
+  to your latest tags and links instead of getting stuck on a stale copy.
+
+  **Open it from a host, not straight off disk.** The preloaded data lives in
+  the browser's `localStorage`, which browsers block for pages opened as a
+  local `file://…` (double-clicking the downloaded file). Serve it over
+  `http(s)` — any static host (GitHub Pages, Netlify drop, a shared link) or
+  even a quick `python3 -m http.server` — and everything loads. Opened from
+  disk, the video links, film clips and photos will look missing.
 
   **Guided tours.** The team build — and only the team build — walks a first-time
   visitor through each tab: a dimmed overlay highlights one element at a time
