@@ -1,5 +1,11 @@
 # Statto HTML Season Report
 
+![Field to Team Report — the setup flow at a glance: take stats, import the file, run the script, customise, optionally split the video tagging across people, publish the read-only team report, and share it.](docs/setup-flow.svg)
+
+> **New here?** The picture above is the whole workflow at a glance. The
+> detailed walkthrough starts at
+> [Recommended workflow](#recommended-workflow-from-a-statto-file-to-a-team-report).
+
 `statto_to_html_report.py` turns a single Statto (`.statto`) export into one
 self-contained, interactive HTML report covering your whole season: team
 performance, individual games, per-player breakdowns, field-position
@@ -12,6 +18,40 @@ internet connection, and no dependencies beyond the Python standard library
 - Python 3
 - No third-party packages (uses only `argparse`, `json`, `math`, `os`,
   `zipfile`, `tempfile`, and `datetime` from the standard library)
+
+## Getting the code
+
+You don't need to be a programmer to run this — you just need the files on
+your computer and Python installed.
+
+**1. Download the files.** Two ways:
+
+- **Not comfortable with git?** On the GitHub page, click the green
+  **`< > Code`** button → **Download ZIP**, then unzip it. You'll get a
+  folder like `statto-html-report`.
+- **Comfortable with git?**
+
+  ```bash
+  git clone https://github.com/sean2251/statto-html-report.git
+  ```
+
+Then open a terminal and move into that folder (`cd path/to/statto-html-report`)
+— every command below is run from there.
+
+**2. Check you have Python.** Run:
+
+```bash
+python3 --version
+```
+
+If it prints something like `Python 3.11.4`, you're set. If it says the
+command isn't found, install Python 3 from
+[python.org/downloads](https://www.python.org/downloads/) (on Windows, tick
+**"Add Python to PATH"** in the installer) and try again.
+
+**3. That's it — nothing to install.** There are no extra packages to set up
+(no `pip install` step); the script uses only what ships with Python. You're
+ready to run it.
 
 ## Usage
 
