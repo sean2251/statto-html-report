@@ -2730,7 +2730,7 @@ function buildClutchEfficiencyWidget(clutchEfficiency) {
     { name: 'High-leverage (≥ 7)', ...clutchEfficiency.highLeverage },
     { name: 'Low-leverage (< 7)', ...clutchEfficiency.lowLeverage },
   ];
-  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name'));
+  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name', { mobileCards: true }));
   wrap.appendChild(el('p', { class: 'pitch-caption' }, [
     document.createTextNode('High-leverage points are those with Leverage ≥ 7 (0–10 scale) -- close to a coin flip on the game’s outcome, typically late and close. Comparing hold/break/scoring rates in these moments against everything else shows whether performance holds up when a point mattered most.'),
   ]));
@@ -2834,6 +2834,18 @@ function buildCompareCards(rowDefs, players, key) {
     if (rd.tip) lbl.title = rd.tip;
     if (rd.lowerBetter) lbl.appendChild(el('span', { class: 'cmp-hint' }, [document.createTextNode('lower is better')]));
     block.appendChild(lbl);
+
+    // A row that draws its own cell (e.g. a mini histogram) can't be a bar --
+    // stack the rendered element under each entity's name instead.
+    if (rd.render) {
+      players.forEach((p) => {
+        block.appendChild(el('div', { class: 'cmp-render' }, [
+          el('span', { class: 'cmp-nm' }, [document.createTextNode(p[key])]),
+          el('div', { class: 'cmp-render-cell' }, [rd.render(p, players)]),
+        ]));
+      });
+      return block;
+    }
 
     const nums = players.map(p => compareRowNumeric(rd, p));
     const present = nums.filter(v => v != null);
@@ -5065,7 +5077,7 @@ function buildLineAnalysisSection() {
       }
       const entities = selectedLines.map(l => Object.assign({ name: displayName(l) }, computeLineStats(l.pointKeys, selectedGames)));
 
-      contentArea.appendChild(buildComparisonTable(LINE_ROWS, entities, 'name'));
+      contentArea.appendChild(buildComparisonTable(LINE_ROWS, entities, 'name', { mobileCards: true }));
       contentArea.appendChild(el('p', { class: 'pitch-caption' }, [
         document.createTextNode('Avg point leverage is the mean Leverage (0–10) across a line’s points — a line that only sees the field when the game is already decided will read lower here than one that gets deployed in close, high-stakes moments, even at the same points-played total.'),
       ]));

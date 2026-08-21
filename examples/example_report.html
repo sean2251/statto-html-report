@@ -430,6 +430,11 @@
   .cmp-bar.lead .cmp-v::after { content: " \25B2"; font-size: 8px; color: #D2982E; vertical-align: 1px; }
   .cmp-more { width: 100%; margin: 14px 0 2px; padding: 11px; background: transparent; border: 1px solid rgba(var(--chalk-rgb), 0.16); border-radius: 9px; color: var(--chalk-dim); font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer; }
   .cmp-more:hover { color: var(--chalk); border-color: rgba(var(--chalk-rgb), 0.32); }
+  /* rows that draw their own cell (mini histograms) stack per entity */
+  .cmp-render { display: flex; align-items: center; gap: 10px; margin: 8px 2px; }
+  .cmp-render .cmp-nm { flex: 0 0 5.2em; }
+  .cmp-render-cell { flex: 1 1 auto; min-width: 0; }
+  .cmp-render-cell svg { max-width: 100%; height: auto; }
   .impact-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -4282,7 +4287,7 @@ function buildClutchEfficiencyWidget(clutchEfficiency) {
     { name: 'High-leverage (≥ 7)', ...clutchEfficiency.highLeverage },
     { name: 'Low-leverage (< 7)', ...clutchEfficiency.lowLeverage },
   ];
-  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name'));
+  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name', { mobileCards: true }));
   wrap.appendChild(el('p', { class: 'pitch-caption' }, [
     document.createTextNode('High-leverage points are those with Leverage ≥ 7 (0–10 scale) -- close to a coin flip on the game’s outcome, typically late and close. Comparing hold/break/scoring rates in these moments against everything else shows whether performance holds up when a point mattered most.'),
   ]));
@@ -4386,6 +4391,18 @@ function buildCompareCards(rowDefs, players, key) {
     if (rd.tip) lbl.title = rd.tip;
     if (rd.lowerBetter) lbl.appendChild(el('span', { class: 'cmp-hint' }, [document.createTextNode('lower is better')]));
     block.appendChild(lbl);
+
+    // A row that draws its own cell (e.g. a mini histogram) can't be a bar --
+    // stack the rendered element under each entity's name instead.
+    if (rd.render) {
+      players.forEach((p) => {
+        block.appendChild(el('div', { class: 'cmp-render' }, [
+          el('span', { class: 'cmp-nm' }, [document.createTextNode(p[key])]),
+          el('div', { class: 'cmp-render-cell' }, [rd.render(p, players)]),
+        ]));
+      });
+      return block;
+    }
 
     const nums = players.map(p => compareRowNumeric(rd, p));
     const present = nums.filter(v => v != null);
@@ -6617,7 +6634,7 @@ function buildLineAnalysisSection() {
       }
       const entities = selectedLines.map(l => Object.assign({ name: displayName(l) }, computeLineStats(l.pointKeys, selectedGames)));
 
-      contentArea.appendChild(buildComparisonTable(LINE_ROWS, entities, 'name'));
+      contentArea.appendChild(buildComparisonTable(LINE_ROWS, entities, 'name', { mobileCards: true }));
       contentArea.appendChild(el('p', { class: 'pitch-caption' }, [
         document.createTextNode('Avg point leverage is the mean Leverage (0–10) across a line’s points — a line that only sees the field when the game is already decided will read lower here than one that gets deployed in close, high-stakes moments, even at the same points-played total.'),
       ]));

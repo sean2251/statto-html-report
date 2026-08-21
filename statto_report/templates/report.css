@@ -414,6 +414,11 @@
   .cmp-bar.lead .cmp-v::after { content: " \25B2"; font-size: 8px; color: #D2982E; vertical-align: 1px; }
   .cmp-more { width: 100%; margin: 14px 0 2px; padding: 11px; background: transparent; border: 1px solid rgba(var(--chalk-rgb), 0.16); border-radius: 9px; color: var(--chalk-dim); font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer; }
   .cmp-more:hover { color: var(--chalk); border-color: rgba(var(--chalk-rgb), 0.32); }
+  /* rows that draw their own cell (mini histograms) stack per entity */
+  .cmp-render { display: flex; align-items: center; gap: 10px; margin: 8px 2px; }
+  .cmp-render .cmp-nm { flex: 0 0 5.2em; }
+  .cmp-render-cell { flex: 1 1 auto; min-width: 0; }
+  .cmp-render-cell svg { max-width: 100%; height: auto; }
   .impact-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
