@@ -485,6 +485,8 @@
     .compare-block:not(.has-cards) table.compare th,
     .compare-block:not(.has-cards) table.compare td { padding-left: 12px; padding-right: 12px; }
   }
+  .line-eff-compare { margin: 4px 0 10px; max-width: 640px; }
+  .line-eff-compare .eff-toggle-row { margin-top: 14px; }
   .cmp-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 2px 2px 16px; }
   .cmp-key { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--chalk); }
   .cmp-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
@@ -4474,6 +4476,48 @@ function buildScoringEfficiencyWidget(scoringEfficiency) {
   return wrap;
 }
 
+// Line Analysis scoring efficiency, built to compare across lines at a glance:
+// one bar per line within each metric (Total/Offensive/Defensive), grouped so
+// you can read "which line holds best" straight down a group; a shared mode
+// toggle (Per Point / Per Possession / First Possession) redraws all three.
+// Reuses the .cmp-* comparison-bar styles.
+function buildLineScoringEfficiencyComparison(entities) {
+  const wrap = el('div', { class: 'line-eff-compare' }, []);
+  const legend = el('div', { class: 'cmp-legend' }, []);
+  entities.forEach((en, i) => legend.appendChild(el('span', { class: 'cmp-key' }, [
+    el('span', { class: 'cmp-dot', style: 'background:' + compareColorVar(i) }, []),
+    document.createTextNode(en.name),
+  ])));
+  wrap.appendChild(legend);
+
+  const groups = el('div', {}, []);
+  wrap.appendChild(groups);
+  function render(mode) {
+    groups.innerHTML = '';
+    SCORING_EFF_GAUGES.forEach(g => {
+      const block = el('div', { class: 'cmp-row' }, [el('div', { class: 'cmp-lbl' }, [el('span', {}, [document.createTextNode(g.label)])])]);
+      const vals = entities.map(en => (en.scoringEfficiency[mode][g.key] || {}).pct);
+      const present = vals.filter(v => v != null);
+      const best = present.length > 1 && !present.every(v => v === present[0]) ? Math.max.apply(null, present) : null;
+      entities.forEach((en, i) => {
+        const d = en.scoringEfficiency[mode][g.key] || {};
+        const pct = d.pct;
+        const w = pct == null ? 0 : Math.max(2, Math.min(100, pct));
+        const isLead = pct != null && best != null && pct === best;
+        block.appendChild(el('div', { class: 'cmp-bar' + (isLead ? ' lead' : '') }, [
+          el('span', { class: 'cmp-nm' }, [document.createTextNode(en.name)]),
+          el('span', { class: 'cmp-track' }, [el('span', { class: 'cmp-fill' + (pct == null ? ' empty' : ''), style: 'width:' + w + '%;' + (pct == null ? '' : 'background:' + compareColorVar(i)) }, [])]),
+          el('span', { class: 'cmp-v' }, [document.createTextNode(pct == null ? '–' : Math.round(pct) + '%')]),
+        ]));
+      });
+      groups.appendChild(block);
+    });
+  }
+  render('perPoint');
+  wrap.appendChild(el('div', { class: 'eff-toggle-row' }, [buildSegToggle(SCORING_EFF_MODES, render)]));
+  return wrap;
+}
+
 // Clutch Efficiency: hold rate / break rate / total scoring efficiency,
 // split into high-leverage points (Leverage >= 7, i.e. the moments closest
 // to deciding the game) vs. everything else -- built with buildComparisonTable
@@ -6674,22 +6718,28 @@ function buildLineAnalysisSection() {
       scopedLines.forEach(line => block.appendChild(buildConfirmedLineRow(line)));
     }
 
-    block.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Pick points for a line')]));
-    block.appendChild(el('ol', { class: 'line-matrix-instructions' }, [
-      el('li', {}, [document.createTextNode('We pre-check the biggest group of points below that look like a recurring lineup — review it, checking or unchecking rows as needed (click a player’s column to filter to points featuring them; shift-click a row to select a range).')]),
-      el('li', {}, [document.createTextNode('Type a name and click “Create line,” or pick an existing line and click “Add to line.”')]),
-      el('li', {}, [document.createTextNode('That group drops off the list so you can repeat with the next one. Switch to “Show all” if you need to bring a settled point back to fix it.')]),
-    ]));
+    // The point-by-point line builder is authoring UI: the read-only team
+    // report drops it entirely -- whoever runs the main report sets the lines,
+    // and a matrix of checkboxes just confuses a teammate who only wants to
+    // compare the lines that already exist.
+    if (!VIEWER_MODE) {
+      block.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Pick points for a line')]));
+      block.appendChild(el('ol', { class: 'line-matrix-instructions' }, [
+        el('li', {}, [document.createTextNode('We pre-check the biggest group of points below that look like a recurring lineup — review it, checking or unchecking rows as needed (click a player’s column to filter to points featuring them; shift-click a row to select a range).')]),
+        el('li', {}, [document.createTextNode('Type a name and click “Create line,” or pick an existing line and click “Add to line.”')]),
+        el('li', {}, [document.createTextNode('That group drops off the list so you can repeat with the next one. Switch to “Show all” if you need to bring a settled point back to fix it.')]),
+      ]));
 
-    const matrix = buildLineupMatrixPicker(scope, scopedLines);
-    block.appendChild(matrix.el);
+      const matrix = buildLineupMatrixPicker(scope, scopedLines);
+      block.appendChild(matrix.el);
 
-    const partialCount = (scope.gameIndices ? REPORT.games.filter((g, i) => scope.gameIndices.includes(i)) : REPORT.games)
-      .reduce((sum, g) => sum + (g.points || []).filter(pt => (pt.lineup || []).length !== 7).length, 0);
-    if (partialCount) {
-      block.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(
-        `${partialCount} point${partialCount === 1 ? '' : 's'} in this scope have an incomplete lineup on record and aren't shown above.`
-      )]));
+      const partialCount = (scope.gameIndices ? REPORT.games.filter((g, i) => scope.gameIndices.includes(i)) : REPORT.games)
+        .reduce((sum, g) => sum + (g.points || []).filter(pt => (pt.lineup || []).length !== 7).length, 0);
+      if (partialCount) {
+        block.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(
+          `${partialCount} point${partialCount === 1 ? '' : 's'} in this scope have an incomplete lineup on record and aren't shown above.`
+        )]));
+      }
     }
 
     return block;
@@ -6846,14 +6896,7 @@ function buildLineAnalysisSection() {
       ]));
 
       contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Scoring Efficiency')]));
-      const gaugeGrid = el('div', { class: 'impact-grid' }, []);
-      entities.forEach(en => {
-        gaugeGrid.appendChild(el('div', { class: 'impact-card' }, [
-          el('div', { class: 'impact-card-name' }, [document.createTextNode(en.name)]),
-          buildScoringEfficiencyWidget(en.scoringEfficiency),
-        ]));
-      });
-      contentArea.appendChild(gaugeGrid);
+      contentArea.appendChild(buildLineScoringEfficiencyComparison(entities));
 
       contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Field Diagrams')]));
       let fieldCategories = new Set(['all']);
@@ -9832,7 +9875,7 @@ const TOURS = {
   'line-analysis': [
     { title: 'Line Analysis', body: 'Treat a recurring 7-person lineup as if it were a player, and compare lines the same way.' },
     { sel: '#line-analysis > .controls-row', title: 'Across or within tournaments', body: 'Choose whether a line means the same 7 all season, or the same 7 within one tournament.' },
-    { sel: '.line-mgmt', title: 'Build your lines', body: 'The report finds lineups that played together repeatedly; you confirm and name the ones that are real. This is editable — your lines are saved in this browser.' },
+    { sel: '.line-mgmt', title: 'Your lines', body: 'The lines set up for this team in the main report — pick any of them to compare.' },
     { sel: '#line-analysis > div:last-child', title: 'Compare them', body: 'Named lines get compared here on hold rate, break rate, efficiency and average leverage.' },
   ],
   'thrower-receiver-analysis': [
