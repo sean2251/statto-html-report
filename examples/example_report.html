@@ -619,6 +619,9 @@
     align-items: start;
     margin-top: 36px;
   }
+  /* Desktop: transparent to layout, so pitch + film stay separate grid columns
+     exactly as before. (A phone turns it into a pinned block -- see below.) */
+  .game-focus { display: contents; }
   /* Once a game has tagged film the grid gains a third column. Three even
      columns don't fit the 1100px reading column, so this one block alone
      widens toward the viewport and re-centres itself. */
@@ -638,16 +641,35 @@
     /* minmax(0,…) so a wide child (the point log's fixed columns) can't force
        the single column past the viewport and scroll the whole page. */
     .game-grid, .game-grid.has-film { grid-template-columns: minmax(0, 1fr); }
-  }
-  /* Tighten the point-log's fixed columns on a phone so a row fits without
-     pushing the page sideways (the "Line" and "Leverage" columns were widest). */
-  @media (max-width: 640px) {
-    .point-row { gap: 8px; padding: 10px 11px; }
-    .point-row .pscore { width: 44px; }
-    .point-row .pline { width: 58px; }
-    .point-row .pleverage, .point-log-header .pleverage-head { width: 58px; }
-  }
+    .game-grid.has-film { width: auto; margin-left: 0; transform: none; } /* drop the desktop breakout */
 
+    /* Solution A: the field diagram + tagged-events strip become one compact
+       block pinned to the top of the screen while the point log scrolls below.
+       Tapping a point updates the pinned diagram/strip in place. */
+    .game-focus {
+      display: flex; gap: 12px; align-items: flex-start;
+      order: -1; position: sticky; top: 54px; z-index: 3;
+      background: var(--ink); margin: 0 0 6px;
+      padding: 8px 0 10px; border-bottom: 1px solid rgba(var(--chalk-rgb),0.12);
+    }
+    /* Fixed-width diagram column (so the long point caption wraps inside it
+       instead of stretching it and starving the film strip). Portrait pitch, so
+       the height follows the width. */
+    .game-focus .pitch-wrap { position: static; top: auto; flex: 0 0 34vw; width: 34vw; margin: 0; }
+    .game-focus .pitch-wrap svg { width: 100%; height: auto; max-width: none !important; margin: 0; }
+    .game-focus .poss-tabs { justify-content: flex-start; }
+    .game-focus .pitch-caption { font-size: 11px; margin: 6px 0 0; text-align: center; }
+    /* the roster, legend and keyboard hint don't belong in a pinned mini-view
+       (inline display toggles need !important to stay hidden here) */
+    .game-focus .lineup-label, .game-focus .lineup-row,
+    .game-focus .field-legend, .game-focus .kbd-hint { display: none !important; }
+    .game-grid.has-film .game-focus .film-strip { flex: 1 1 0; min-width: 0; max-height: 46vh; overflow-y: auto; margin: 0; }
+    .game-focus .film-head { flex-wrap: wrap; } /* let "Watch point" wrap in the narrow strip */
+    .game-grid:not(.has-film) .game-focus { justify-content: center; }
+    .game-grid:not(.has-film) .game-focus .pitch-wrap { flex-basis: 52vw; width: 52vw; }
+    /* log scrolls with the page now (not its own box), so the pinned focus sticks */
+    .point-log { max-height: none; overflow: visible; }
+  }
   .point-log { max-height: 640px; overflow-y: auto; border: 1px solid rgba(var(--chalk-rgb),0.1); border-radius: 10px; }
   .point-row {
     display: flex;
@@ -730,6 +752,15 @@
     flex-shrink: 0;
   }
   .point-row .presult { width: 22px; text-align: center; }
+  /* Phone: tighten the fixed columns so the flexible Result column keeps room
+     and the Type header fits. Placed AFTER the base widths above so it wins. */
+  @media (max-width: 640px) {
+    .point-row { gap: 8px; padding: 10px 11px; }
+    .point-row .pscore { width: 44px; }
+    .point-row .pline { width: 56px; }
+    .point-row .pleverage, .point-log-header .pleverage-head { width: 56px; }
+    .point-row .presult, .point-log-header .presult-head { width: 32px; }
+  }
 
   .pitch-wrap { position: sticky; top: 78px; }
   .poss-tabs { display: none; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -4223,9 +4254,13 @@ function buildGameSection(game, index) {
   refreshVideoLink();
   refreshFilmMarks();
 
+  // pitch + film travel together as the "focus". On desktop the wrapper is
+  // display:contents, so they stay separate grid columns exactly as before; on
+  // a phone the wrapper becomes a compact block pinned to the top while the
+  // point log scrolls beneath it (see .game-focus in the mobile CSS).
+  const gameFocus = el('div', { class: 'game-focus' }, [pitchWrap, filmWrap]);
   grid.appendChild(logWrap);
-  grid.appendChild(pitchWrap);
-  grid.appendChild(filmWrap);
+  grid.appendChild(gameFocus);
   section.appendChild(grid);
 
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Clutch Efficiency')]));
@@ -6457,12 +6492,12 @@ function buildLineAnalysisSection() {
 
   const managementWrap = el('div', { class: 'line-mgmt' }, []);
   const compareWrap = el('div', {}, []);
-  // Teammates come here to read the comparison, not to curate lines, so in the
-  // published report the line-picking panel drops below it. In the editing
-  // report the picker is the job, so it stays on top.
+  // Teammates come here to read the comparison, not to curate lines. The
+  // read-only report drops the whole management area (line list, point picker,
+  // import/export) -- whoever runs the main report owns the lines -- and shows
+  // only the comparison. The editing report keeps the picker up top.
   if (VIEWER_MODE) {
     section.appendChild(compareWrap);
-    section.appendChild(managementWrap);
   } else {
     section.appendChild(managementWrap);
     section.appendChild(compareWrap);
@@ -6768,6 +6803,7 @@ function buildLineAnalysisSection() {
   }
 
   function renderManagement() {
+    if (VIEWER_MODE) return; // the read-only report has no line management at all
     managementWrap.innerHTML = '';
     currentScopes().forEach(scope => managementWrap.appendChild(buildScopeManagementBlock(scope)));
 

@@ -2548,9 +2548,13 @@ function buildGameSection(game, index) {
   refreshVideoLink();
   refreshFilmMarks();
 
+  // pitch + film travel together as the "focus". On desktop the wrapper is
+  // display:contents, so they stay separate grid columns exactly as before; on
+  // a phone the wrapper becomes a compact block pinned to the top while the
+  // point log scrolls beneath it (see .game-focus in the mobile CSS).
+  const gameFocus = el('div', { class: 'game-focus' }, [pitchWrap, filmWrap]);
   grid.appendChild(logWrap);
-  grid.appendChild(pitchWrap);
-  grid.appendChild(filmWrap);
+  grid.appendChild(gameFocus);
   section.appendChild(grid);
 
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Clutch Efficiency')]));
@@ -4782,12 +4786,12 @@ function buildLineAnalysisSection() {
 
   const managementWrap = el('div', { class: 'line-mgmt' }, []);
   const compareWrap = el('div', {}, []);
-  // Teammates come here to read the comparison, not to curate lines, so in the
-  // published report the line-picking panel drops below it. In the editing
-  // report the picker is the job, so it stays on top.
+  // Teammates come here to read the comparison, not to curate lines. The
+  // read-only report drops the whole management area (line list, point picker,
+  // import/export) -- whoever runs the main report owns the lines -- and shows
+  // only the comparison. The editing report keeps the picker up top.
   if (VIEWER_MODE) {
     section.appendChild(compareWrap);
-    section.appendChild(managementWrap);
   } else {
     section.appendChild(managementWrap);
     section.appendChild(compareWrap);
@@ -5093,6 +5097,7 @@ function buildLineAnalysisSection() {
   }
 
   function renderManagement() {
+    if (VIEWER_MODE) return; // the read-only report has no line management at all
     managementWrap.innerHTML = '';
     currentScopes().forEach(scope => managementWrap.appendChild(buildScopeManagementBlock(scope)));
 
