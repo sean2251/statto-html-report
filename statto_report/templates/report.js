@@ -2751,15 +2751,15 @@ const PLAYER_BASIC_ROWS = [
   { label: 'Offensive points', get: p => p.offensePlayed },
   { label: 'Defensive points', get: p => p.defensePlayed },
   { label: 'High-leverage points played', get: p => p.highLeveragePointsPlayed },
-  { label: 'Touches', get: p => p.touches },
-  { label: 'Goals', get: p => p.goals },
-  { label: 'Assists', get: p => p.assists },
+  { label: 'Touches', headline: true, get: p => p.touches },
+  { label: 'Goals', headline: true, get: p => p.goals },
+  { label: 'Assists', headline: true, get: p => p.assists },
   { label: '2nd assists', get: p => p.secondaryAssists },
-  { label: 'Blocks', get: p => p.blocks },
-  { label: 'Thrower errors', get: p => p.throwerErrors },
-  { label: 'Receiver errors', get: p => p.receiverErrors },
-  { label: 'Plus/minus', get: p => p.plusMinus },
-  { label: 'Total scoring efficiency', tip: 'Share of all points this player was on the field for that their team scored.', get: p => fmtPct(p.totalScoringEfficiency) },
+  { label: 'Blocks', headline: true, get: p => p.blocks },
+  { label: 'Thrower errors', lowerBetter: true, get: p => p.throwerErrors },
+  { label: 'Receiver errors', lowerBetter: true, get: p => p.receiverErrors },
+  { label: 'Plus/minus', headline: true, get: p => p.plusMinus },
+  { label: 'Total scoring efficiency', headline: true, tip: 'Share of all points this player was on the field for that their team scored.', get: p => fmtPct(p.totalScoringEfficiency) },
   { label: 'Offensive scoring efficiency', tip: 'Of the offensive (O-line) points they played, the share scored — the hold rate while they were on.', get: p => fmtPct(p.offensiveScoringEfficiency) },
   { label: 'Defensive scoring efficiency', tip: 'Of the defensive (D-line) points they played, the share scored — the break rate while they were on.', get: p => fmtPct(p.defensiveScoringEfficiency) },
   { label: 'Defensive turnover efficiency', tip: 'Of the defensive points they played, the share where the opponent turned the disc over at least once — whether or not the team then scored.', get: p => fmtPct(p.defensiveTurnoverEfficiency) },
@@ -2770,7 +2770,7 @@ const PLAYER_THROWER_RATE_ROWS = [
   { label: 'Huck completion', main: p => fmtPct(p.huckCompletionPct), sub: p => `${p.huckCompletions}/${p.huckAttempts}` },
   { label: 'Assist completion', main: p => fmtPct(p.assistCompletionPct), sub: p => `${p.assists}/${p.assistAttempts}` },
   { label: 'Completions / game', main: p => fmtAvg(safeDiv(p.throwCompletions, p.gamesPlayed)), sub: p => `${p.throwCompletions} total` },
-  { label: 'Throwaways / game', main: p => fmtAvg(safeDiv(p.throwerErrors, p.gamesPlayed)), sub: p => `${p.throwerErrors} total` },
+  { label: 'Throwaways / game', lowerBetter: true, main: p => fmtAvg(safeDiv(p.throwerErrors, p.gamesPlayed)), sub: p => `${p.throwerErrors} total` },
   { label: 'Total throwing gain', main: p => fmtYd(safeDiv(p.throwGain, 1)), sub: p => `over ${p.gamesPlayed} game${p.gamesPlayed === 1 ? '' : 's'}` },
   { label: 'Throwing gain / game', main: p => fmtYd(safeDiv(p.throwGain, p.gamesPlayed)), sub: p => `${safeDiv(p.throwGain, 1)} yd total` },
   { label: 'Throwing gain / pass', main: p => fmtYd(safeDiv(p.throwGain, p.throwCompletions)), sub: p => `${p.throwCompletions} completions` },
@@ -2782,7 +2782,7 @@ const PLAYER_RECEIVER_RATE_ROWS = [
   { label: 'Huck reception', main: p => fmtPct(p.huckReceptionPct), sub: p => `${p.huckReceptions}/${p.huckTargets}` },
   { label: 'Assist reception', main: p => fmtPct(p.assistReceptionPct), sub: p => `${p.goals}/${p.assistReceptionAttempts}` },
   { label: 'Receptions / game', main: p => fmtAvg(safeDiv(p.catches, p.gamesPlayed)), sub: p => `${p.catches} total` },
-  { label: 'Drops / game', main: p => fmtAvg(safeDiv(p.receiverErrors, p.gamesPlayed)), sub: p => `${p.receiverErrors} total` },
+  { label: 'Drops / game', lowerBetter: true, main: p => fmtAvg(safeDiv(p.receiverErrors, p.gamesPlayed)), sub: p => `${p.receiverErrors} total` },
   { label: 'Total receiving gain', main: p => fmtYd(safeDiv(p.catchGain, 1)), sub: p => `over ${p.gamesPlayed} game${p.gamesPlayed === 1 ? '' : 's'}` },
   { label: 'Receiving gain / game', main: p => fmtYd(safeDiv(p.catchGain, p.gamesPlayed)), sub: p => `${safeDiv(p.catchGain, 1)} yd total` },
   { label: 'Receiving gain / pass', main: p => fmtYd(safeDiv(p.catchGain, p.catches)), sub: p => `${p.catches} receptions` },
@@ -2790,7 +2790,100 @@ const PLAYER_RECEIVER_RATE_ROWS = [
   { label: 'Avg incomplete catch distance', main: p => fmtYd(safeDiv(p.catchIncompleteDist, p.receivingTargets - p.catches)), sub: p => `${p.receivingTargets - p.catches} incomplete` },
 ];
 
-function buildComparisonTable(rowDefs, players, labelKey) {
+// Per-column categorical colour for the mobile comparison bars.
+function compareColorVar(i) { return 'var(--pc' + ((i % 7) + 1) + ')'; }
+
+// A row's formatted display string for one entity (the same text the table cell
+// shows), and a numeric magnitude parsed out of it for sizing a bar.
+function compareRowDisplay(rd, p) {
+  if (rd.main) return rd.main(p);
+  if (rd.get) return formatCell(rd.get(p));
+  return '';
+}
+function compareRowNumeric(rd, p) {
+  if (rd.render) return null; // custom mini-chart cells have no single value
+  const raw = rd.main ? rd.main(p) : (rd.get ? rd.get(p) : null);
+  if (typeof raw === 'number') return raw;
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (s === '' || s === '–') return null; // en-dash = "no data"
+  const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? null : n;
+}
+
+// Mobile-only alternative to the comparison table: one block per stat, with
+// every selected entity drawn as a labelled bar so the whole field is
+// comparable without a sideways scroll. Headline stats (rows flagged
+// `headline`, else the first six) show up front; the rest sit behind a
+// "show all" toggle. Hidden above the mobile breakpoint -- see .compare-block.
+function buildCompareCards(rowDefs, players, key) {
+  const cards = el('div', { class: 'compare-cards' }, []);
+
+  const legend = el('div', { class: 'cmp-legend' }, []);
+  players.forEach((p, i) => {
+    legend.appendChild(el('span', { class: 'cmp-key' }, [
+      el('span', { class: 'cmp-dot', style: 'background:' + compareColorVar(i) }, []),
+      document.createTextNode(p[key]),
+    ]));
+  });
+  cards.appendChild(legend);
+
+  function statBlock(rd) {
+    const block = el('div', { class: 'cmp-row' }, []);
+    const lbl = el('div', { class: 'cmp-lbl' + (rd.tip ? ' has-tip' : '') }, [el('span', {}, [document.createTextNode(rd.label)])]);
+    if (rd.tip) lbl.title = rd.tip;
+    if (rd.lowerBetter) lbl.appendChild(el('span', { class: 'cmp-hint' }, [document.createTextNode('lower is better')]));
+    block.appendChild(lbl);
+
+    const nums = players.map(p => compareRowNumeric(rd, p));
+    const present = nums.filter(v => v != null);
+    const isPct = players.some(p => /%\s*$/.test(String(compareRowDisplay(rd, p))));
+    const maxAbs = Math.max(1, ...present.map(v => Math.abs(v)));
+    const allEqual = present.length > 1 && present.every(v => v === present[0]);
+    const best = (present.length > 1 && !allEqual)
+      ? (rd.lowerBetter ? Math.min.apply(null, present) : Math.max.apply(null, present)) : null;
+
+    players.forEach((p, i) => {
+      const v = nums[i];
+      const empty = v == null; // "–" / no data: no bar at all, not a stray nub
+      const isLead = v != null && best != null && v === best;
+      const neg = v != null && v < 0;
+      const w = empty ? 0 : (isPct ? Math.max(2, Math.min(100, v)) : Math.max(2, (Math.abs(v) / maxAbs) * 100));
+      block.appendChild(el('div', { class: 'cmp-bar' + (isLead ? ' lead' : '') }, [
+        el('span', { class: 'cmp-nm' }, [document.createTextNode(p[key])]),
+        el('span', { class: 'cmp-track' }, [
+          el('span', { class: 'cmp-fill' + (neg ? ' neg' : '') + (empty ? ' empty' : ''), style: 'width:' + w + '%;' + (neg || empty ? '' : 'background:' + compareColorVar(i)) }, []),
+        ]),
+        el('span', { class: 'cmp-v' }, [document.createTextNode(compareRowDisplay(rd, p))]),
+      ]));
+    });
+    return block;
+  }
+
+  const headlineRows = rowDefs.filter(r => r.headline);
+  const primary = headlineRows.length ? headlineRows : rowDefs.slice(0, 6);
+  const rest = headlineRows.length ? rowDefs.filter(r => !r.headline) : rowDefs.slice(6);
+  primary.forEach(rd => cards.appendChild(statBlock(rd)));
+
+  if (rest.length) {
+    const restWrap = el('div', { class: 'cmp-rest' }, []);
+    restWrap.style.display = 'none';
+    rest.forEach(rd => restWrap.appendChild(statBlock(rd)));
+    const total = rowDefs.length;
+    const btn = el('button', { class: 'cmp-more', type: 'button' }, [document.createTextNode('Show all ' + total + ' stats')]);
+    let open = false;
+    btn.addEventListener('click', () => {
+      open = !open;
+      restWrap.style.display = open ? '' : 'none';
+      btn.textContent = open ? 'Show fewer stats' : ('Show all ' + total + ' stats');
+    });
+    cards.appendChild(btn);
+    cards.appendChild(restWrap);
+  }
+  return cards;
+}
+
+function buildComparisonTable(rowDefs, players, labelKey, opts) {
   const key = labelKey || 'player';
   const wrap = el('div', { class: 'table-scroll' }, []);
   const table = el('table', { class: 'stats compare' }, []);
@@ -2836,7 +2929,12 @@ function buildComparisonTable(rowDefs, players, labelKey) {
   });
   table.appendChild(tbody);
   wrap.appendChild(table);
-  return wrap;
+  // The table stays the desktop view; on a phone it's swapped for a stacked
+  // stat-bar view (opts.mobileCards) so all entities compare without a sideways
+  // scroll. CSS picks which is visible at the breakpoint.
+  const block = el('div', { class: 'compare-block' }, [wrap]);
+  if (opts && opts.mobileCards) block.appendChild(buildCompareCards(rowDefs, players, key));
+  return block;
 }
 
 function buildPlayerSelector(onChange, options) {
@@ -2957,14 +3055,14 @@ function buildPlayerAnalysisSection() {
     const players = selectedPlayers.map(name => statsPool.find(r => r.player === name) || zeroPlayerRow(name));
 
     contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Season Totals')]));
-    contentArea.appendChild(buildComparisonTable(PLAYER_BASIC_ROWS, players));
+    contentArea.appendChild(buildComparisonTable(PLAYER_BASIC_ROWS, players, 'player', { mobileCards: true }));
 
     const rateHeaderRow = el('div', { class: 'section-title-row' }, [el('span', {}, [document.createTextNode('Efficiency & Averages')])]);
     const rateTableHolder = el('div', {}, []);
     let mode = 'thrower';
     function renderRateTable() {
       rateTableHolder.innerHTML = '';
-      rateTableHolder.appendChild(buildComparisonTable(mode === 'thrower' ? PLAYER_THROWER_RATE_ROWS : PLAYER_RECEIVER_RATE_ROWS, players));
+      rateTableHolder.appendChild(buildComparisonTable(mode === 'thrower' ? PLAYER_THROWER_RATE_ROWS : PLAYER_RECEIVER_RATE_ROWS, players, 'player', { mobileCards: true }));
     }
     renderRateTable();
     rateHeaderRow.appendChild(buildToggle('Thrower', 'Receiver', (which) => {

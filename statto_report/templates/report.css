@@ -17,6 +17,10 @@
     --turf-line: rgba(243,241,233,0.35);
     --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    /* categorical colours for the mobile comparison bars -- mid-tone so they
+       read on both the dark and light theme surfaces. One per compared entity. */
+    --pc1: #46B58A; --pc2: #4E9BE0; --pc3: #E0952E; --pc4: #9B79EA;
+    --pc5: #E06A85; --pc6: #35A9BA; --pc7: #A9A94A;
   }
   [data-theme="light"] {
     --ink: #F7F7F6;
@@ -381,6 +385,35 @@
   }
   table.compare .rate-pct { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--chalk); }
   table.compare .rate-frac { font-size: 11px; color: var(--chalk-dim); margin-top: 2px; }
+
+  /* ---- Comparison: scrolling table on desktop, stacked stat-bars on a phone ----
+     buildComparisonTable returns .compare-block wrapping both; the breakpoint
+     picks which is shown. Only tables built with { mobileCards:true } carry a
+     .compare-cards child (Player Analysis today). */
+  .compare-block .compare-cards { display: none; }
+  @media (max-width: 640px) {
+    .compare-block .table-scroll { display: none; }
+    .compare-block .compare-cards { display: block; }
+  }
+  .cmp-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 2px 2px 16px; }
+  .cmp-key { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--chalk); }
+  .cmp-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .cmp-row { padding: 12px 0; border-bottom: 1px solid rgba(var(--chalk-rgb), 0.08); }
+  .cmp-row:last-child { border-bottom: 0; }
+  .cmp-lbl { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; color: var(--chalk-dim); margin: 0 2px 9px; }
+  .cmp-lbl.has-tip { cursor: help; }
+  .cmp-hint { text-transform: none; letter-spacing: 0; font-weight: 500; opacity: 0.75; }
+  .cmp-bar { display: grid; grid-template-columns: 5.2em 1fr auto; align-items: center; gap: 9px; margin: 6px 2px; }
+  .cmp-nm { font-size: 12.5px; color: var(--chalk); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cmp-track { height: 9px; border-radius: 5px; background: rgba(var(--chalk-rgb), 0.1); overflow: hidden; }
+  .cmp-fill { display: block; height: 100%; border-radius: 5px; min-width: 3px; }
+  .cmp-fill.empty { min-width: 0; }
+  .cmp-fill.neg { background: var(--bad); }
+  .cmp-v { font-family: var(--mono); font-size: 12.5px; color: var(--chalk); min-width: 3em; text-align: right; }
+  .cmp-bar.lead .cmp-v { font-weight: 700; }
+  .cmp-bar.lead .cmp-v::after { content: " \25B2"; font-size: 8px; color: #D2982E; vertical-align: 1px; }
+  .cmp-more { width: 100%; margin: 14px 0 2px; padding: 11px; background: transparent; border: 1px solid rgba(var(--chalk-rgb), 0.16); border-radius: 9px; color: var(--chalk-dim); font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer; }
+  .cmp-more:hover { color: var(--chalk); border-color: rgba(var(--chalk-rgb), 0.32); }
   .impact-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
