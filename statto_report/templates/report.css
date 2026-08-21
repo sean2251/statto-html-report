@@ -509,6 +509,23 @@
     line-height: 1.6;
     margin: 0 0 12px;
   }
+  /* Collapsible explainer (makeCollapsible): keeps a long how-to-read block
+     from burying the chart on a phone. */
+  .explainer-collapse { margin: 2px 0 20px; }
+  .explainer-summary {
+    cursor: pointer; list-style: none;
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--sans); font-weight: 700; font-size: 13px;
+    color: var(--chalk); padding: 8px 0;
+  }
+  .explainer-summary::-webkit-details-marker { display: none; }
+  .explainer-summary::before {
+    content: '\25B8'; font-size: 11px; color: var(--chalk-dim);
+    transition: transform 0.15s ease;
+  }
+  .explainer-collapse[open] .explainer-summary::before { transform: rotate(90deg); }
+  .explainer-collapse[open] .explainer-summary { margin-bottom: 6px; }
+  .explainer-collapse > .gender-explainer { margin-bottom: 4px; }
   .rose-row { display: flex; gap: 10px; justify-content: center; }
   .rose-col { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
   .rose-label { font-size: 11px; color: var(--chalk-dim); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em; }

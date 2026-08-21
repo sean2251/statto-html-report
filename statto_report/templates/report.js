@@ -1402,6 +1402,20 @@ function buildBoxplotChart(groups, opts) {
 const GENDER_WMP_COLOR = '#D9A441';
 const GENDER_MMP_COLOR = '#6F93AD';
 
+// Wraps a long explainer in a native <details> disclosure so it doesn't bury
+// the actual content on a phone. Expanded by default on a roomy screen (where
+// there's space for it), collapsed on a phone -- decided once from the initial
+// width; the reader can toggle it either way afterwards.
+function makeCollapsible(summaryText, contentEl) {
+  const details = el('details', { class: 'explainer-collapse' }, []);
+  details.appendChild(el('summary', { class: 'explainer-summary' }, [document.createTextNode(summaryText)]));
+  details.appendChild(contentEl);
+  if (!(typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches)) {
+    details.open = true;
+  }
+  return details;
+}
+
 function buildGenderAnalysisSection() {
   const section = el('section', { class: 'view', id: 'gender-analysis' }, []);
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Gender Analysis')]));
@@ -1415,7 +1429,7 @@ function buildGenderAnalysisSection() {
     'Players with only a handful of relevant throws can swing a long way on this metric by chance alone, so use the throw-count filter below to focus on more reliable sample sizes.',
     'Finally, it’s important to keep in mind that any deviations from fairness are not a statement on how good or bad a player is, how good or bad a mixed team is, or how well or poorly that player/team values any of their teammates. This is intended to be a single data point and lacks any context that might explain why a person or team has the numbers they do.',
   ].forEach(text => explainer.appendChild(el('p', {}, [document.createTextNode(text)])));
-  section.appendChild(explainer);
+  section.appendChild(makeCollapsible('How to read this chart', explainer));
 
   const controlsRow = el('div', { class: 'controls-row' }, []);
   section.appendChild(controlsRow);
