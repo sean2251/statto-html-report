@@ -335,6 +335,11 @@
 
   .seg-toggle {
     display: inline-flex;
+    /* Never wider than the container: a 5-option toggle (Film Clips "Show",
+       Thrower-Receiver "Color by") used to run off a phone screen with its
+       last option clipped. Capping here makes the buttons shrink/wrap to fit
+       instead of pushing the page into a horizontal scroll. */
+    max-width: 100%;
     border: 1px solid rgba(var(--chalk-rgb),0.2);
     border-radius: 999px;
     overflow: hidden;
@@ -348,8 +353,21 @@
     font-weight: 600;
     padding: 6px 14px;
     cursor: pointer;
+    min-width: 0;
   }
   .seg-btn.active { background: var(--chalk); color: var(--ink); }
+  /* On a phone a 5-option segmented pill can't fit one row without squeezing
+     labels to breaking point. Break the single pill into a wrapping chip group:
+     each option keeps its natural width and wraps to a new row as needed. */
+  @media (max-width: 640px) {
+    .seg-toggle { flex-wrap: wrap; gap: 6px; border: none; border-radius: 0; overflow: visible; }
+    .seg-btn {
+      border: 1px solid rgba(var(--chalk-rgb),0.22);
+      border-radius: 999px;
+      padding: 7px 13px;
+    }
+    .seg-btn.active { border-color: var(--chalk); }
+  }
 
   .eff-widget { margin: 4px 0 8px; }
   .eff-gauges {
@@ -542,7 +560,17 @@
     .game-grid.has-film .film-strip { grid-column: 1 / -1; }
   }
   @media (max-width: 800px) {
-    .game-grid, .game-grid.has-film { grid-template-columns: 1fr; }
+    /* minmax(0,…) so a wide child (the point log's fixed columns) can't force
+       the single column past the viewport and scroll the whole page. */
+    .game-grid, .game-grid.has-film { grid-template-columns: minmax(0, 1fr); }
+  }
+  /* Tighten the point-log's fixed columns on a phone so a row fits without
+     pushing the page sideways (the "Line" and "Leverage" columns were widest). */
+  @media (max-width: 640px) {
+    .point-row { gap: 8px; padding: 10px 11px; }
+    .point-row .pscore { width: 44px; }
+    .point-row .pline { width: 58px; }
+    .point-row .pleverage, .point-log-header .pleverage-head { width: 58px; }
   }
 
   .point-log { max-height: 640px; overflow-y: auto; border: 1px solid rgba(var(--chalk-rgb),0.1); border-radius: 10px; }
