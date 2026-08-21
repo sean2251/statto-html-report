@@ -121,6 +121,48 @@
   }
   .nav-games-row:hover { background: rgba(var(--chalk-rgb),0.06); }
   .nav-games-row.active { background: rgba(var(--chalk-rgb),0.1); font-weight: 700; }
+
+  /* Mobile sections menu (buildNavMenu): hidden on desktop; below the nav
+     breakpoint it replaces the off-screen tab strip with one button showing
+     the current section, opening a full list of tabs + games. */
+  .nav-menu-wrap { display: none; position: relative; flex-shrink: 0; }
+  .nav-menu-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(var(--chalk-rgb),0.06);
+    border: 1px solid rgba(var(--chalk-rgb),0.22);
+    color: var(--chalk);
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    padding: 7px 14px; border-radius: 999px; cursor: pointer;
+    max-width: 58vw;
+  }
+  .nav-menu-burger { font-size: 13px; line-height: 1; flex-shrink: 0; }
+  .nav-menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav-menu-panel {
+    display: none; position: fixed;
+    background: var(--ink-soft);
+    border: 1px solid rgba(var(--chalk-rgb),0.16);
+    border-radius: 12px; padding: 6px;
+    max-height: 72vh; overflow-y: auto;
+    z-index: 200; box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+  }
+  .nav-menu-panel.open { display: block; }
+  .nav-menu-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    width: 100%; background: none; border: none; color: var(--chalk);
+    font-family: var(--sans); font-size: 14px; padding: 11px 12px;
+    border-radius: 8px; cursor: pointer; text-align: left;
+  }
+  .nav-menu-row:hover { background: rgba(var(--chalk-rgb),0.06); }
+  .nav-menu-row.active { background: rgba(var(--chalk-rgb),0.12); font-weight: 700; }
+  .nav-menu-sep {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--chalk-dim); font-weight: 700; padding: 12px 12px 6px;
+  }
+  @media (max-width: 768px) {
+    header.topnav button.tab, header.topnav .nav-games-wrap { display: none; }
+    .nav-menu-wrap { display: inline-flex; }
+    header.topnav .brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-right: 10px; }
+  }
   .theme-toggle {
     margin-left: auto;
     flex-shrink: 0;

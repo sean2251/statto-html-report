@@ -149,6 +149,71 @@ function buildGamesNavDropdown() {
   return wrap;
 }
 
+// Mobile "sections" menu. The horizontal tab strip runs far off a phone screen
+// (10 tabs), so below the nav breakpoint it's hidden and replaced by this one
+// button showing the current section; tapping it opens a full list of every
+// tab (and every game). Built from the nav's own tab buttons so it can't drift.
+let navMenuWrap = null;
+function buildNavMenu(nav) {
+  const wrap = el('div', { class: 'nav-menu-wrap' }, []);
+  const label = el('span', { class: 'nav-menu-label' }, [document.createTextNode('Season')]);
+  const btn = el('button', { class: 'nav-menu-btn', type: 'button', 'aria-label': 'Sections' }, [
+    el('span', { class: 'nav-menu-burger' }, [document.createTextNode('☰')]),
+    label,
+  ]);
+  const panel = el('div', { class: 'nav-menu-panel' }, []);
+  document.body.appendChild(panel); // portal so the nav's overflow never clips it
+
+  const rows = [];
+  function addRow(target, children) {
+    const row = el('button', { class: 'nav-menu-row', type: 'button', 'data-target': target }, children);
+    row.addEventListener('click', () => { showView(target); closePanel(); });
+    panel.appendChild(row);
+    rows.push(row);
+  }
+  nav.querySelectorAll('button.tab:not(.nav-games-btn)').forEach(tabBtn => {
+    const target = tabBtn.getAttribute('data-target');
+    if (target) addRow(target, [document.createTextNode(tabBtn.textContent.trim())]);
+  });
+  if (REPORT.games.length) {
+    panel.appendChild(el('div', { class: 'nav-menu-sep' }, [document.createTextNode('Games')]));
+    REPORT.games.forEach((g, i) => addRow('game-' + i, [
+      document.createTextNode('vs ' + g.opponent + ' '),
+      el('span', { class: 'pill ' + g.result }, [document.createTextNode(g.result)]),
+    ]));
+  }
+
+  function positionPanel() {
+    const r = btn.getBoundingClientRect();
+    const pw = Math.min(300, window.innerWidth - 24);
+    panel.style.width = pw + 'px';
+    panel.style.left = Math.max(12, Math.min(r.left, window.innerWidth - pw - 12)) + 'px';
+    panel.style.top = (r.bottom + 6) + 'px';
+  }
+  function openPanel() { positionPanel(); panel.classList.add('open'); }
+  function closePanel() { panel.classList.remove('open'); }
+  btn.addEventListener('click', (e) => { e.stopPropagation(); panel.classList.contains('open') ? closePanel() : openPanel(); });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target) && !panel.contains(e.target)) closePanel(); });
+  window.addEventListener('scroll', () => { if (panel.classList.contains('open')) positionPanel(); }, true);
+  window.addEventListener('resize', () => { if (panel.classList.contains('open')) positionPanel(); });
+
+  wrap.__setActive = (id) => {
+    let text = 'Menu';
+    if (id && id.indexOf('game-') === 0) {
+      const g = REPORT.games[Number(id.slice(5))];
+      if (g) text = 'vs ' + g.opponent;
+    } else {
+      const active = nav.querySelector('button.tab.active:not(.nav-games-btn)');
+      if (active) text = active.textContent.trim();
+    }
+    label.textContent = text;
+    rows.forEach(r => r.classList.toggle('active', r.getAttribute('data-target') === id));
+  };
+  wrap.appendChild(btn);
+  navMenuWrap = wrap;
+  return wrap;
+}
+
 function buildNav() {
   const nav = document.getElementById('topnav');
   nav.appendChild(el('div', { class: 'brand' }, [document.createTextNode(REPORT.teamName)]));
@@ -195,6 +260,8 @@ function buildNav() {
   nav.querySelectorAll('button.tab:not(.nav-games-btn)').forEach(btn => {
     btn.addEventListener('click', () => showView(btn.getAttribute('data-target')));
   });
+  // Mobile sections menu -- mirrors every tab above it (which all exist now).
+  nav.appendChild(buildNavMenu(nav));
   // Replays the current tab's walkthrough. Team report only -- the person who
   // built the report doesn't need talking through their own tabs.
   if (VIEWER_MODE) {
@@ -203,6 +270,7 @@ function buildNav() {
     nav.appendChild(guideBtn);
   }
   nav.appendChild(buildThemeToggle());
+  if (navMenuWrap) navMenuWrap.__setActive('season');
 }
 
 // Game sections are built once at init() and just shown/hidden by class
@@ -252,6 +320,7 @@ function showView(id) {
     }
   });
   document.querySelectorAll('.nav-games-row').forEach(r => r.classList.toggle('active', r.getAttribute('data-target') === id));
+  if (navMenuWrap) navMenuWrap.__setActive(id);
   if (gameViewRefreshers.has(id)) gameViewRefreshers.get(id)();
   // Recompute scroll-fade cues for this view's tables now they're measurable
   // (a table built while hidden had 0 width) -- backs up the ResizeObserver.
