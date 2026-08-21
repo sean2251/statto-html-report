@@ -253,6 +253,10 @@ function showView(id) {
   });
   document.querySelectorAll('.nav-games-row').forEach(r => r.classList.toggle('active', r.getAttribute('data-target') === id));
   if (gameViewRefreshers.has(id)) gameViewRefreshers.get(id)();
+  // Recompute scroll-fade cues for this view's tables now they're measurable
+  // (a table built while hidden had 0 width) -- backs up the ResizeObserver.
+  const shown = document.getElementById(id);
+  if (shown) shown.querySelectorAll('.table-scroll').forEach(sc => { if (sc.__updateAff) sc.__updateAff(); });
   window.scrollTo({ top: 0, behavior: 'smooth' });
   // A tour in progress belongs to the tab you just left.
   endTour();
@@ -8205,8 +8209,50 @@ function init() {
   mountRebuildableView(buildAdvancedStatsSection);
   mountRebuildableView(buildRawDataSection);
   REPORT.games.forEach((g, i) => main.appendChild(buildGameSection(g, i)));
+  initTableScrollAffordance(main);
   // Season is active on load without going through showView, so its tour has
   // to be kicked off here.
   maybeAutoTour('season');
+}
+
+// Wide tables scroll horizontally on a phone (the leaderboard is ~2600px), but
+// nothing signalled that more columns sat off the right edge. Wrap each
+// .table-scroll and fade its right edge whenever there's more to scroll to --
+// the frozen first column already handles the left side. A MutationObserver
+// covers tables built lazily when a tab is first shown, or rebuilt on filter.
+function wireScrollAffordance(sc) {
+  if (sc.__aff || !sc.parentNode) return;
+  sc.__aff = true;
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap';
+  sc.parentNode.insertBefore(wrap, sc);
+  wrap.appendChild(sc);
+  const fade = document.createElement('div');
+  fade.className = 'table-fade-right';
+  fade.setAttribute('aria-hidden', 'true');
+  wrap.appendChild(fade);
+  function update() {
+    const max = sc.scrollWidth - sc.clientWidth;
+    wrap.classList.toggle('has-right', max > 1 && sc.scrollLeft < max - 1);
+  }
+  sc.__updateAff = update;
+  sc.addEventListener('scroll', update, { passive: true });
+  // A table built while its tab is hidden measures 0 wide; recompute when it's
+  // shown or resized (also covers filter rebuilds and orientation changes).
+  if (typeof ResizeObserver === 'function') new ResizeObserver(update).observe(sc);
+  update();
+}
+function initTableScrollAffordance(root) {
+  root.querySelectorAll('.table-scroll').forEach(wireScrollAffordance);
+  new MutationObserver(muts => {
+    muts.forEach(m => m.addedNodes.forEach(n => {
+      if (n.nodeType !== 1) return;
+      if (n.classList && n.classList.contains('table-scroll')) wireScrollAffordance(n);
+      if (n.querySelectorAll) n.querySelectorAll('.table-scroll').forEach(wireScrollAffordance);
+    }));
+  }).observe(root, { childList: true, subtree: true });
+  window.addEventListener('resize', () => {
+    root.querySelectorAll('.table-scroll').forEach(sc => { if (sc.__updateAff) sc.__updateAff(); });
+  });
 }
 init();

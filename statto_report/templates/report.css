@@ -699,6 +699,21 @@
 
   /* ---------- tables ---------- */
   .table-scroll { overflow-x: auto; border: 1px solid rgba(var(--chalk-rgb),0.1); border-radius: 10px; }
+  /* Right-edge fade cueing that a wide table scrolls sideways (added in JS by
+     wireScrollAffordance; only lit when there's more content off the right). */
+  .table-wrap { position: relative; }
+  .table-fade-right {
+    position: absolute; top: 1px; right: 1px; bottom: 1px; width: 34px;
+    pointer-events: none; border-radius: 0 9px 9px 0;
+    background: linear-gradient(to left, var(--ink), rgba(var(--ink-rgb), 0));
+    opacity: 0; transition: opacity 0.15s ease;
+  }
+  .table-fade-right::after {
+    content: '\203A'; position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+    color: var(--chalk-dim); font-size: 17px; font-weight: 700; line-height: 1;
+  }
+  .table-wrap.has-right .table-fade-right { opacity: 1; }
+  @media (hover: none) and (prefers-reduced-motion: reduce) { .table-fade-right { transition: none; } }
   .stats-block { margin-bottom: 4px; }
   .csv-download {
     display: inline-flex; align-items: center; gap: 6px;
