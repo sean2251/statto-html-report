@@ -8524,6 +8524,10 @@ const QUERY_KINDS = {
   pull: { label: 'Pulls', word: 'pulls', filterKeys: ['landing', 'puller'] },
   def: { label: 'D-possessions', word: 'defensive possessions', filterKeys: ['defScheme'] },
   oppTurn: { label: 'Opp turnovers', word: 'opponent turnovers', filterKeys: ['oppTurnover'] },
+  // Points is a synthesized kind: rather than filtering tagged events, it lists
+  // the start timestamp of each offensive/defensive possession in points the
+  // selected player was on the field for (see gatherPoints). No tag filters.
+  points: { label: 'Points', word: 'possession starts', filterKeys: [] },
 };
 
 // ---------- Data Editor: Query pane ----------
@@ -8534,7 +8538,7 @@ const QUERY_KINDS = {
 // directly answers "what share of turnovers were around backhands".
 function buildAnnotationQueryPane() {
   const pane = el('div', { class: 'de-query' }, []);
-  pane.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Filter your tagged events — passes, blocks, pulls, defensive possessions or opponent turnovers — across any games. Each result deep-links to the moment in that game’s video. The percentage is the share of every event of that kind in scope, so e.g. Pulls + Landing = Out-of-bounds reads directly as “what fraction of our pulls went out”.')]));
+  pane.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Filter your tagged events — passes, blocks, pulls, defensive possessions or opponent turnovers — across any games. Each result deep-links to the moment in that game’s video. The percentage is the share of every event of that kind in scope, so e.g. Pulls + Landing = Out-of-bounds reads directly as “what fraction of our pulls went out”. “Points” instead lists the start of each offensive or defensive possession a chosen player was on the field for.')]));
 
   let selectedGames = REPORT.games.map((g, i) => i);
   let showKind = 'pass';
@@ -8576,9 +8580,12 @@ function buildAnnotationQueryPane() {
     Object.keys(filters).forEach(k => delete filters[k]);
     filterRow.innerHTML = '';
     if (showKind === 'pass') {
-      // Outcome comes from the pass data itself (not a tag), so it re-scopes
-      // the denominator: "of the turnovers, how many were around backhands".
+      // Outcome / Thrower / Receiver come from the pass data itself (not tags),
+      // so they re-scope the denominator: "of Jordan's turnovers, how many were
+      // around backhands".
       filterRow.appendChild(dropdown('Outcome', ['Completed', 'Turnover', 'Assist'], 'outcome'));
+      filterRow.appendChild(dropdown('Thrower', allPlayerNames(), 'thrower'));
+      filterRow.appendChild(dropdown('Receiver', allPlayerNames(), 'receiver'));
       filterRow.appendChild(dropdown('Hand', ANNOTATION_VOCAB.hand, 'hand'));
       filterRow.appendChild(dropdown('Release', ANNOTATION_VOCAB.release, 'release'));
       filterRow.appendChild(dropdown('Distance', ANNOTATION_VOCAB.distance, 'distance'));
@@ -8587,6 +8594,7 @@ function buildAnnotationQueryPane() {
       filterRow.appendChild(dropdown('Highlight', ANNOTATION_VOCAB.highlight, 'highlight'));
       filterRow.appendChild(dropdown('Turnover reason', ANNOTATION_VOCAB.turnoverReason, 'turnoverReason'));
     } else if (showKind === 'block') {
+      filterRow.appendChild(dropdown('Player', allPlayerNames(), 'player'));
       filterRow.appendChild(dropdown('Block type', BLOCK_VOCAB.type, 'type'));
       filterRow.appendChild(dropdown('Highlight', ANNOTATION_VOCAB.highlight, 'highlight'));
     } else if (showKind === 'pull') {
@@ -8596,6 +8604,9 @@ function buildAnnotationQueryPane() {
       filterRow.appendChild(dropdown('Defensive scheme', POINT_VOCAB.defScheme, 'defScheme'));
     } else if (showKind === 'oppTurn') {
       filterRow.appendChild(dropdown('Turnover type', POINT_VOCAB.oppTurnover, 'oppTurnover'));
+    } else if (showKind === 'points') {
+      filterRow.appendChild(dropdown('Player', allPlayerNames(), 'player'));
+      filterRow.appendChild(dropdown('Possession', ['Offensive', 'Defensive'], 'possession'));
     }
   }
 
@@ -8616,10 +8627,10 @@ function buildAnnotationQueryPane() {
       return {
         main: `${p.thrower || '?'} → ${p.receiver || '?'}`,
         outcome: p.assist ? 'Assist' : (p.throwerError && p.receiverError) ? 'Throwaway + drop' : p.throwerError ? 'Throwaway' : p.receiverError ? 'Drop' : 'Completed',
-        turnover: p.turnover, assist: p.assist,
+        turnover: p.turnover, assist: p.assist, thrower: p.thrower, receiver: p.receiver,
       };
     }
-    if (ev.kind === 'block') return { main: `${ev.item.player || '?'} — block`, outcome: '' };
+    if (ev.kind === 'block') return { main: `${ev.item.player || '?'} — block`, outcome: '', player: ev.item.player };
     if (ev.kind === 'pull') {
       return {
         main: a.puller ? `${a.puller} — pull` : 'Pull',
@@ -8648,6 +8659,73 @@ function buildAnnotationQueryPane() {
     return rows;
   }
 
+  // "Points" kind: for every point the selected player was on the field for
+  // (any point, whichever side it started on), the start timestamp of each
+  // offensive possession (its first tagged pass) and each defensive possession
+  // (the tagged #d event, or the pull for the first one). Filtered by player +
+  // which side. Rows share the shape gather() returns so appendResultRow reuses.
+  function gatherPoints() {
+    const ann = loadAnnotations();
+    const setup = loadSetupData();
+    const rows = [];
+    const wantPlayer = filters.player || '';
+    const side = filters.possession || ''; // '', 'Offensive', 'Defensive'
+    selectedGames.forEach(gi => {
+      const g = REPORT.games[gi];
+      const vid = parseYouTubeId(setup.videoLinks[gi]);
+      (g.points || []).forEach(pt => {
+        if (wantPlayer && !(pt.lineup || []).some(e => e.player === wantPlayer)) return;
+        const pointRows = [];
+        if (side !== 'Defensive') {
+          const byPoss = new Map();
+          (pt.passes || []).forEach(p => {
+            if (!p.uuid) return;
+            if (!byPoss.has(p.possession)) byPoss.set(p.possession, []);
+            byPoss.get(p.possession).push(p);
+          });
+          [...byPoss.keys()].sort((a, b) => a - b).forEach((num, i) => {
+            let ts = null;
+            byPoss.get(num).forEach(p => { const t = (ann.passes[p.uuid] || {}).timestamp; if (t != null && (ts == null || t < ts)) ts = t; });
+            pointRows.push({ side: 'Offensive', idx: i + 1, timestamp: ts });
+          });
+        }
+        if (side !== 'Offensive') {
+          const pull = (ann.points || {})[pt.uuid + '#pull'] || {};
+          for (let d = 1; d <= (pt.defensivePossessions || 0); d++) {
+            let ts = ((ann.points || {})[pt.uuid + '#d' + d] || {}).timestamp;
+            if (ts == null && d === 1 && !pt.isOffense) ts = pull.timestamp; // opponent starts on our pull
+            pointRows.push({ side: 'Defensive', idx: d, timestamp: ts != null ? ts : null });
+          }
+        }
+        const multiO = pointRows.filter(r => r.side === 'Offensive').length > 1;
+        const multiD = pointRows.filter(r => r.side === 'Defensive').length > 1;
+        // Video order within the point; untagged possessions sink to the end.
+        pointRows.sort((a, b) => (a.timestamp == null ? Infinity : a.timestamp) - (b.timestamp == null ? Infinity : b.timestamp));
+        pointRows.forEach(r => {
+          const numbered = r.side === 'Offensive' ? multiO : multiD;
+          rows.push({
+            opponent: g.opponent, point: pt.number,
+            main: r.side + ' possession' + (numbered ? ' ' + r.idx : ''),
+            outcome: '', a: {}, vid, timestamp: r.timestamp,
+          });
+        });
+      });
+    });
+    return rows;
+  }
+
+  // Non-tag "data" filters (read off the event/possession itself, not an
+  // annotation): they re-scope the population per kind.
+  function dataMatch(r) {
+    if (showKind === 'pass') {
+      return outcomeMatch(r, filters.outcome)
+        && (!filters.thrower || r.thrower === filters.thrower)
+        && (!filters.receiver || r.receiver === filters.receiver);
+    }
+    if (showKind === 'block') return !filters.player || r.player === filters.player;
+    return true;
+  }
+
   function tagMatch(a) {
     return (QUERY_KINDS[showKind].filterKeys || []).every(k => {
       if (!filters[k]) return true;
@@ -8664,12 +8742,56 @@ function buildAnnotationQueryPane() {
     });
   }
 
+  // Renders one result clip -- shared by the tagged-event kinds and by Points.
+  function appendResultRow(r) {
+    // Every stored tag value worth showing, minus the ones already spelled out
+    // in the row's own label. (Empty for Points rows, which carry no tags.)
+    const tags = [];
+    ['hand', 'release', 'distance', 'stall', 'catch', 'highlight', 'turnoverReason', 'type', 'defScheme', 'oppTurnover'].forEach(k => {
+      const v = r.a[k];
+      if (Array.isArray(v)) { if (v.length) tags.push(v.join(' + ')); }
+      else if (v) tags.push(v);
+    });
+    if (r.a.notes) tags.push('“' + r.a.notes + '”');
+    const label = `vs ${r.opponent} · Pt ${r.point} · ${r.main}` + (r.outcome ? ` · ${r.outcome}` : '');
+    const meta = el('span', { class: 'de-result-meta' }, [document.createTextNode(label)]);
+    const tagsEl = el('span', { class: 'de-result-tags' }, [document.createTextNode(tags.join(' · '))]);
+    let linkEl;
+    if (r.vid && r.timestamp != null) {
+      const url = `https://www.youtube.com/watch?v=${r.vid}&t=${r.timestamp}s`;
+      lastLinks.push(url);
+      linkEl = el('a', { class: 'de-result-link', href: url, target: '_blank', rel: 'noopener noreferrer' }, [document.createTextNode('▶ ' + formatTimestamp(r.timestamp))]);
+    } else {
+      linkEl = el('span', { class: 'de-result-nolink' }, [document.createTextNode(r.timestamp != null ? formatTimestamp(r.timestamp) + ' (no video)' : 'no timestamp')]);
+    }
+    results.appendChild(el('div', { class: 'de-result-row' }, [meta, tagsEl, linkEl]));
+  }
+
+  function renderPoints() {
+    // Only possessions with a start timestamp are clips; the rest can't be
+    // deep-linked, so they're left out rather than listed as "no timestamp".
+    const clips = gatherPoints().filter(r => r.timestamp != null);
+    const noun = 'possession start' + (clips.length === 1 ? '' : 's');
+    const sideWord = filters.possession ? filters.possession.toLowerCase() + ' ' + noun : noun;
+    summary.textContent = `${clips.length} ${sideWord} in scope`;
+    results.innerHTML = '';
+    lastLinks = [];
+    if (!clips.length) {
+      results.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No possession-start timestamps in scope — tag the start of possessions in the Tag view, or widen the filters.')]));
+      copyBtn.disabled = true;
+      return;
+    }
+    clips.forEach(appendResultRow);
+    copyBtn.disabled = lastLinks.length === 0;
+  }
+
   function render() {
+    if (showKind === 'points') { renderPoints(); return; }
     const all = gather();
-    const population = showKind === 'pass' ? all.filter(r => outcomeMatch(r, filters.outcome)) : all;
+    const population = all.filter(dataMatch);
     // Results are always actual clips (rows with at least one tag), so the
     // list stays meaningful even with no tag filter set; the percentage still
-    // uses the full outcome population as its denominator.
+    // uses the full data-filtered population as its denominator.
     const matches = population.filter(r => Object.keys(r.a).length > 0 && tagMatch(r.a));
     const pop = population.length;
     const pct = pop ? Math.round((matches.length / pop) * 1000) / 10 : 0;
@@ -8683,29 +8805,7 @@ function buildAnnotationQueryPane() {
       copyBtn.disabled = true;
       return;
     }
-    matches.forEach(r => {
-      // Every stored tag value worth showing, minus the ones already spelled
-      // out in the row's own label (a pull's puller, a pull's landing).
-      const tags = [];
-      ['hand', 'release', 'distance', 'stall', 'catch', 'highlight', 'turnoverReason', 'type', 'defScheme', 'oppTurnover'].forEach(k => {
-        const v = r.a[k];
-        if (Array.isArray(v)) { if (v.length) tags.push(v.join(' + ')); }
-        else if (v) tags.push(v);
-      });
-      if (r.a.notes) tags.push('“' + r.a.notes + '”');
-      const label = `vs ${r.opponent} · Pt ${r.point} · ${r.main}` + (r.outcome ? ` · ${r.outcome}` : '');
-      const meta = el('span', { class: 'de-result-meta' }, [document.createTextNode(label)]);
-      const tagsEl = el('span', { class: 'de-result-tags' }, [document.createTextNode(tags.join(' · '))]);
-      let linkEl;
-      if (r.vid && r.timestamp != null) {
-        const url = `https://www.youtube.com/watch?v=${r.vid}&t=${r.timestamp}s`;
-        lastLinks.push(url);
-        linkEl = el('a', { class: 'de-result-link', href: url, target: '_blank', rel: 'noopener noreferrer' }, [document.createTextNode('▶ ' + formatTimestamp(r.timestamp))]);
-      } else {
-        linkEl = el('span', { class: 'de-result-nolink' }, [document.createTextNode(r.timestamp != null ? formatTimestamp(r.timestamp) + ' (no video)' : 'no timestamp')]);
-      }
-      results.appendChild(el('div', { class: 'de-result-row' }, [meta, tagsEl, linkEl]));
-    });
+    matches.forEach(appendResultRow);
     copyBtn.disabled = lastLinks.length === 0;
   }
 
@@ -8772,7 +8872,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   // that was tagged without any authoring UI.
   if (viewer) {
     section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Film Clips')]));
-    section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Browse the tagged film: filter passes, blocks, pulls, defensive possessions or opponent turnovers, and jump straight to the moment in the game video.')]));
+    section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Browse the tagged film: filter passes, blocks, pulls, defensive possessions or opponent turnovers — or the start of a player’s possessions — and jump straight to the moment in the game video.')]));
     section.appendChild(buildAnnotationQueryPane().pane);
     return section;
   }
