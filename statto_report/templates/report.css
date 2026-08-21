@@ -1146,23 +1146,35 @@
      to travel -- a column sized to its own content has none. */
   .de-layout {
     display: grid;
-    grid-template-columns: minmax(300px, 1fr) auto minmax(300px, 370px);
+    /* Five columns: a flexible spacer, the resizable video, the resizable
+       field, the fixed panel, and a second flexible spacer. Video and field
+       are auto columns sized by their own drag widths (.de-video-resize /
+       .de-pitch); the 1fr spacers absorb the slack and keep the trio centred,
+       so growing or shrinking either pane never fights a neighbour. The block
+       breaks out past the ~1100px reading column via a negative margin (not a
+       transform, which would reparent the sticky tag panel's containing block). */
+    grid-template-columns: minmax(0, 1fr) auto auto minmax(300px, 370px) minmax(0, 1fr);
     gap: 20px; align-items: stretch; margin-top: 8px;
-    /* Three columns don't fit the 1100px reading column -- it squeezes the
-       video down to its 300px minimum, too small to tag from. Widen this one
-       block toward the viewport and re-centre. Centring via margin rather than
-       a transform on purpose: a transformed ancestor changes the containing
-       block for the sticky tag panel inside. */
-    width: min(1500px, calc(100vw - 48px));
-    margin-left: calc((100% - min(1500px, 100vw - 48px)) / 2);
+    width: min(1760px, calc(100vw - 40px));
+    margin-left: calc((100% - min(1760px, calc(100vw - 40px))) / 2);
   }
+  .de-video-col { grid-column: 2; }
+  .de-field-col { grid-column: 3; }
+  .de-right { grid-column: 4; }
   /* Too narrow for three: the panel drops to a full-width row underneath. */
+  /* Too narrow for the full row: the panel drops to a full-width row underneath
+     and the spacers collapse away (reset the explicit column placements the
+     desktop rule set, so video/field auto-place into the two real columns). */
   @media (max-width: 1180px) {
     .de-layout { grid-template-columns: minmax(0, 1fr) auto; }
+    .de-layout .de-video-col { grid-column: 1; }
+    .de-layout .de-field-col { grid-column: 2; }
     .de-layout .de-right { grid-column: 1 / -1; }
   }
   @media (max-width: 860px) {
     .de-layout { grid-template-columns: 1fr; }
+    .de-layout .de-video-col,
+    .de-layout .de-field-col,
     .de-layout .de-right { grid-column: auto; }
   }
   /* Below the breakout width there's nothing to break out of. */
@@ -1178,10 +1190,25 @@
   .de-field-col .de-pitch-hint,
   .de-field-col .kbd-hint,
   .de-field-col .de-step-caption { max-width: 340px; margin-left: auto; margin-right: auto; }
+  /* Drag the bottom-right corner to resize the player. Only the width is
+     draggable; the host's 16:9 aspect-ratio fixes the height, so it follows
+     and the video can't be stretched out of shape -- same deal as .de-pitch. */
+  .de-video-resize {
+    resize: horizontal;
+    overflow: hidden;
+    width: 720px;
+    min-width: 300px;
+    /* Cap so a fully-grown video still leaves room for the field + panel in the
+       breakout row rather than overlapping them (790px ≈ default field + panel
+       + the row's gaps). max() keeps it above the min on narrow viewports. */
+    max-width: max(300px, calc(min(1760px, 100vw - 40px) - 790px));
+    margin-bottom: 4px;
+  }
   .de-player-host {
     width: 100%; aspect-ratio: 16 / 9; background: #000;
-    border-radius: 10px; overflow: hidden; margin-bottom: 12px;
+    border-radius: 10px; overflow: hidden;
   }
+  .de-video-resize .de-player-host { margin-bottom: 0; }
   .de-player-host iframe { width: 100%; height: 100%; border: 0; display: block; }
   .de-no-video { margin: 0 0 12px; }
   .de-player-note { margin: 0 0 12px; }
@@ -1238,6 +1265,7 @@
   .de-field { display: flex; flex-direction: column; gap: 4px; }
   .de-field-wide { margin-top: 12px; }
   .de-field-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--chalk-dim); }
+  .de-field-note { margin: 6px 0 0; font-size: 11px; line-height: 1.45; color: var(--chalk-dim); opacity: 0.8; }
   .de-select, .de-ts-input, .de-notes {
     background: var(--ink); color: var(--chalk);
     border: 1px solid rgba(var(--chalk-rgb),0.22); border-radius: 8px;

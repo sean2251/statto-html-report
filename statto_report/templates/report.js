@@ -40,8 +40,8 @@ const STAT_COLUMNS = [
   { key: 'assistCompletionPct', label: 'Ast Cmp%', full: 'Assists (count) and assist completion percentage (assists / assist attempts)', numeric: true, percent: true, comboCountKey: 'assists' },
   { key: 'goals', label: 'Goals', full: 'Goals scored', numeric: true },
   { key: 'plusMinus', label: '+/-', full: 'Plus-minus (goals + assists + blocks − turnovers)', numeric: true },
-  { key: 'turnovers', label: 'Turns', full: 'Turnovers (thrower errors + receiver errors)', numeric: true },
-  { key: 'throwerErrors', label: 'Thr Err', full: 'Throwing errors (throwaways)', numeric: true },
+  { key: 'turnovers', label: 'Turns', full: 'Turnovers (thrower errors + receiver errors; thrower errors include stall-outs)', numeric: true },
+  { key: 'throwerErrors', label: 'Thr Err', full: 'Throwing errors (throwaways, plus getting stalled out)', numeric: true },
   { key: 'receiverErrors', label: 'Rec Err', full: 'Receiving errors (drops)', numeric: true },
   { key: 'blocks', label: 'Blk', full: 'Defensive blocks', numeric: true },
   { key: 'huckAttempts', label: 'Hck Att', full: 'Huck attempts (throws gaining 27+ yards downfield)', numeric: true },
@@ -902,7 +902,7 @@ function renderPoint(routeLayer, point, focusPossession) {
     c.style.transition = 'opacity 0.3s ease 0.5s';
     requestAnimationFrame(() => c.setAttribute('opacity', 1));
     const title = svgEl('title', {});
-    const blockTags = filmTagValues(ann.blocks[b.uuid], ['type']);
+    const blockTags = filmTagValues(ann.blocks[b.uuid], ['type', 'highlight']);
     title.textContent = (b.player || 'Unknown') + (b.callahan ? ' — Callahan!' : ' — block')
       + (blockTags.length ? ' · ' + blockTags.join(' · ') : '');
     c.appendChild(title);
@@ -1697,14 +1697,19 @@ function computeDirectionBins(taggedPasses, role) {
     if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
     let angle = Math.atan2(dx, -dy) * 180 / Math.PI;
     if (angle < 0) angle += 360;
-    const bin = Math.min(DIRECTION_BINS - 1, Math.floor(angle / binWidth));
+    // Round (not floor) so each bin is CENTRED on its labelled direction: bin 0
+    // spans [-11.25°, 11.25°) around straight-up, not [0°, 22.5°). Otherwise the
+    // cardinal labels sit on bin edges and a straight-upfield throw renders
+    // pointing up-and-right, splitting near-identical throws across two wedges.
+    const bin = Math.round(angle / binWidth) % DIRECTION_BINS;
     bins[bin] += 1;
   });
   return bins;
 }
 
-// One label per DIRECTION_BINS=16 wedge, in bin order (bin 0 starts at 0°
-// = straight upfield, going clockwise -- see polarPoint's angle convention).
+// One label per DIRECTION_BINS=16 wedge, in bin order (bin 0 is CENTRED on 0°
+// = straight upfield, then clockwise -- see polarPoint's angle convention and
+// the centred binning in computeDirectionBins).
 const DIRECTION_BIN_LABELS = [
   'straight upfield', 'upfield, slightly right', 'upfield-right', 'right, slightly upfield',
   'straight right', 'right, slightly back', 'back-right', 'back, slightly right',
@@ -1731,16 +1736,20 @@ function buildRoseChart(counts, size, color, labelPrefix) {
       style: 'stroke:rgba(var(--chalk-rgb),0.12);', 'stroke-width': 1,
     }));
   });
+  // Grid spokes sit on the bin BOUNDARIES (half a bin off each centre), so they
+  // fall between petals rather than skewering them.
   for (let i = 0; i < n; i++) {
-    const [x, y] = polarPoint(cx, cy, outerMax, i * binWidth);
+    const [x, y] = polarPoint(cx, cy, outerMax, (i + 0.5) * binWidth);
     svg.appendChild(svgEl('line', { x1: cx, y1: cy, x2: x, y2: y, style: 'stroke:rgba(var(--chalk-rgb),0.08);', 'stroke-width': 1 }));
   }
 
   for (let i = 0; i < n; i++) {
     const val = counts[i];
     const r = innerR + (val / maxVal) * (outerMax - innerR);
-    const a1 = i * binWidth + gapDeg / 2;
-    const a2 = (i + 1) * binWidth - gapDeg / 2;
+    // Each wedge is centred on its bin's direction (i * binWidth), matching the
+    // centred binning in computeDirectionBins and the cardinal labels.
+    const a1 = i * binWidth - binWidth / 2 + gapDeg / 2;
+    const a2 = i * binWidth + binWidth / 2 - gapDeg / 2;
     const p1 = polarPoint(cx, cy, r, a1);
     const p2 = polarPoint(cx, cy, r, a2);
     const p3 = polarPoint(cx, cy, innerR, a2);
@@ -4462,7 +4471,7 @@ const LINE_ROWS = [
   { label: 'Huck completion', main: l => fmtPct(l.huckCompletionPct), sub: l => `${l.huckCompletions}/${l.huckAttempts}` },
   { label: 'Assist completion', main: l => fmtPct(l.assistCompletionPct), sub: l => `${l.assists}/${l.assistAttempts}` },
   { label: 'Blocks', get: l => l.blocks },
-  { label: 'Opponent turnovers forced', get: l => l.oppTurnovers },
+  { label: 'Opponent turnovers', get: l => l.oppTurnovers },
   { label: 'Red zone conversion', main: l => fmtPct(l.redZoneRate), sub: l => `${l.redZoneConversions}/${l.redZoneEntries}` },
   {
     label: 'Throws per scoring possession',
@@ -5782,6 +5791,7 @@ const RAW_DATA_GLOSSARY = {
 const RAW_DATA_NOTES = [
   'Coordinate system: startX/startY/endX/endY on every pass are fractions from 0 to 1 of the field. Y decreases toward the attacking endzone (Y=0 is inside it, Y=1 is this team’s own endzone); X is field width and has no directional meaning.',
   'A pass is "completed" when both throwerError and receiverError are false. throwerError is the thrower’s own mistake (a bad throw); receiverError is a drop. A single turnover can be flagged as BOTH (shared blame) -- in that case the report charges the thrower 0.5 of a throwaway and the receiver 0.5 of a drop, so it still totals one turnover; per-player throwerErrors/receiverErrors/turnovers/plusMinus can therefore be half-integers.',
+  'Stall-outs (our thrower getting stalled) are a turnover with no pass -- Statto records them as their own event, not a pass, so no pass row is flagged for them. They are still counted as a thrower error in the per-player aggregates: a stall-out adds to that player’s throwerErrors and turnovers (and subtracts from plusMinus), and it counts as an offensive turnover for the point (affecting clean-vs-dirty hold and turnover recovery). stallsAgainst in the box score is the separate per-player count of them. Because of this, summing the pass-level throwerError flags will fall short of the box-score throwerErrors total by the number of stall-outs.',
   '"assist" flags the pass that directly led to a goal; "secondaryAssist" flags the pass immediately before it.',
   'On a point: isOffense = this team started the point with the disc, trying to score ("O-point"); false = defense ("D-point"). scored / result=1 = this team scored that point; result=-1 = the opponent scored.',
   'Blocks are this team’s own defensive plays (turnovers forced on the opponent); locationX/locationY is where the block happened.',
@@ -5790,7 +5800,7 @@ const RAW_DATA_NOTES = [
   'roster (top level) lists every player who appears in a box score this season. Each entry carries their mixed-line gender designation -- gender is "WMP" (women-matching player) or "MMP" (men-matching player), with genderCode 1 or 0 respectively (both null if the player has no gender set) -- and hasPhoto and photoFile. Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
   'pullEvents (top level, separate from games) is a manually video-tagged list, one entry per defensive point that has been tagged: who pulled and where our pull landed. puller is the player name (or null if untagged). landX/landY are 0-1 field fractions in the same coordinate system as passes (null when outOfBounds is true, or when a spot wasn’t marked); outOfBounds=true means the pull sailed out. It is only present for points a tagger has marked, so it may be empty or cover only some defensive points.',
   'opponentTurnoverEvents (top level) is the other manually video-tagged list: opponent turnovers that were NOT one of our blocks (those are in games[].points[].blocks). Statto records nothing for them, so each is inferred as an opponent possession we won the disc back from, identified by pointNumber + opponentPossession (their n-th offensive possession that point); type is one of Huck turnover / Throwing error / Receiver error, or null if untagged. Like pullEvents, only tagged ones appear.',
-  'Film tags: a pass or block in games[].points[] may carry a "filmTags" object when someone has video-tagged it. On a pass: hand (backhand/forehand/etc.), release, distance, stall (Low/Mid/High), catch, highlight, turnoverReason (an ARRAY -- a turnover can have several causes), plus timestamp (seconds into that game’s video) and notes. On a block: type, timestamp, notes. A point may also carry filmTags: defScheme (the defence called), pull (where our pull landed -- puller, landX/landY 0-1 or outOfBounds), defensivePossessions[] (each with defScheme), and opponentTurnovers[] (each with a type). Every field is optional and tags exist only where a tagger added them, so most passes have none. (pullEvents/opponentTurnoverEvents above are flattened, game-context copies of the same point-level tags, handy for "list every tagged pull".)',
+  'Film tags: a pass or block in games[].points[] may carry a "filmTags" object when someone has video-tagged it. On a pass: hand (backhand/forehand/etc.), release, distance, stall (Low/Mid/High), catch, highlight, turnoverReason (an ARRAY -- a turnover can have several causes), plus timestamp (seconds into that game’s video) and notes. On a block: type, highlight, timestamp, notes. A point may also carry filmTags: defScheme (the defence called), pull (where our pull landed -- puller, landX/landY 0-1 or outOfBounds), defensivePossessions[] (each with defScheme), and opponentTurnovers[] (each with a type). Every field is optional and tags exist only where a tagger added them, so most passes have none. (pullEvents/opponentTurnoverEvents above are flattened, game-context copies of the same point-level tags, handy for "list every tagged pull".)',
   'videoLinks (top level) maps each selected game to its YouTube URL. To deep-link a tagged moment, append the tag’s timestamp: `<url>&t=<timestamp>s`.',
   'lines (top level) is the user’s curated line groupings (e.g. "O line", "D line"): each has a name, optional tournament, pointCount, the points it covers (gameIndex + pointNumber), and a roster listing how many of the line’s points each player was on (pctOfLinePoints). Lines are a season-level curation and are deliberately NOT filtered by the selected games.',
   'tournaments (top level) groups the selected games the way the report does -- custom names if the user set them, else auto-detected -- so questions can be scoped to an event ("at Regionals...").',
@@ -5860,7 +5870,7 @@ const RAW_DATA_FORMULAS = {
   assistAttempt: 'pass.endY < 20/110   // the target location is inside the attacking endzone, whether or not it was caught',
   redZoneEntry: 'the pass ORIGINATES at startY < 20/110 of the attacking endzone -- a pass that merely lands in the red zone from farther out does not count',
   catchCompletionPct: 'catches / (catches + receiverErrors)   // deliberately excludes throwerErrors from the denominator -- a receiver’s catch rate shouldn’t be dinged for a bad throw they never had a chance at',
-  plusMinus: 'goals + assists + blocks - turnovers   // turnovers = throwerErrors + receiverErrors',
+  plusMinus: 'goals + assists + blocks - turnovers   // turnovers = throwerErrors + receiverErrors; throwerErrors includes stall-outs against us',
   leverage: 'a fair race-to-N win probability model, where N = this game’s actual final winning score and each point is an independent 50/50 coin flip. WP(i,j) = P(reach N before the opponent) from score state (i,j), via WP(i,j) = 0.5*WP(i+1,j) + 0.5*WP(i,j+1), boundary WP(N,j)=1 / WP(i,N)=0. rawSwing = abs(WP(ourScoreBefore+1, oppScoreBefore) - WP(ourScoreBefore, oppScoreBefore+1)) -- how far apart the two possible outcomes of this specific point are in win probability. leverage(point) = 10 * sqrt(rawSwing). The sqrt is a deliberate reshape, not part of the probability math: rawSwing alone decays like 1/sqrt(points remaining) for a tied score approaching the target, which on a straight *10 scale crushes everything short of the last point or two into single digits -- e.g. for a race to 15, tied 13-13 has exactly half the rawSwing of double-game-point 14-14. sqrt spreads that back out while keeping the double-game-point at exactly 10 and a decided blowout at ~0. p=0.5 is intentional: this measures game-state importance (score, points remaining), not team strength.',
   highLeveragePointsPlayed: 'count of a player’s points with point.leverage >= 7 (0-10 scale) -- for player p: count(point for point in game.points if p in point.lineup and point.leverage >= 7, across whatever games are in scope).',
   throwerReceiverPair: 'group passes[] by (thrower, receiver) across whatever games/players the question needs: n = count, completed = count where completedPass, totalYards = sum of straight-line pass distance (Math.hypot((startX-endX)*40, (startY-endY)*110) yards), totalForwardYards = sum of max(0, (startY-endY)*110).',
@@ -6208,7 +6218,7 @@ The JSON has these top-level sections:
   - \`points[]\` — one entry per point played, with \`passes[]\` (every throw),
     \`blocks[]\` (every defensive block), and \`lineup[]\` (who was on the field).
     A tagged pass or block also carries \`filmTags\` (throw hand/release/
-    distance/stall, or block type, plus a video \`timestamp\` and notes); a
+    distance/stall, or block type and highlight, plus a video \`timestamp\` and notes); a
     point may carry \`filmTags\` too (defence called, pull spot, defensive
     possessions, opponent turnovers)
   - \`boxScore[]\` — every player's per-game stats (throws, completions,
@@ -6613,7 +6623,7 @@ function filmEventDescriptor(ev, rec) {
     return { kind: 'Pass', main: `${p.thrower || '?'} → ${p.receiver || '?'}`, tags: filmTagValues(rec, FILM_PASS_TAG_KEYS) };
   }
   if (ev.kind === 'block') {
-    return { kind: 'Block', main: ev.item.player || '?', tags: filmTagValues(rec, ['type']) };
+    return { kind: 'Block', main: ev.item.player || '?', tags: filmTagValues(rec, ['type', 'highlight']) };
   }
   if (ev.kind === 'pull') {
     const landing = rec.outOfBounds ? 'Out-of-bounds' : (rec.landX != null ? 'In-bounds' : null);
@@ -6654,7 +6664,7 @@ function allPlayerNames() {
 // offers and the noun used in its "N of M ..." summary line.
 const QUERY_KINDS = {
   pass: { label: 'Passes', word: 'passes', filterKeys: ['hand', 'release', 'distance', 'stall', 'catch', 'highlight', 'turnoverReason'] },
-  block: { label: 'Blocks', word: 'blocks', filterKeys: ['type'] },
+  block: { label: 'Blocks', word: 'blocks', filterKeys: ['type', 'highlight'] },
   pull: { label: 'Pulls', word: 'pulls', filterKeys: ['landing', 'puller'] },
   def: { label: 'D-possessions', word: 'defensive possessions', filterKeys: ['defScheme'] },
   oppTurn: { label: 'Opp turnovers', word: 'opponent turnovers', filterKeys: ['oppTurnover'] },
@@ -6722,6 +6732,7 @@ function buildAnnotationQueryPane() {
       filterRow.appendChild(dropdown('Turnover reason', ANNOTATION_VOCAB.turnoverReason, 'turnoverReason'));
     } else if (showKind === 'block') {
       filterRow.appendChild(dropdown('Block type', BLOCK_VOCAB.type, 'type'));
+      filterRow.appendChild(dropdown('Highlight', ANNOTATION_VOCAB.highlight, 'highlight'));
     } else if (showKind === 'pull') {
       filterRow.appendChild(dropdown('Landing', ['In-bounds', 'Out-of-bounds'], 'landing'));
       filterRow.appendChild(dropdown('Puller', allPlayerNames(), 'puller'));
@@ -6986,12 +6997,35 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
 
   // video
   const playerHost = el('div', { class: 'de-player-host' }, []);
+  // Resizable wrapper, mirroring the field diagram: the bottom-right corner
+  // drags the width (the 16:9 host fixes the height, so it can't be distorted)
+  // and the chosen size is remembered across sessions.
+  const videoResize = el('div', { class: 'de-video-resize' }, [playerHost]);
+  const videoHint = el('p', { class: 'de-pitch-hint de-video-hint' }, [document.createTextNode('Drag the bottom-right corner of the video to resize it.')]);
+  videoHint.style.display = 'none';
   const noVideoMsg = el('p', { class: 'pitch-caption de-no-video' }, [document.createTextNode('No video link for this game yet — add one on the Set up tab to enable the embedded player and “grab current time.” You can still type a timestamp manually below.')]);
   const playerNote = el('p', { class: 'pitch-caption de-player-note' }, []);
   playerNote.style.display = 'none';
-  videoCol.appendChild(playerHost);
+  videoCol.appendChild(videoResize);
+  videoCol.appendChild(videoHint);
   videoCol.appendChild(noVideoMsg);
   videoCol.appendChild(playerNote);
+  // Remembered width -- same pattern (and the same background-tab caveat) as the
+  // pitch below: commit on pointer release, with a debounced observer backup.
+  const VIDEO_SIZE_KEY = 'statto-report-tag-video-width::' + REPORT.teamName;
+  try {
+    const savedV = parseInt(localStorage.getItem(VIDEO_SIZE_KEY), 10);
+    if (savedV > 0) videoResize.style.width = savedV + 'px';
+  } catch (e) {}
+  function saveVideoWidth() {
+    try { localStorage.setItem(VIDEO_SIZE_KEY, String(Math.round(videoResize.getBoundingClientRect().width))); } catch (e) {}
+  }
+  videoResize.addEventListener('pointerup', saveVideoWidth);
+  videoResize.addEventListener('mouseup', saveVideoWidth);
+  if (typeof ResizeObserver === 'function') {
+    let vTimer = null;
+    new ResizeObserver(() => { clearTimeout(vTimer); vTimer = setTimeout(saveVideoWidth, 300); }).observe(videoResize);
+  }
 
   // field diagram
   const { svg, routeLayer } = buildPitch();
@@ -7300,6 +7334,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
       sel.value = rec.defScheme || '';
       sel.addEventListener('change', () => setPointField(annKey, 'defScheme', sel.value || undefined));
       panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Defensive scheme')]), sel]));
+      panel.appendChild(el('p', { class: 'de-field-note' }, [document.createTextNode('“Force forehand” and “Force backhand” are named from a right-handed player’s perspective.')]));
       appendNotesRow(rec, (v) => setPointField(annKey, 'notes', v));
       appendTimestampRow(rec, (v) => setPointField(annKey, 'timestamp', v));
       return;
@@ -7333,6 +7368,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
       ]));
       const grid = el('div', { class: 'de-field-grid' }, []);
       grid.appendChild(annField('Block type', BLOCK_VOCAB.type, 'type', rec));
+      grid.appendChild(annField('Highlight', ANNOTATION_VOCAB.highlight, 'highlight', rec));
       panel.appendChild(grid);
     }
 
@@ -7432,6 +7468,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   // by the owner, a bad link, etc.
   function showPlayerFallback(vid, reason) {
     playerHost.style.display = 'none';
+    videoHint.style.display = 'none';
     playerHost.innerHTML = '';
     player = null; playerVideoId = null;
     playerNote.innerHTML = '';
@@ -7445,6 +7482,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     const url = loadSetupData().videoLinks[gameIndex];
     const vid = parseYouTubeId(url);
     playerNote.style.display = 'none';
+    videoHint.style.display = 'none';
     if (!vid) { playerHost.style.display = 'none'; noVideoMsg.style.display = ''; player = null; playerVideoId = null; renderPanel(); return; }
     noVideoMsg.style.display = 'none';
     // The YouTube player needs a real http(s) origin to validate against.
@@ -7455,6 +7493,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
       return;
     }
     playerHost.style.display = '';
+    videoHint.style.display = '';
     ensureYouTubeAPI(() => {
       if (player && playerVideoId === vid) return;
       if (player && player.loadVideoById) { player.loadVideoById(vid); playerVideoId = vid; renderPanel(); return; }

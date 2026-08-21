@@ -195,7 +195,7 @@ def _leverage_split_efficiency(point_log, threshold=HIGH_LEVERAGE_THRESHOLD):
 # each game page.
 # ---------------------------------------------------------------------------
 
-def _build_point_log(idx, player_name):
+def _build_point_log(idx, player_name, all_stallouts):
     points = idx["points"]
     possessions_by_point = idx["possessions_by_point"]
     passes_by_possession = idx["passes_by_possession"]
@@ -203,6 +203,10 @@ def _build_point_log(idx, player_name):
     opp_errors_by_point = idx["opp_errors_by_point"]
     possession_number = idx["possession_number"]
     point_number = idx["point_number"]
+    # Possessions that ended in a stall-out on us. Keyed by (globally unique)
+    # possessionUUID, so a point "had a turnover" if any of its possessions
+    # stalled -- treated the same as a thrower/receiver error below.
+    stalled_possession_uuids = {so.get("possessionUUID") for so in all_stallouts}
 
     point_log = []
     our_score = 0
@@ -310,7 +314,10 @@ def _build_point_log(idx, player_name):
         result = pt.get("result", 0)
         scored = result == 1
         is_offense = bool(pt.get("isOffense"))
-        had_turnover = any(pa.get("isThrowerError") or pa.get("isReceiverError") for pa in pt_passes)
+        had_turnover = (
+            any(pa.get("isThrowerError") or pa.get("isReceiverError") for pa in pt_passes)
+            or any(po.get("uuid") in stalled_possession_uuids for po in pt_possessions)
+        )
         had_opp_turnover = bool(block_entries) or bool(opp_errors_by_point.get(pt_uuid))
         point_meta[pt_uuid] = {
             "isOffense": is_offense,
@@ -577,6 +584,13 @@ def _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts, player_name,
         def_blocks_count = sum(1 for bl in all_blocks if bl.get("playerUUID") == puuid and bl.get("pointUUID") in point_number)
         stall_for = sum(1 for bl in all_blocks if bl.get("playerUUID") == puuid and bl.get("pointUUID") in point_number and bl.get("isStallOut"))
         stall_against = sum(1 for so in all_stallouts if so.get("playerUUID") == puuid and so.get("possessionUUID") in possession_number)
+        # A stall-out is the thrower's turnover. Statto records it as its own
+        # event (not a pass), so fold it into the thrower's error/turnover totals
+        # here -- it then flows into `turnovers` and `plusMinus` below. Still
+        # broken out separately as stallsAgainst. Deliberately NOT added to
+        # `throws`/`throw_incomplete`: no throw was actually released, so it
+        # doesn't affect completion percentage.
+        thrower_errors += stall_against
 
         turnovers = thrower_errors + receiver_errors
         touches = catches + possessions_initiated
@@ -772,7 +786,7 @@ def _build_game_report(game, all_points, all_possessions, all_blocks, all_stallo
     idx = _index_game(game, all_points, all_possessions, all_blocks,
                        all_opposition_errors, passes_by_possession)
 
-    point_log_ctx = _build_point_log(idx, player_name)
+    point_log_ctx = _build_point_log(idx, player_name, all_stallouts)
     pp_numer, pp_denom = _possession_scoring_efficiency(idx)
     box_score = _build_box_score(idx, point_log_ctx, all_blocks, all_stallouts,
                                   player_name, season_stats, season_games_played)

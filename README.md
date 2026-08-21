@@ -688,7 +688,7 @@ short:
    point leverage** — the mean Leverage across a line's points, showing
    which lines get deployed in the tightest, highest-stakes moments vs.
    mostly decided games — hold/break rate, throw/huck/assist completion,
-   blocks, opponent turnovers forced, red-zone conversion), per-line
+   blocks, opponent turnovers, red-zone conversion), per-line
    **Scoring Efficiency** gauges, and per-line **field diagrams** with the
    same category filter used elsewhere.
 
