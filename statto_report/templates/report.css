@@ -446,14 +446,28 @@
   table.compare .rate-pct { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--chalk); }
   table.compare .rate-frac { font-size: 11px; color: var(--chalk-dim); margin-top: 2px; }
 
-  /* ---- Comparison: scrolling table on desktop, stacked stat-bars on a phone ----
-     buildComparisonTable returns .compare-block wrapping both; the breakpoint
-     picks which is shown. Only tables built with { mobileCards:true } carry a
-     .compare-cards child (Player Analysis today). */
+  /* ---- Comparison tables ----
+     buildComparisonTable returns .compare-block. Blocks flagged { mobileCards }
+     (.has-cards -- Line Analysis only) swap the table for stacked stat-bars on a
+     phone. Every other comparison keeps the desktop table, but on a phone its
+     row-label column is narrowed so more entity columns fit; a long label
+     scrolls horizontally inside that narrow column (.row-label-inner). */
   .compare-block .compare-cards { display: none; }
   @media (max-width: 640px) {
-    .compare-block .table-scroll { display: none; }
-    .compare-block .compare-cards { display: block; }
+    .compare-block.has-cards .table-scroll { display: none; }
+    .compare-block.has-cards .compare-cards { display: block; }
+    .compare-block:not(.has-cards) table.compare th.row-label,
+    .compare-block:not(.has-cards) table.compare td.row-label {
+      width: 27vw; max-width: 27vw; min-width: 66px;
+      padding-left: 10px; padding-right: 10px;
+    }
+    .compare-block:not(.has-cards) table.compare .row-label-inner {
+      display: block; white-space: nowrap;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+    }
+    /* trim the entity columns' generous desktop padding so more fit on screen */
+    .compare-block:not(.has-cards) table.compare th,
+    .compare-block:not(.has-cards) table.compare td { padding-left: 12px; padding-right: 12px; }
   }
   .cmp-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 2px 2px 16px; }
   .cmp-key { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--chalk); }

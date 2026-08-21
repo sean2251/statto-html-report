@@ -2817,7 +2817,7 @@ function buildClutchEfficiencyWidget(clutchEfficiency) {
     { name: 'High-leverage (≥ 7)', ...clutchEfficiency.highLeverage },
     { name: 'Low-leverage (< 7)', ...clutchEfficiency.lowLeverage },
   ];
-  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name', { mobileCards: true }));
+  wrap.appendChild(buildComparisonTable(CLUTCH_EFFICIENCY_ROWS, buckets, 'name'));
   wrap.appendChild(el('p', { class: 'pitch-caption' }, [
     document.createTextNode('High-leverage points are those with Leverage ≥ 7 (0–10 scale) -- close to a coin flip on the game’s outcome, typically late and close. Comparing hold/break/scoring rates in these moments against everything else shows whether performance holds up when a point mattered most.'),
   ]));
@@ -3003,9 +3003,12 @@ function buildComparisonTable(rowDefs, players, labelKey, opts) {
   rowDefs.forEach(rd => {
     // A row can carry a `tip`: a hover explanation on its label, marked with a
     // dotted underline + help cursor so it reads as "there's more here."
+    // Inner span so a phone can narrow the label column and let a long label
+    // scroll horizontally inside it (see .row-label-inner in the mobile CSS).
+    const labelInner = el('span', { class: 'row-label-inner' }, [document.createTextNode(rd.label)]);
     const labelCell = rd.tip
-      ? el('td', { class: 'row-label has-tip', title: rd.tip }, [document.createTextNode(rd.label)])
-      : el('td', { class: 'row-label' }, [document.createTextNode(rd.label)]);
+      ? el('td', { class: 'row-label has-tip', title: rd.tip }, [labelInner])
+      : el('td', { class: 'row-label' }, [labelInner]);
     const tr = el('tr', {}, [labelCell]);
     players.forEach(p => {
       let cellChildren;
@@ -3031,7 +3034,7 @@ function buildComparisonTable(rowDefs, players, labelKey, opts) {
   // The table stays the desktop view; on a phone it's swapped for a stacked
   // stat-bar view (opts.mobileCards) so all entities compare without a sideways
   // scroll. CSS picks which is visible at the breakpoint.
-  const block = el('div', { class: 'compare-block' }, [wrap]);
+  const block = el('div', { class: 'compare-block' + (opts && opts.mobileCards ? ' has-cards' : '') }, [wrap]);
   if (opts && opts.mobileCards) block.appendChild(buildCompareCards(rowDefs, players, key));
   return block;
 }
@@ -3154,14 +3157,14 @@ function buildPlayerAnalysisSection() {
     const players = selectedPlayers.map(name => statsPool.find(r => r.player === name) || zeroPlayerRow(name));
 
     contentArea.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Season Totals')]));
-    contentArea.appendChild(buildComparisonTable(PLAYER_BASIC_ROWS, players, 'player', { mobileCards: true }));
+    contentArea.appendChild(buildComparisonTable(PLAYER_BASIC_ROWS, players, 'player'));
 
     const rateHeaderRow = el('div', { class: 'section-title-row' }, [el('span', {}, [document.createTextNode('Efficiency & Averages')])]);
     const rateTableHolder = el('div', {}, []);
     let mode = 'thrower';
     function renderRateTable() {
       rateTableHolder.innerHTML = '';
-      rateTableHolder.appendChild(buildComparisonTable(mode === 'thrower' ? PLAYER_THROWER_RATE_ROWS : PLAYER_RECEIVER_RATE_ROWS, players, 'player', { mobileCards: true }));
+      rateTableHolder.appendChild(buildComparisonTable(mode === 'thrower' ? PLAYER_THROWER_RATE_ROWS : PLAYER_RECEIVER_RATE_ROWS, players, 'player'));
     }
     renderRateTable();
     rateHeaderRow.appendChild(buildToggle('Thrower', 'Receiver', (which) => {
