@@ -3379,6 +3379,22 @@ function renderPlayerImpact(routeLayer, passes, blocks) {
   });
 }
 
+// A .game-filter-panel is CSS-anchored to its button's right edge (right: 0),
+// so when the button sits near the right of a phone screen the panel can spill
+// off the LEFT edge and clip its options. After opening, if the panel's left
+// edge is off-screen, re-anchor it from the left so it stays fully visible.
+function clampFilterPanel(panel) {
+  panel.style.left = '';
+  panel.style.right = '';
+  const margin = 8;
+  const r = panel.getBoundingClientRect();
+  if (r.left < margin) {
+    const wrapRect = (panel.offsetParent || document.body).getBoundingClientRect();
+    panel.style.right = 'auto';
+    panel.style.left = (margin - wrapRect.left) + 'px';
+  }
+}
+
 // categoryList overrides the default IMPACT_CATEGORIES -- used by Thrower-
 // Receiver Analysis to drop "Blocks" (not a thrower->receiver event, so it'd
 // just always be an empty no-op checkbox there).
@@ -3428,7 +3444,9 @@ function buildImpactCategoryDropdown(onChange, categoryList) {
   updateLabel();
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    const opening = panel.style.display === 'none';
+    panel.style.display = opening ? 'block' : 'none';
+    if (opening) clampFilterPanel(panel);
   });
   document.addEventListener('click', (e) => {
     if (!wrap.contains(e.target)) panel.style.display = 'none';
@@ -4362,7 +4380,9 @@ function buildGameFilterDropdown(onChange) {
   syncGroupState();
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    const opening = panel.style.display === 'none';
+    panel.style.display = opening ? 'block' : 'none';
+    if (opening) clampFilterPanel(panel);
   });
   document.addEventListener('click', (e) => {
     if (!wrap.contains(e.target)) panel.style.display = 'none';
@@ -4840,7 +4860,9 @@ function buildPlayerSelector(onChange, options) {
   updateDisabledStates();
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    const opening = panel.style.display === 'none';
+    panel.style.display = opening ? 'block' : 'none';
+    if (opening) clampFilterPanel(panel);
   });
   document.addEventListener('click', (e) => {
     if (!wrap.contains(e.target)) panel.style.display = 'none';
