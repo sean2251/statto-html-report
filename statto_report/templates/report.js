@@ -253,6 +253,8 @@ function buildNav() {
   nav.appendChild(fieldBtn);
   const genderBtn = el('button', { class: 'tab', 'data-target': 'gender-analysis' }, [document.createTextNode('Gender Analysis')]);
   nav.appendChild(genderBtn);
+  const timeSeriesBtn = el('button', { class: 'tab', 'data-target': 'time-series' }, [document.createTextNode('Time Series')]);
+  nav.appendChild(timeSeriesBtn);
   const advancedBtn = el('button', { class: 'tab', 'data-target': 'advanced-stats' }, [document.createTextNode('Advanced Stats')]);
   nav.appendChild(advancedBtn);
   const rawDataBtn = el('button', { class: 'tab', 'data-target': 'raw-data' }, [document.createTextNode('Raw Data')]);
@@ -8146,6 +8148,378 @@ const ADV_DESCRIPTIONS = [
   ['CR', 'A composite ranking (0–100): the average of your percentile ranks in EDGE, xE and PE among the players in the current selection.'],
 ];
 
+// ---------- Time Series section ----------
+// Each stat plots one value per game. Counting stats support a per-player line,
+// a whole-team total (sum) and a whole-team average (mean). Rate stats (%) plot
+// each player's rate and a whole-team *weighted* average (sum numer / sum denom)
+// -- a team "total" of a percentage is meaningless, so it's disabled for rates.
+const TIMESERIES_STATS = [
+  { key: 'goals', label: 'Goals', kind: 'count', get: r => r.goals },
+  { key: 'assists', label: 'Assists', kind: 'count', get: r => r.assists },
+  { key: 'secondaryAssists', label: 'Secondary assists', kind: 'count', get: r => r.secondaryAssists },
+  { key: 'blocks', label: 'Blocks (Ds)', kind: 'count', get: r => r.blocks },
+  { key: 'plusMinus', label: 'Plus / minus', kind: 'count', get: r => r.plusMinus },
+  { key: 'turnovers', label: 'Turnovers', kind: 'count', get: r => r.turnovers },
+  { key: 'throwerErrors', label: 'Throwaways', kind: 'count', get: r => r.throwerErrors },
+  { key: 'receiverErrors', label: 'Drops', kind: 'count', get: r => r.receiverErrors },
+  { key: 'touches', label: 'Touches', kind: 'count', get: r => r.touches },
+  { key: 'throws', label: 'Throws', kind: 'count', get: r => r.throws },
+  { key: 'throwCompletions', label: 'Completions', kind: 'count', get: r => r.throwCompletions },
+  { key: 'catches', label: 'Catches', kind: 'count', get: r => r.catches },
+  { key: 'throwGain', label: 'Throwing yards', kind: 'count', get: r => r.throwGain },
+  { key: 'catchGain', label: 'Receiving yards', kind: 'count', get: r => r.catchGain },
+  { key: 'possessionsInitiated', label: 'Possessions initiated', kind: 'count', get: r => r.possessionsInitiated },
+  { key: 'huckCompletions', label: 'Hucks completed', kind: 'count', get: r => r.huckCompletions },
+  { key: 'pointsPlayed', label: 'Points played', kind: 'count', get: r => r.pointsPlayed },
+  { key: 'offensePlayed', label: 'O-points played', kind: 'count', get: r => r.offensePlayed },
+  { key: 'defensePlayed', label: 'D-points played', kind: 'count', get: r => r.defensePlayed },
+  { key: 'throwCompletionPct', label: 'Throw completion %', kind: 'rate', get: r => r.throwCompletionPct, numer: r => r.throwCompletions, denom: r => r.throws },
+  { key: 'catchCompletionPct', label: 'Catch completion %', kind: 'rate', get: r => r.catchCompletionPct, numer: r => r.catches, denom: r => (r.catches || 0) + (r.receiverErrors || 0) },
+  { key: 'totalScoringEfficiency', label: 'Scoring efficiency %', kind: 'rate', get: r => r.totalScoringEfficiency, numer: r => (r.offenseWon || 0) + (r.defenseWon || 0), denom: r => (r.offensePlayed || 0) + (r.defensePlayed || 0) },
+  { key: 'offensiveScoringEfficiency', label: 'O scoring efficiency %', kind: 'rate', get: r => r.offensiveScoringEfficiency, numer: r => r.offenseWon, denom: r => r.offensePlayed },
+  { key: 'defensiveScoringEfficiency', label: 'D scoring efficiency %', kind: 'rate', get: r => r.defensiveScoringEfficiency, numer: r => r.defenseWon, denom: r => r.defensePlayed },
+];
+
+// "Nice" axis ticks spanning [min,max] at ~1/2/5 * 10^n steps (always includes
+// any 0 that falls in range, so the baseline lands on a gridline).
+function tsAxisTicks(min, max) {
+  const span = (max - min) || 1;
+  const rough = span / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  const ticks = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + step * 1e-6; t += step) {
+    ticks.push(Math.round(t * 1e6) / 1e6);
+  }
+  return ticks;
+}
+
+function buildTimeSeriesSection() {
+  const section = el('section', { class: 'view', id: 'time-series' }, []);
+  section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Time Series')]));
+  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Track a stat game by game across the season. Add players, the team average, or the team total, and hover (or tap) any game for the details.')]));
+
+  const games = REPORT.games;
+  const n = games.length;
+
+  // State.
+  let statKey = 'goals';
+  let selectedPlayers = [];
+  let showAvg = false;
+  let showTotal = true;
+
+  // ----- Controls row -----
+  const controlsRow = el('div', { class: 'controls-row ts-controls' }, []);
+
+  // Stat dropdown -- a native <select> (best mobile picker), split into a
+  // counting-stats group and a rate-stats group.
+  const statSelect = el('select', { class: 'ts-stat-select', 'aria-label': 'Statistic' }, []);
+  const countGroup = el('optgroup', { label: 'Counting stats' }, []);
+  const rateGroup = el('optgroup', { label: 'Rates (%)' }, []);
+  TIMESERIES_STATS.forEach(s => {
+    const o = el('option', { value: s.key }, [document.createTextNode(s.label)]);
+    (s.kind === 'rate' ? rateGroup : countGroup).appendChild(o);
+  });
+  statSelect.appendChild(countGroup);
+  statSelect.appendChild(rateGroup);
+  statSelect.value = statKey;
+  statSelect.addEventListener('change', () => { statKey = statSelect.value; render(); });
+  controlsRow.appendChild(el('label', { class: 'ts-field' }, [el('span', { class: 'ts-field-label' }, [document.createTextNode('Stat')]), statSelect]));
+
+  // Player multi-select (whole-team lines are the avg/total toggles below).
+  controlsRow.appendChild(buildPlayerSelector(sel => { selectedPlayers = sel; render(); }, { maxPlayers: 7, roleLabel: 'Players' }));
+
+  // Team average / total toggles.
+  const avgCb = el('input', { type: 'checkbox' }, []);
+  avgCb.checked = showAvg;
+  const avgChip = el('label', { class: 'ts-toggle' }, [avgCb, el('span', { class: 'ts-toggle-sw ts-sw-avg' }, []), document.createTextNode('Team average')]);
+  avgCb.addEventListener('change', () => { showAvg = avgCb.checked; render(); });
+
+  const totalCb = el('input', { type: 'checkbox' }, []);
+  totalCb.checked = showTotal;
+  const totalChip = el('label', { class: 'ts-toggle' }, [totalCb, el('span', { class: 'ts-toggle-sw ts-sw-total' }, []), document.createTextNode('Team total')]);
+  totalCb.addEventListener('change', () => { showTotal = totalCb.checked; render(); });
+
+  controlsRow.appendChild(avgChip);
+  controlsRow.appendChild(totalChip);
+  section.appendChild(controlsRow);
+
+  const totalNote = el('p', { class: 'ts-total-note' }, [document.createTextNode('Team total isn’t shown for % stats — “Team average” is the whole team’s combined rate.')]);
+  totalNote.style.display = 'none';
+  section.appendChild(totalNote);
+
+  const chartWrap = el('div', { class: 'ts-chart-wrap' }, []);
+  section.appendChild(chartWrap);
+  const legend = el('div', { class: 'ts-legend' }, []);
+  section.appendChild(legend);
+
+  // Floating tooltip lives inside the (relatively positioned) chart wrap.
+  const tip = el('div', { class: 'ts-tip' }, []);
+  tip.style.display = 'none';
+  chartWrap.appendChild(tip);
+
+  // ----- Tournament grouping for the x-axis -----
+  // Walk the games in order; a run of consecutive games in the same tournament
+  // becomes one labelled group, with a dashed separator drawn at each boundary.
+  function tournamentGroups() {
+    const tournaments = getTournaments();
+    const tourOf = new Array(n).fill(null);
+    tournaments.forEach(t => t.gameIndices.forEach(i => { if (i >= 0 && i < n) tourOf[i] = t.label; }));
+    const groups = [];
+    for (let i = 0; i < n; i++) {
+      const last = groups[groups.length - 1];
+      if (last && last.label === tourOf[i]) last.end = i;
+      else groups.push({ label: tourOf[i], start: i, end: i });
+    }
+    return groups;
+  }
+
+  function fmtVal(v, kind, stat) {
+    if (stat.kind === 'rate') return Math.round(v) + '%';
+    if (kind === 'avg') return (Math.round(v * 10) / 10).toFixed(1);
+    return String(Math.round(v));
+  }
+  function tsTrunc(str, maxChars) {
+    if (!str) return '';
+    return str.length > maxChars ? str.slice(0, Math.max(1, maxChars - 1)) + '…' : str;
+  }
+
+  // Draw the chart into `chartWrap` for the current state + width.
+  function draw(series, isRate, stat) {
+    // Remove any previous <svg> (keep the tooltip node).
+    [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
+
+    const W = Math.max(300, Math.round(chartWrap.clientWidth || 640));
+    const narrow = W < 480;
+    const H = narrow ? 300 : 340;
+    const mL = 40, mR = 14, mT = 14, mB = 62;
+    const plotW = W - mL - mR, plotH = H - mT - mB;
+    const slot = plotW / Math.max(1, n);
+    const xFor = i => mL + slot * (i + 0.5);
+
+    // Y domain.
+    let vmin, vmax;
+    if (isRate) { vmin = 0; vmax = 100; }
+    else {
+      const all = [];
+      series.forEach(s => s.values.forEach(v => { if (v != null) all.push(v); }));
+      vmax = Math.max(1, ...all);
+      vmin = Math.min(0, ...all);
+      vmax += ((vmax - vmin) * 0.08) || 1;
+    }
+    const yFor = v => mT + plotH - ((v - vmin) / (vmax - vmin)) * plotH;
+
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', height: String(H), class: 'ts-svg' });
+
+    // Gridlines + y labels.
+    tsAxisTicks(vmin, vmax).forEach(t => {
+      const y = yFor(t);
+      if (y < mT - 0.5 || y > mT + plotH + 0.5) return;
+      const zero = Math.abs(t) < 1e-9;
+      svg.appendChild(svgEl('line', { x1: mL, y1: y, x2: W - mR, y2: y, class: zero ? 'ts-zero' : 'ts-grid' }));
+      const lbl = svgEl('text', { x: mL - 6, y: y + 3, class: 'ts-axis', 'text-anchor': 'end' });
+      lbl.textContent = isRate ? t + '%' : String(t);
+      svg.appendChild(lbl);
+    });
+
+    // Tournament separators + labels.
+    const groups = tournamentGroups();
+    groups.forEach((g, gi) => {
+      if (gi > 0) {
+        const x = mL + slot * g.start;
+        svg.appendChild(svgEl('line', { x1: x, y1: mT, x2: x, y2: mT + plotH + 6, class: 'ts-sep' }));
+      }
+      if (g.label) {
+        const cx = mL + slot * (g.start + (g.end - g.start + 1) / 2);
+        const spanChars = Math.floor((slot * (g.end - g.start + 1)) / 5.4);
+        const t = svgEl('text', { x: cx, y: H - 8, class: 'ts-tourn', 'text-anchor': 'middle' });
+        t.textContent = tsTrunc(g.label, Math.max(3, spanChars));
+        svg.appendChild(t);
+      }
+    });
+
+    // Win/loss dots (one per game) just below the plot.
+    const stripY = mT + plotH + 15;
+    games.forEach((g, i) => {
+      const cls = g.result === 'W' ? 'ts-win' : g.result === 'L' ? 'ts-loss' : 'ts-tie';
+      svg.appendChild(svgEl('circle', { cx: xFor(i), cy: stripY, r: 4, class: cls }));
+    });
+
+    // Series lines + resting vertices.
+    series.forEach(s => {
+      let d = '', pen = false;
+      s.values.forEach((v, i) => {
+        if (v == null) { pen = false; return; }
+        d += (pen ? ' L' : ' M') + xFor(i) + ' ' + yFor(v);
+        pen = true;
+      });
+      if (d) svg.appendChild(svgEl('path', { d: d.trim(), fill: 'none', stroke: s.color, 'stroke-width': s.width, 'stroke-dasharray': s.dash || '', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+      s.values.forEach((v, i) => {
+        if (v == null) return;
+        svg.appendChild(svgEl('circle', { cx: xFor(i), cy: yFor(v), r: 3, fill: s.color }));
+      });
+    });
+
+    // Hover: crosshair + highlighted markers + tooltip.
+    const crosshair = svgEl('line', { x1: 0, y1: mT, x2: 0, y2: mT + plotH, class: 'ts-crosshair' });
+    crosshair.style.display = 'none';
+    svg.appendChild(crosshair);
+    const hi = svgEl('g', {});
+    svg.appendChild(hi);
+    const overlay = svgEl('rect', { x: mL, y: mT, width: plotW, height: plotH + 22, fill: 'transparent', style: 'cursor:crosshair;' });
+    svg.appendChild(overlay);
+
+    function showAt(clientX) {
+      const rect = svg.getBoundingClientRect();
+      const scale = W / (rect.width || W);
+      const px = (clientX - rect.left) * scale;
+      let i = Math.floor((px - mL) / slot);
+      i = Math.max(0, Math.min(n - 1, i));
+      const gx = xFor(i);
+      crosshair.setAttribute('x1', gx); crosshair.setAttribute('x2', gx);
+      crosshair.style.display = 'block';
+      hi.innerHTML = '';
+      series.forEach(s => {
+        const v = s.values[i];
+        if (v == null) return;
+        hi.appendChild(svgEl('circle', { cx: gx, cy: yFor(v), r: 5, fill: s.color, class: 'ts-hi-dot' }));
+      });
+      // Tooltip content.
+      const g = games[i];
+      tip.innerHTML = '';
+      const resClass = g.result === 'W' ? 'ts-win' : g.result === 'L' ? 'ts-loss' : 'ts-tie';
+      const head = el('div', { class: 'ts-tip-head' }, [
+        el('span', { class: 'ts-tip-res ' + resClass }, [document.createTextNode(g.result || '–')]),
+        el('span', { class: 'ts-tip-opp' }, [document.createTextNode(g.opponent || 'Game ' + (i + 1))]),
+        el('span', { class: 'ts-tip-score' }, [document.createTextNode((g.ourScore != null ? g.ourScore : '') + '–' + (g.oppScore != null ? g.oppScore : ''))]),
+      ]);
+      tip.appendChild(head);
+      if (g.dateDisplay) tip.appendChild(el('div', { class: 'ts-tip-date' }, [document.createTextNode(g.dateDisplay)]));
+      let anyVal = false;
+      series.forEach(s => {
+        const v = s.values[i];
+        if (v == null) return;
+        anyVal = true;
+        tip.appendChild(el('div', { class: 'ts-tip-row' }, [
+          el('span', { class: 'ts-tip-sw', style: `background:${s.color};` }, []),
+          el('span', { class: 'ts-tip-name' }, [document.createTextNode(s.name)]),
+          el('b', {}, [document.createTextNode(fmtVal(v, s.kind, stat))]),
+        ]));
+      });
+      if (!anyVal) tip.appendChild(el('div', { class: 'ts-tip-row ts-tip-empty' }, [document.createTextNode('Did not play')]));
+      tip.style.display = 'block';
+      // Position within the chart wrap, clamped.
+      const wrapRect = chartWrap.getBoundingClientRect();
+      const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+      let left = (gx / scale) + 14;
+      if (left + tipW > wrapRect.width - 4) left = (gx / scale) - tipW - 14;
+      if (left < 4) left = 4;
+      let top = mT / scale;
+      if (top + tipH > wrapRect.height - 4) top = Math.max(4, wrapRect.height - tipH - 4);
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    }
+    function hide() { crosshair.style.display = 'none'; hi.innerHTML = ''; tip.style.display = 'none'; }
+    overlay.addEventListener('pointermove', e => showAt(e.clientX));
+    overlay.addEventListener('pointerdown', e => showAt(e.clientX));
+    overlay.addEventListener('pointerleave', hide);
+
+    chartWrap.appendChild(svg);
+  }
+
+  function render() {
+    const stat = TIMESERIES_STATS.find(s => s.key === statKey) || TIMESERIES_STATS[0];
+    const isRate = stat.kind === 'rate';
+    totalChip.classList.toggle('disabled', isRate);
+    totalCb.disabled = isRate;
+    totalNote.style.display = isRate ? 'block' : 'none';
+
+    if (!n) {
+      [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
+      legend.innerHTML = '';
+      chartWrap.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No games to plot yet.')]));
+      return;
+    }
+
+    // Per-game player -> box-score row.
+    const rowsByGame = games.map(g => {
+      const m = new Map();
+      (g.boxScore || []).forEach(r => m.set(r.player, r));
+      return m;
+    });
+
+    const series = [];
+    selectedPlayers.forEach((p, idx) => {
+      const values = rowsByGame.map(m => {
+        const r = m.get(p);
+        if (!r) return null;
+        const v = stat.get(r);
+        return (v == null || Number.isNaN(v)) ? null : v;
+      });
+      series.push({ name: p, color: compareColorVar(idx), values, dash: '', width: 2, kind: 'player' });
+    });
+    if (showAvg) {
+      const values = rowsByGame.map(m => {
+        const rows = [...m.values()];
+        if (!rows.length) return null;
+        if (isRate) {
+          let nu = 0, de = 0;
+          rows.forEach(r => { nu += stat.numer(r) || 0; de += stat.denom(r) || 0; });
+          return de > 0 ? (nu / de) * 100 : null;
+        }
+        let sum = 0;
+        rows.forEach(r => { sum += stat.get(r) || 0; });
+        return sum / rows.length;
+      });
+      series.push({ name: 'Team average', color: 'var(--chalk-dim)', values, dash: '5 4', width: 2, kind: 'avg' });
+    }
+    if (showTotal && !isRate) {
+      const values = rowsByGame.map(m => {
+        const rows = [...m.values()];
+        if (!rows.length) return null;
+        let sum = 0;
+        rows.forEach(r => { sum += stat.get(r) || 0; });
+        return sum;
+      });
+      series.push({ name: 'Team total', color: 'var(--chalk)', values, dash: '', width: 2.6, kind: 'total' });
+    }
+
+    // Legend (win/loss key always; series when any).
+    legend.innerHTML = '';
+    series.forEach(s => {
+      legend.appendChild(el('span', { class: 'ts-leg-item' }, [
+        el('span', { class: 'ts-leg-line' + (s.dash ? ' dashed' : ''), style: `border-top-color:${s.color};` }, []),
+        document.createTextNode(s.name),
+      ]));
+    });
+    legend.appendChild(el('span', { class: 'ts-leg-sep' }, []));
+    legend.appendChild(el('span', { class: 'ts-leg-item' }, [el('span', { class: 'ts-leg-dot ts-win' }, []), document.createTextNode('Win')]));
+    legend.appendChild(el('span', { class: 'ts-leg-item' }, [el('span', { class: 'ts-leg-dot ts-loss' }, []), document.createTextNode('Loss')]));
+
+    if (!series.length) {
+      [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
+      tip.style.display = 'none';
+      chartWrap.appendChild(el('p', { class: 'pitch-caption ts-empty' }, [document.createTextNode('Pick players above, or turn on Team average / Team total, to plot a stat over the season.')]));
+      return;
+    }
+    [...chartWrap.querySelectorAll('.ts-empty')].forEach(e => e.remove());
+    draw(series, isRate, stat);
+  }
+
+  render();
+  // Redraw at the real width once the tab becomes visible, and on resize.
+  if (typeof ResizeObserver !== 'undefined') {
+    let lastW = 0;
+    const ro = new ResizeObserver(() => {
+      const w = Math.round(chartWrap.clientWidth || 0);
+      if (w && w !== lastW) { lastW = w; render(); }
+    });
+    ro.observe(chartWrap);
+  }
+  return section;
+}
+
 function buildAdvancedStatsSection() {
   const section = el('section', { class: 'view', id: 'advanced-stats' }, []);
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Advanced Stats')]));
@@ -8247,6 +8621,12 @@ const TOURS = {
     { sel: '.gender-explainer', title: 'How to read it', body: 'Worth reading once — it explains what the chart measures and what counts as balanced given who was on the field.' },
     { sel: '#gender-analysis > .controls-row', title: 'Pick a view', body: 'Switch between metrics and scope the chart to whichever games you want.' },
     { sel: '.gender-chart-wrap', title: 'The chart', body: 'Each dot is a player against the fairness line. Distance from that line is how far their share of touches sits from an even split.' },
+  ],
+  'time-series': [
+    { title: 'Time Series', body: 'How a stat moved game by game across the season, in chronological order, with dashed lines marking where one tournament ends and the next begins.' },
+    { sel: '.ts-stat-select', title: 'Pick a stat', body: 'Choose any counting stat or rate from the dropdown — the whole chart redraws for it.' },
+    { sel: '.ts-controls', title: 'Choose what to plot', body: 'Add up to seven players as their own lines, and layer on the team average or team total for context.' },
+    { sel: '.ts-chart-wrap', title: 'The chart', body: 'Each point is one game. The dots underneath are green for a win and red for a loss — hover or tap any game for the exact numbers.' },
   ],
   'advanced-stats': [
     { title: 'Advanced Stats', body: 'The Ultiworld EDGE metrics: a way of valuing every yard, score and turnover on one scale so players can be compared with a single number.' },
@@ -8460,6 +8840,7 @@ function init() {
   mountRebuildableView(buildThrowerReceiverSection);
   mountRebuildableView(buildFieldAnalysisSection);
   mountRebuildableView(buildGenderAnalysisSection);
+  mountRebuildableView(buildTimeSeriesSection);
   mountRebuildableView(buildAdvancedStatsSection);
   mountRebuildableView(buildRawDataSection);
   REPORT.games.forEach((g, i) => main.appendChild(buildGameSection(g, i)));
