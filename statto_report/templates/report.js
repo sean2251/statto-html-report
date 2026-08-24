@@ -8286,9 +8286,9 @@ function buildTimeSeriesSection() {
 
   // State. statKey is remembered per mode so switching back restores your pick.
   let mode = 'player';
-  const statKey = { player: 'goals', line: 'holdRate' };
+  const statKey = { player: 'goals', line: 'pointsPlayed' };
   let selectedPlayers = [];
-  let selectedLineNames = [];
+  let selectedLineNames = ['All Lines'];  // By Line defaults to the whole team
   let showAvg = false;
   let showTotal = true;
   let lineEntities = [];  // rebuilt with the line selector
