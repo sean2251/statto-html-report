@@ -908,6 +908,7 @@
   .ts-tip-sw { width: 10px; height: 3px; border-radius: 2px; flex-shrink: 0; }
   .ts-tip-empty { color: var(--chalk-dim); font-style: italic; }
 
+  .ts-export-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 2px 0; }
   .ts-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 2px 0; }
   .ts-leg-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--chalk-dim); }
   .ts-leg-line { width: 16px; height: 0; border-top: 2px solid var(--chalk); display: inline-block; }
@@ -10194,6 +10195,34 @@ function buildTimeSeriesSection() {
   const legend = el('div', { class: 'ts-legend' }, []);
   section.appendChild(legend);
 
+  // Export / copy the chart as a PNG, captioned with the current stat (title +
+  // y-axis label) and the selected entities (subtitle).
+  const exportRow = el('div', { class: 'ts-export-row' }, []);
+  const exportBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Export .png')]);
+  const copyBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Copy .png')]);
+  exportBtn.addEventListener('click', () => {
+    exportChartCanvas(blob => {
+      if (!blob) { alert('Add something to the chart first, then export.'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = el('a', { href: url, download: exportFileName() }, []);
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  });
+  copyBtn.addEventListener('click', () => {
+    if (!(navigator.clipboard && window.ClipboardItem)) { alert('Copying images isn’t supported in this browser — use Export instead.'); return; }
+    // ClipboardItem accepts a Promise<Blob>, which keeps the copy inside the
+    // click's user-activation window even though rendering the PNG is async.
+    const blobPromise = new Promise(resolve => exportChartCanvas(resolve));
+    navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blobPromise })]).then(() => {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy .png'; }, 1500);
+    }).catch(() => { alert('Couldn’t copy to the clipboard — use Export instead.'); });
+  });
+  exportRow.appendChild(exportBtn);
+  exportRow.appendChild(copyBtn);
+  section.appendChild(exportRow);
+
   // Floating tooltip lives inside the (relatively positioned) chart wrap.
   const tip = el('div', { class: 'ts-tip' }, []);
   tip.style.display = 'none';
@@ -10342,9 +10371,9 @@ function buildTimeSeriesSection() {
     const crosshair = svgEl('line', { x1: 0, y1: mT, x2: 0, y2: mT + plotH, class: 'ts-crosshair' });
     crosshair.style.display = 'none';
     svg.appendChild(crosshair);
-    const hi = svgEl('g', {});
+    const hi = svgEl('g', { class: 'ts-hi' });
     svg.appendChild(hi);
-    const overlay = svgEl('rect', { x: mL, y: mT, width: plotW, height: plotH + 22, fill: 'transparent', style: 'cursor:crosshair;' });
+    const overlay = svgEl('rect', { class: 'ts-overlay', x: mL, y: mT, width: plotW, height: plotH + 22, fill: 'transparent', style: 'cursor:crosshair;' });
     svg.appendChild(overlay);
 
     function showAt(clientX) {
@@ -10519,6 +10548,116 @@ function buildTimeSeriesSection() {
     }
     [...chartWrap.querySelectorAll('.ts-empty')].forEach(e => e.remove());
     draw(series, isPct, stat);
+  }
+
+  // The stat (y-axis quantity) + the selected entities, for captioning exports.
+  function currentSelectionSummary() {
+    const stat = currentStat();
+    let names;
+    if (mode === 'player') {
+      names = selectedPlayers.slice();
+      if (showAvg) names.push('Team average');
+      if (showTotal && stat.kind === 'count') names.push('Team total');
+      return { modeLabel: 'By player', names, statLabel: stat.label };
+    }
+    return { modeLabel: 'By line', names: selectedLineNames.slice(), statLabel: stat.label };
+  }
+  function exportFileName() {
+    const s = currentSelectionSummary();
+    return slug(REPORT.teamName) + '_timeseries_' + slug(s.statLabel) + '.png';
+  }
+  function wrapText(ctx, text, maxW) {
+    const words = text.split(' ');
+    const lines = [];
+    let cur = '';
+    words.forEach(w => {
+      const test = cur ? cur + ' ' + w : w;
+      if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; } else cur = test;
+    });
+    if (cur) lines.push(cur);
+    if (lines.length > 3) { lines.length = 3; lines[2] = lines[2] + '…'; }
+    return lines;
+  }
+
+  // Rasterise the current chart to a PNG Blob, framed with a title, the
+  // selection subtitle, and a rotated y-axis label. The live SVG styles its
+  // marks via CSS classes/variables, which a bare serialize would drop, so the
+  // clone gets every computed paint/text property inlined first.
+  function exportChartCanvas(cb) {
+    const svg = chartWrap.querySelector('.ts-svg');
+    if (!svg) { cb(null); return; }
+    const vb = svg.viewBox.baseVal;
+    const svgW = vb.width, svgH = vb.height;
+    if (!svgW || !svgH) { cb(null); return; }
+
+    const clone = svg.cloneNode(true);
+    const srcEls = svg.querySelectorAll('*');
+    const cloneEls = clone.querySelectorAll('*');
+    const paintProps = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linejoin', 'stroke-linecap', 'opacity', 'font-size', 'font-family', 'font-weight', 'text-anchor'];
+    srcEls.forEach((sEl, i) => {
+      const cs = getComputedStyle(sEl);
+      let st = '';
+      paintProps.forEach(p => { const v = cs.getPropertyValue(p); if (v) st += p + ':' + v + ';'; });
+      cloneEls[i].setAttribute('style', st);
+    });
+    // Drop the interactive-only layers so they don't paint into the image.
+    clone.querySelectorAll('.ts-overlay, .ts-crosshair, .ts-hi').forEach(e => e.remove());
+    clone.setAttribute('width', String(svgW));
+    clone.setAttribute('height', String(svgH));
+
+    const svgString = new XMLSerializer().serializeToString(clone);
+    const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2, P = 22, yLabelW = 22;
+      const sel = currentSelectionSummary();
+      const cs = getComputedStyle(document.documentElement);
+      const bg = (cs.getPropertyValue('--ink') || '#17181A').trim();
+      const fg = (cs.getPropertyValue('--chalk') || '#ECECEC').trim();
+      const dim = (cs.getPropertyValue('--chalk-dim') || '#9C9CA1').trim();
+      const fontStack = '-apple-system, "Segoe UI", Roboto, sans-serif';
+      const eyebrow = (REPORT.teamName + ' · Time Series').toUpperCase();
+      const subtitle = sel.modeLabel + ' · ' + (sel.names.length ? sel.names.join(', ') : 'nothing selected');
+
+      const meas = document.createElement('canvas').getContext('2d');
+      meas.font = '13px ' + fontStack;
+      const subLines = wrapText(meas, subtitle, svgW);
+      const eyebrowH = 15, titleH = 24, subLineH = 17;
+      const headerH = eyebrowH + titleH + subLines.length * subLineH + 12;
+      const canvasW = P + yLabelW + svgW + P;
+      const chartTop = P + headerH;
+      const canvasH = chartTop + svgH + P;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(canvasW * scale);
+      canvas.height = Math.round(canvasH * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, canvasW, canvasH);
+
+      const xText = P + yLabelW;
+      ctx.fillStyle = dim; ctx.font = '600 11px ' + fontStack;
+      ctx.fillText(eyebrow, xText, P + 11);
+      ctx.fillStyle = fg; ctx.font = '600 18px ' + fontStack;
+      ctx.fillText(sel.statLabel, xText, P + eyebrowH + 18);
+      ctx.fillStyle = dim; ctx.font = '13px ' + fontStack;
+      subLines.forEach((ln, i) => ctx.fillText(ln, xText, P + eyebrowH + titleH + i * subLineH + 6));
+
+      ctx.drawImage(img, xText, chartTop, svgW, svgH);
+
+      ctx.save();
+      ctx.translate(P + 12, chartTop + svgH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = dim; ctx.font = '600 12px ' + fontStack; ctx.textAlign = 'center';
+      ctx.fillText(sel.statLabel, 0, 0);
+      ctx.restore();
+
+      URL.revokeObjectURL(url);
+      canvas.toBlob(b => cb(b), 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); cb(null); };
+    img.src = url;
   }
 
   populateStatSelect();
