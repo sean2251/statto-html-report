@@ -5985,9 +5985,17 @@ function buildDistributableHtml(opts) {
   if (opts.tagOnlyGame != null) inject = '<script>window.__STATTO_TAGONLY_GAME__=' + Number(opts.tagOnlyGame) + ';<\/script>\n' + inject;
   const marker = '<script id="report-data"';
   let html = PRISTINE_DOC_HTML;
-  return html.indexOf(marker) !== -1
+  // Override the browser tab title so otherwise-identical builds (e.g. a
+  // per-opponent tagging page) don't all read the same. The parent report's
+  // title is baked into the pristine HTML, so rewrite the whole <title> tag.
+  if (opts.title) {
+    const safe = String(opts.title).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html = html.replace(/<title>[\s\S]*?<\/title>/i, '<title>' + safe + '<\/title>');
+  }
+  html = html.indexOf(marker) !== -1
     ? html.replace(marker, inject + marker)
     : html.replace('<\/body>', inject + '<\/body>');
+  return html;
 }
 
 // Locked-down viewer for the team -- Set up hidden, Data Editor reduced to a
@@ -6065,7 +6073,10 @@ function importAllCustomData(file) {
 // JSON and send it back; it's re-imported per game on the Set up tab.
 function downloadGameTaggingPage(gameIndex) {
   const g = REPORT.games[gameIndex];
-  downloadFile(buildDistributableHtml({ tagOnlyGame: gameIndex }),
+  // Opponent first so it survives tab-title truncation -- this is the one thing
+  // that tells a helper's tabs apart when they're tagging several games.
+  const title = 'vs ' + g.opponent + ' — ' + REPORT.teamName + ' tagging';
+  downloadFile(buildDistributableHtml({ tagOnlyGame: gameIndex, title: title }),
     slug(REPORT.teamName) + '_tag_' + slug(g.opponent) + '.html', 'text/html;charset=utf-8;');
 }
 
