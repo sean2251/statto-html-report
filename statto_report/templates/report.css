@@ -887,6 +887,8 @@
   .ts-tip-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--chalk); padding: 1px 0; }
   .ts-tip-row .ts-tip-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ts-tip-row b { font-variant-numeric: tabular-nums; }
+  .ts-tip-val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ts-tip-frac { color: var(--chalk-dim); font-size: 11px; }
   .ts-tip-sw { width: 10px; height: 3px; border-radius: 2px; flex-shrink: 0; }
   .ts-tip-empty { color: var(--chalk-dim); font-style: italic; }
 

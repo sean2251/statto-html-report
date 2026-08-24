@@ -8246,18 +8246,18 @@ const LINE_TIMESERIES_STATS = [
   { key: 'blocks', label: 'Blocks', kind: 'count', get: l => l.blocks },
   { key: 'oppTurnovers', label: 'Opponent turnovers', kind: 'count', get: l => l.oppTurnovers },
   { key: 'avgLeverage', label: 'Avg point leverage', kind: 'rating', dec: 2, get: l => l.avgLeverage },
-  { key: 'pointsWonRate', label: 'Points won %', kind: 'rate', get: l => l.pointsWonRate },
-  { key: 'holdRate', label: 'Hold rate %', kind: 'rate', get: l => l.holdRate },
-  { key: 'breakRate', label: 'Break rate %', kind: 'rate', get: l => l.breakRate },
-  { key: 'seTotalPP', label: 'Scoring efficiency % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.total.pct },
-  { key: 'seOffPP', label: 'Offensive scoring eff % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.offense.pct },
-  { key: 'seDefPP', label: 'Defensive scoring eff % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.defense.pct },
-  { key: 'seTotalPoss', label: 'Scoring efficiency % (per possession)', kind: 'rate', get: l => l.scoringEfficiency.perPossession.total.pct },
-  { key: 'seTotalFirst', label: 'Scoring efficiency % (first possession)', kind: 'rate', get: l => l.scoringEfficiency.firstPossession.total.pct },
-  { key: 'throwCompletionPct', label: 'Throw completion %', kind: 'rate', get: l => l.throwCompletionPct },
-  { key: 'huckCompletionPct', label: 'Huck completion %', kind: 'rate', get: l => l.huckCompletionPct },
-  { key: 'assistCompletionPct', label: 'Assist completion %', kind: 'rate', get: l => l.assistCompletionPct },
-  { key: 'redZoneRate', label: 'Red zone conversion %', kind: 'rate', get: l => l.redZoneRate },
+  { key: 'pointsWonRate', label: 'Points won %', kind: 'rate', get: l => l.pointsWonRate, frac: l => ({ n: l.pointsWon, d: l.pointsPlayed }) },
+  { key: 'holdRate', label: 'Hold rate %', kind: 'rate', get: l => l.holdRate, frac: l => ({ n: l.holds, d: l.offensePlayed }) },
+  { key: 'breakRate', label: 'Break rate %', kind: 'rate', get: l => l.breakRate, frac: l => ({ n: l.breaks, d: l.defensePlayed }) },
+  { key: 'seTotalPP', label: 'Scoring efficiency % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.total.pct, frac: l => l.scoringEfficiency.perPoint.total },
+  { key: 'seOffPP', label: 'Offensive scoring eff % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.offense.pct, frac: l => l.scoringEfficiency.perPoint.offense },
+  { key: 'seDefPP', label: 'Defensive scoring eff % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.defense.pct, frac: l => l.scoringEfficiency.perPoint.defense },
+  { key: 'seTotalPoss', label: 'Scoring efficiency % (per possession)', kind: 'rate', get: l => l.scoringEfficiency.perPossession.total.pct, frac: l => l.scoringEfficiency.perPossession.total },
+  { key: 'seTotalFirst', label: 'Scoring efficiency % (first possession)', kind: 'rate', get: l => l.scoringEfficiency.firstPossession.total.pct, frac: l => l.scoringEfficiency.firstPossession.total },
+  { key: 'throwCompletionPct', label: 'Throw completion %', kind: 'rate', get: l => l.throwCompletionPct, frac: l => ({ n: l.throwCompletions, d: l.throws }) },
+  { key: 'huckCompletionPct', label: 'Huck completion %', kind: 'rate', get: l => l.huckCompletionPct, frac: l => ({ n: l.huckCompletions, d: l.huckAttempts }) },
+  { key: 'assistCompletionPct', label: 'Assist completion %', kind: 'rate', get: l => l.assistCompletionPct, frac: l => ({ n: l.assists, d: l.assistAttempts }) },
+  { key: 'redZoneRate', label: 'Red zone conversion %', kind: 'rate', get: l => l.redZoneRate, frac: l => ({ n: l.redZoneConversions, d: l.redZoneEntries }) },
 ];
 LINE_TIMESERIES_STATS.forEach(s => { s.group = s.kind === 'rate' ? 'Rates & efficiency' : 'Counts'; });
 
@@ -8564,10 +8564,18 @@ function buildTimeSeriesSection() {
         const v = s.values[i];
         if (v == null) return;
         anyVal = true;
+        // For rate stats, lead with the underlying fraction (dim), then the %.
+        const valChildren = [];
+        const f = s.fracs && s.fracs[i];
+        if (f) {
+          const nn = f.n != null ? f.n : f.numer, dd = f.d != null ? f.d : f.denom;
+          if (dd != null) valChildren.push(el('span', { class: 'ts-tip-frac' }, [document.createTextNode(Math.round(nn) + '/' + Math.round(dd) + ' · ')]));
+        }
+        valChildren.push(el('b', {}, [document.createTextNode(fmtVal(v, s.kind, stat))]));
         tip.appendChild(el('div', { class: 'ts-tip-row' }, [
           el('span', { class: 'ts-tip-sw', style: `background:${s.color};` }, []),
           el('span', { class: 'ts-tip-name' }, [document.createTextNode(s.name)]),
-          el('b', {}, [document.createTextNode(fmtVal(v, s.kind, stat))]),
+          el('span', { class: 'ts-tip-val' }, valChildren),
         ]));
       });
       if (!anyVal) tip.appendChild(el('div', { class: 'ts-tip-row ts-tip-empty' }, [document.createTextNode('Did not play')]));
@@ -8616,6 +8624,7 @@ function buildTimeSeriesSection() {
         (g.boxScore || []).forEach(r => m.set(r.player, r));
         return m;
       });
+      const rateWithFrac = stat.kind === 'rate' && stat.numer && stat.denom;
       selectedPlayers.forEach((p, idx) => {
         const values = dataByGame.map(m => {
           const r = m.get(p);
@@ -8623,13 +8632,15 @@ function buildTimeSeriesSection() {
           const v = stat.get(r);
           return (v == null || Number.isNaN(v)) ? null : v;
         });
-        series.push({ name: p, color: TS_ENTITY_COLORS[idx % TS_ENTITY_COLORS.length], values, dash: '', width: 2, kind: 'player' });
+        const s = { name: p, color: TS_ENTITY_COLORS[idx % TS_ENTITY_COLORS.length], values, dash: '', width: 2, kind: 'player' };
+        if (rateWithFrac) s.fracs = dataByGame.map(m => { const r = m.get(p); return r ? { n: stat.numer(r) || 0, d: stat.denom(r) || 0 } : null; });
+        series.push(s);
       });
       if (showAvg) {
         const values = dataByGame.map(m => {
           const rows = [...m.values()];
           if (!rows.length) return null;
-          if (stat.kind === 'rate' && stat.numer && stat.denom) {
+          if (rateWithFrac) {
             let nu = 0, de = 0;
             rows.forEach(r => { nu += stat.numer(r) || 0; de += stat.denom(r) || 0; });
             return de > 0 ? (nu / de) * 100 : null;
@@ -8638,7 +8649,9 @@ function buildTimeSeriesSection() {
           rows.forEach(r => { const v = stat.get(r); if (v != null && !Number.isNaN(v)) { sum += v; cnt++; } });
           return cnt ? sum / cnt : null;
         });
-        series.push({ name: 'Team average', color: 'var(--chalk-dim)', values, dash: '5 4', width: 2, kind: 'avg' });
+        const s = { name: 'Team average', color: 'var(--chalk-dim)', values, dash: '5 4', width: 2, kind: 'avg' };
+        if (rateWithFrac) s.fracs = dataByGame.map(m => { const rows = [...m.values()]; if (!rows.length) return null; let n = 0, d = 0; rows.forEach(r => { n += stat.numer(r) || 0; d += stat.denom(r) || 0; }); return { n, d }; });
+        series.push(s);
       }
       if (showTotal && canTotal) {
         const values = dataByGame.map(m => {
@@ -8652,17 +8665,20 @@ function buildTimeSeriesSection() {
       }
     } else {
       const ents = selectedLineNames.map(nm => lineEntities.find(e => e.name === nm)).filter(Boolean);
+      const withFrac = stat.kind === 'rate' && stat.frac;
       let cIdx = 0;
       ents.forEach(en => {
-        const values = games.map((g, gi) => {
-          const ls = computeLineStats(en.pointKeys, [gi]);
+        const lsByGame = games.map((g, gi) => computeLineStats(en.pointKeys, [gi]));
+        const values = lsByGame.map(ls => {
           if (!ls.pointsPlayed) return null;   // line didn't play this game
           const v = stat.get(ls);
           return (v == null || Number.isNaN(v)) ? null : v;
         });
         // "All Lines" (the team) gets the neutral chalk line, like Team total.
         const color = en.isAll ? 'var(--chalk)' : TS_ENTITY_COLORS[cIdx++ % TS_ENTITY_COLORS.length];
-        series.push({ name: en.name, color, values, dash: '', width: en.isAll ? 2.6 : 2, kind: 'entity' });
+        const s = { name: en.name, color, values, dash: '', width: en.isAll ? 2.6 : 2, kind: 'entity' };
+        if (withFrac) s.fracs = lsByGame.map(ls => ls.pointsPlayed ? stat.frac(ls) : null);
+        series.push(s);
       });
     }
 
