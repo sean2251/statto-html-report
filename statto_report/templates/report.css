@@ -850,6 +850,10 @@
   .ts-svg circle.ts-win { fill: var(--good); }
   .ts-svg circle.ts-loss { fill: var(--bad); }
   .ts-svg circle.ts-tie { fill: var(--chalk-dim); }
+  .ts-svg .ts-gname { font-size: 10px; font-family: var(--sans); font-weight: 600; }
+  .ts-svg text.ts-gname.ts-win { fill: var(--good); }
+  .ts-svg text.ts-gname.ts-loss { fill: var(--bad); }
+  .ts-svg text.ts-gname.ts-tie { fill: var(--chalk-dim); }
   .ts-svg .ts-crosshair { stroke: rgba(var(--chalk-rgb),0.4); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
   .ts-svg .ts-hi-dot { stroke: var(--ink); stroke-width: 2; }
 
