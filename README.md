@@ -64,6 +64,17 @@ current directory. Open the resulting file directly in a browser — it's a
 single HTML file with everything (data, styling, and behavior) baked in, so
 it's easy to share or archive.
 
+Add `-t/--title` to set the browser tab title (the `<title>` tag). This is
+handy when you deploy several otherwise-identical builds side by side — e.g. a
+separate video-tagging site per opponent — since without it every tab reads the
+same. It only changes the tab title; the on-page header still shows the team.
+
+```bash
+python3 statto_to_html_report.py season.statto -o spectre/index.html --title "RAMP 2026 · Spectre (tagging)"
+```
+
+When omitted, the title defaults to `<team> — Season Report`.
+
 The report remembers your light/dark theme choice in the browser it's
 opened in (via `localStorage`, since this is a file you own and open
 yourself, not something running inside a hosted app).

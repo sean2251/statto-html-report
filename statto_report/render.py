@@ -1,5 +1,6 @@
 """Assembles the final report HTML from templates/ and a computed report dict."""
 
+import html as _html
 import json
 import os
 
@@ -14,8 +15,14 @@ def _read_template(filename):
         return f.read()
 
 
-def generate_html(statto_path):
-    """Read a .statto export and return (html, team_name) for the season report."""
+def generate_html(statto_path, title=None):
+    """Read a .statto export and return (html, team_name) for the season report.
+
+    ``title`` overrides the browser tab title (the ``<title>`` tag). This is what
+    distinguishes otherwise-identical builds -- e.g. one video-tagging site per
+    opponent, deployed side by side, whose tabs would all read the same without
+    it. When omitted, the title falls back to "<team> — Season Report".
+    """
     data = load_statto(statto_path)
     teams = data.get("teams", [])
     if not teams:
@@ -28,11 +35,13 @@ def generate_html(statto_path):
     report = compute_team_report(relations, team_name)
     report_json = json.dumps(report)
 
+    page_title = title if (title and title.strip()) else f"{team_name} — Season Report"
+
     html = (
         _read_template("report.html")
         .replace("__REPORT_CSS__", _read_template("report.css"))
         .replace("__REPORT_JS__", _read_template("report.js"))
-        .replace("__TEAM_NAME__", team_name)
+        .replace("__PAGE_TITLE__", _html.escape(page_title, quote=False))
         .replace("__REPORT_DATA_JSON__", report_json)
     )
     return html, team_name
