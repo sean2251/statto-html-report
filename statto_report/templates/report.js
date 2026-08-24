@@ -20,6 +20,12 @@ const VIEWER_MODE = !!(typeof window !== 'undefined' && window.__STATTO_VIEWER__
 // Editor, locked to this one game, for handing to a helper to tag. Set by the
 // injected flag in a page built via downloadGameTaggingPage.
 const TAGONLY_GAME = (typeof window !== 'undefined' && typeof window.__STATTO_TAGONLY_GAME__ === 'number') ? window.__STATTO_TAGONLY_GAME__ : null;
+// The plain generated file (no flags) is the "Set up editor": a desktop
+// authoring console with only Set up, the Video annotation editor and Line set
+// up. All the analysis tabs live in the published Team Report (VIEWER_MODE).
+const SETUP_MODE = !VIEWER_MODE && TAGONLY_GAME == null;
+// Stamped into a published Team Report so viewers can see when it was made.
+const PUBLISHED_AT = (typeof window !== 'undefined' && typeof window.__STATTO_PUBLISHED_AT__ === 'string') ? window.__STATTO_PUBLISHED_AT__ : null;
 
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player', full: 'Player', numeric: false },
@@ -227,38 +233,26 @@ function buildNav() {
     return;
   }
 
-  if (!VIEWER_MODE) {
-    const setupBtn = el('button', { class: 'tab', 'data-target': 'setup' }, [document.createTextNode('Set up')]);
-    nav.appendChild(setupBtn);
-    // In the full/editing report the Data Editor sits up front, next to Set up.
-    const dataEditorBtn = el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Data Editor')]);
-    nav.appendChild(dataEditorBtn);
+  if (SETUP_MODE) {
+    // The Set up editor: a desktop authoring console, nothing else.
+    nav.appendChild(el('button', { class: 'tab active', 'data-target': 'setup' }, [document.createTextNode('Set up')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Video annotation editor')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'line-setup' }, [document.createTextNode('Line set up')]));
+  } else {
+    // The published Team Report: all the analysis, read-only.
+    nav.appendChild(el('button', { class: 'tab active', 'data-target': 'season' }, [document.createTextNode('Season')]));
+    nav.appendChild(buildGamesNavDropdown());
+    // The Data Editor becomes a read-only "Film Clips" browser here.
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Film Clips')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'player-analysis' }, [document.createTextNode('Player Analysis')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'line-analysis' }, [document.createTextNode('Line Analysis')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'thrower-receiver-analysis' }, [document.createTextNode('Thrower-Receiver Analysis')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'field-analysis' }, [document.createTextNode('Field Analysis')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'gender-analysis' }, [document.createTextNode('Gender Analysis')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'time-series' }, [document.createTextNode('Time Series')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'advanced-stats' }, [document.createTextNode('Advanced Stats')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'raw-data' }, [document.createTextNode('Raw Data')]));
   }
-  const seasonBtn = el('button', { class: 'tab active', 'data-target': 'season' }, [document.createTextNode('Season')]);
-  nav.appendChild(seasonBtn);
-  nav.appendChild(buildGamesNavDropdown());
-  // In the read-only team report the Data Editor becomes "Film Clips" and sits
-  // right of the Games dropdown, alongside the other analysis tabs.
-  if (VIEWER_MODE) {
-    const filmBtn = el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Film Clips')]);
-    nav.appendChild(filmBtn);
-  }
-  const playerBtn = el('button', { class: 'tab', 'data-target': 'player-analysis' }, [document.createTextNode('Player Analysis')]);
-  nav.appendChild(playerBtn);
-  const lineBtn = el('button', { class: 'tab', 'data-target': 'line-analysis' }, [document.createTextNode('Line Analysis')]);
-  nav.appendChild(lineBtn);
-  const trBtn = el('button', { class: 'tab', 'data-target': 'thrower-receiver-analysis' }, [document.createTextNode('Thrower-Receiver Analysis')]);
-  nav.appendChild(trBtn);
-  const fieldBtn = el('button', { class: 'tab', 'data-target': 'field-analysis' }, [document.createTextNode('Field Analysis')]);
-  nav.appendChild(fieldBtn);
-  const genderBtn = el('button', { class: 'tab', 'data-target': 'gender-analysis' }, [document.createTextNode('Gender Analysis')]);
-  nav.appendChild(genderBtn);
-  const timeSeriesBtn = el('button', { class: 'tab', 'data-target': 'time-series' }, [document.createTextNode('Time Series')]);
-  nav.appendChild(timeSeriesBtn);
-  const advancedBtn = el('button', { class: 'tab', 'data-target': 'advanced-stats' }, [document.createTextNode('Advanced Stats')]);
-  nav.appendChild(advancedBtn);
-  const rawDataBtn = el('button', { class: 'tab', 'data-target': 'raw-data' }, [document.createTextNode('Raw Data')]);
-  nav.appendChild(rawDataBtn);
   nav.querySelectorAll('button.tab:not(.nav-games-btn)').forEach(btn => {
     btn.addEventListener('click', () => showView(btn.getAttribute('data-target')));
   });
@@ -3288,7 +3282,7 @@ function buildPlayerAnalysisSection() {
 // curated lines. Tournaments defined here drive the tournament grouping in the
 // game filter and Line Analysis everywhere else in the report.
 function buildSetupSection() {
-  const section = el('section', { class: 'view', id: 'setup' }, []);
+  const section = el('section', { class: 'view active', id: 'setup' }, []);
   section.appendChild(text('p', 'eyebrow', 'Set up'));
   section.appendChild(text('p', 'hero-sub', 'Group games into tournaments, add a video link per game, and set player photos. Everything here is saved in this browser.'));
 
@@ -3513,11 +3507,13 @@ function buildSetupSection() {
   }
 
   // ---- Publish ----
-  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Publish for the team')]));
-  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Everything you set up here — tournaments, video links, player photos, curated lines and film tags — is saved in this browser only, so it doesn’t travel with the report file on its own. Publish bakes it all into one standalone HTML file to email, AirDrop, or host: the team gets a clean, read-only report — no Set up tab, the Data Editor becomes a read-only “Film Clips” browser — while Line Analysis stays editable so they can build their own lines on top of yours.')]));
-  const publishBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Publish for team (read-only)')]);
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Publish the Team Report')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Everything you set up here — tournaments, video links, player photos, curated lines and film tags — is saved in this browser only, so it doesn’t travel on its own. Publishing bakes it all into one standalone, mobile-friendly Team Report: the read-only report with every analysis tab (Season, Player, Line, Time Series, and the rest), where the data and analysis live. It’s a point-in-time snapshot — re-publish after you change anything here. Preview it first to check it looks right.')]));
+  const previewBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Preview Team Report')]);
+  previewBtn.addEventListener('click', previewTeamReport);
+  const publishBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Publish Team Report')]);
   publishBtn.addEventListener('click', publishForTeam);
-  section.appendChild(el('div', { class: 'controls-row' }, [publishBtn]));
+  section.appendChild(el('div', { class: 'controls-row' }, [previewBtn, publishBtn]));
 
   renderTournaments();
   renderGamesTable();
@@ -4203,6 +4199,7 @@ function buildDistributableHtml(opts) {
   // Mode flags must be set before the report script reads VIEWER_MODE / TAGONLY_GAME.
   if (opts.viewer) inject = '<script>window.__STATTO_VIEWER__=true;<\/script>\n' + inject;
   if (opts.tagOnlyGame != null) inject = '<script>window.__STATTO_TAGONLY_GAME__=' + Number(opts.tagOnlyGame) + ';<\/script>\n' + inject;
+  if (opts.publishedAt) inject = '<script>window.__STATTO_PUBLISHED_AT__=' + JSON.stringify(String(opts.publishedAt)) + ';<\/script>\n' + inject;
   const marker = '<script id="report-data"';
   let html = PRISTINE_DOC_HTML;
   // Override the browser tab title so otherwise-identical builds (e.g. a
@@ -4218,10 +4215,32 @@ function buildDistributableHtml(opts) {
   return html;
 }
 
-// Locked-down viewer for the team -- Set up hidden, Data Editor reduced to a
-// read-only "Film Clips" browser (Line Analysis stays editable).
+// The published Team Report: read-only, all analysis, Set up hidden, Data
+// Editor reduced to a read-only "Film Clips" browser. Stamped with the publish
+// time and given its own tab title.
+function teamReportHtml() {
+  return buildDistributableHtml({
+    viewer: true,
+    publishedAt: new Date().toISOString(),
+    title: REPORT.teamName + ' — Team Report',
+  });
+}
 function publishForTeam() {
-  downloadFile(buildDistributableHtml({ viewer: true }), slug(REPORT.teamName) + '_team_report.html', 'text/html;charset=utf-8;');
+  downloadFile(teamReportHtml(), slug(REPORT.teamName) + '_team_report.html', 'text/html;charset=utf-8;');
+}
+// Preview opens the same read-only Team Report in a new tab, interactive, so the
+// editor can check it before publishing. (Blob URL inherits this page's origin,
+// so it shares localStorage -- fine, it's the same data, and the viewer never
+// writes anything.)
+function previewTeamReport() {
+  try {
+    const url = URL.createObjectURL(new Blob([teamReportHtml()], { type: 'text/html' }));
+    const win = window.open(url, '_blank');
+    if (!win) { alert('Your browser blocked the preview tab — allow pop-ups for this page, or use Publish and open the file.'); }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    alert('Couldn’t open a preview here — use Publish Team Report instead.');
+  }
 }
 
 // ---------- Export / import ALL custom data (Set up tab) ----------
@@ -4778,10 +4797,18 @@ const LINE_ROWS = [
   },
 ];
 
-function buildLineAnalysisSection() {
-  const section = el('section', { class: 'view', id: 'line-analysis' }, []);
-  section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Line Analysis')]));
-  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Detect recurring 7-person lineups, name them, then compare them like players.')]));
+// Two faces of the same machinery:
+//   variant 'setup'    -> the Set up editor's "Line set up" tab: curate lines
+//                         (Your lines + point picker) and see their rosters.
+//   variant 'analysis' -> the Team Report's "Line Analysis" tab: rosters +
+//                         comparison + scoring efficiency, read-only.
+function buildLineAnalysisSection(variant) {
+  const isSetup = variant === 'setup';
+  const section = el('section', { class: 'view', id: isSetup ? 'line-setup' : 'line-analysis' }, []);
+  section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode(isSetup ? 'Line set up' : 'Line Analysis')]));
+  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode(isSetup
+    ? 'Detect recurring 7-person lineups and name them, then check who plays on each. The Team Report compares them.'
+    : 'Compare the lines set up for this team — rosters, scoring efficiency, and field diagrams.')]));
 
   // Tournaments are now configured on the Set up tab (getTournaments); this
   // tab just consumes them. Labels live there too, so there's no rename UI
@@ -4812,15 +4839,14 @@ function buildLineAnalysisSection() {
   section.appendChild(modeControlsRow);
 
   const managementWrap = el('div', { class: 'line-mgmt' }, []);
+  const rostersWrap = el('div', {}, []);
   const compareWrap = el('div', {}, []);
-  // Teammates come here to read the comparison, not to curate lines. The
-  // read-only report drops the whole management area (line list, point picker,
-  // import/export) -- whoever runs the main report owns the lines -- and shows
-  // only the comparison. The editing report keeps the picker up top.
-  if (VIEWER_MODE) {
-    section.appendChild(compareWrap);
-  } else {
+  // Line set up shows the curation UI + rosters; Line Analysis shows the
+  // comparison (which carries its own rosters block) and nothing editable.
+  if (isSetup) {
     section.appendChild(managementWrap);
+    section.appendChild(rostersWrap);
+  } else {
     section.appendChild(compareWrap);
   }
 
@@ -4852,7 +4878,21 @@ function buildLineAnalysisSection() {
     return s;
   }
   function persist() { saveLinesData(lines, tournamentLabels); }
-  function renderAll() { renderManagement(); renderCompare(); }
+  function relevantLinesNow() {
+    return scopeMode === 'across'
+      ? lines.filter(l => !l.tournamentId)
+      : lines.filter(l => l.tournamentId && selectedTournamentIds.includes(l.tournamentId));
+  }
+  function renderSetupRosters() {
+    rostersWrap.innerHTML = '';
+    const rl = relevantLinesNow();
+    if (rl.length) rostersWrap.appendChild(buildLineRostersSection(rl));
+    else rostersWrap.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Once you create a line above, its roster shows here.')]));
+  }
+  function renderAll() {
+    if (isSetup) { renderManagement(); renderSetupRosters(); }
+    else { renderCompare(); }
+  }
 
   // The tournament's configured label from the Set up tab.
   function tournamentDisplay(t) { return t.label; }
@@ -5124,7 +5164,7 @@ function buildLineAnalysisSection() {
   }
 
   function renderManagement() {
-    if (VIEWER_MODE) return; // the read-only report has no line management at all
+    if (!isSetup) return; // curation UI only exists in the Set up editor
     managementWrap.innerHTML = '';
     currentScopes().forEach(scope => managementWrap.appendChild(buildScopeManagementBlock(scope)));
 
@@ -5242,9 +5282,7 @@ function buildLineAnalysisSection() {
 
   function renderCompare() {
     compareWrap.innerHTML = '';
-    const relevantLines = scopeMode === 'across'
-      ? lines.filter(l => !l.tournamentId)
-      : lines.filter(l => l.tournamentId && selectedTournamentIds.includes(l.tournamentId));
+    const relevantLines = relevantLinesNow();
     if (!relevantLines.length) return;
 
     compareWrap.appendChild(buildLineRostersSection(relevantLines));
@@ -9189,14 +9227,34 @@ function init() {
     return;
   }
 
-  if (!VIEWER_MODE) main.appendChild(buildSetupSection());
-  main.appendChild(buildDataEditorSection(VIEWER_MODE));
-  // Every analysis tab groups/scopes by tournament, so each is registered as
-  // a rebuildable view -- see showView / tournamentsRevision -- to pick up
-  // tournament edits from the Set up tab on the next click into it.
+  // The Set up editor: the desktop authoring console. Only the three set-up
+  // tabs; all the analysis lives in the published Team Report.
+  if (SETUP_MODE) {
+    main.appendChild(el('div', { class: 'setup-desktop-note' }, [document.createTextNode('The Set up editor is built for desktop — on a small screen some controls will be cramped. The published Team Report is the mobile-friendly one.')]));
+    main.appendChild(buildSetupSection());
+    main.appendChild(buildDataEditorSection(false));
+    mountRebuildableView(() => buildLineAnalysisSection('setup'));
+    initTableScrollAffordance(main);
+    return;
+  }
+
+  // The published Team Report (VIEWER_MODE): read-only, all the analysis. The
+  // Data Editor becomes a read-only "Film Clips" browser. Every analysis tab
+  // scopes by tournament, so each is a rebuildable view (see showView /
+  // tournamentsRevision) to pick up tournament edits baked in at publish.
+  main.appendChild(buildDataEditorSection(true));
+  // Stamp the footer with when this snapshot was published.
+  if (PUBLISHED_AT) {
+    const footer = document.querySelector('footer');
+    if (footer) {
+      const d = new Date(PUBLISHED_AT);
+      const stamp = isNaN(d.getTime()) ? PUBLISHED_AT : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      footer.insertBefore(el('div', { class: 'footer-published' }, [document.createTextNode('Team Report published ' + stamp)]), footer.firstChild);
+    }
+  }
   mountRebuildableView(buildSeasonSection);
   mountRebuildableView(buildPlayerAnalysisSection);
-  mountRebuildableView(buildLineAnalysisSection);
+  mountRebuildableView(() => buildLineAnalysisSection('analysis'));
   mountRebuildableView(buildThrowerReceiverSection);
   mountRebuildableView(buildFieldAnalysisSection);
   mountRebuildableView(buildGenderAnalysisSection);

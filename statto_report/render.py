@@ -35,7 +35,7 @@ def generate_html(statto_path, title=None):
     report = compute_team_report(relations, team_name)
     report_json = json.dumps(report)
 
-    page_title = title if (title and title.strip()) else f"{team_name} — Season Report"
+    page_title = title if (title and title.strip()) else f"{team_name} — Set up editor"
 
     html = (
         _read_template("report.html")

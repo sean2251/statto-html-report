@@ -36,9 +36,9 @@ def main():
         output_path = args.output
     else:
         base = os.path.splitext(os.path.basename(args.statto_file))[0]
-        output_path = f"{base}_report.html"
+        output_path = f"{base}_setup_editor.html"
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
 
-    print(f"Wrote {output_path}  (team: {team_name})")
+    print(f"Wrote {output_path}  ({team_name} — Set up editor)")
