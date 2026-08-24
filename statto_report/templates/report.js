@@ -8292,6 +8292,7 @@ function buildTimeSeriesSection() {
   let showAvg = false;
   let showTotal = true;
   let lineEntities = [];  // rebuilt with the line selector
+  let lastSeries = [];    // the series currently drawn, for the export legend
 
   function catalogFor(m) { return m === 'line' ? LINE_TIMESERIES_STATS : TIMESERIES_STATS; }
   function currentStat() { const cat = catalogFor(mode); return cat.find(s => s.key === statKey[mode]) || cat[0]; }
@@ -8453,6 +8454,7 @@ function buildTimeSeriesSection() {
 
   // Draw the chart into `chartWrap` for the current state + width.
   function draw(series, isPct, stat) {
+    lastSeries = series;
     // Remove any previous <svg> (keep the tooltip node).
     [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
 
@@ -8470,7 +8472,7 @@ function buildTimeSeriesSection() {
     // tilted below it, and (optionally) the tournament labels. Tilted names need
     // vertical room proportional to the longest name, so size the band from it
     // and grow the SVG downward -- the plot itself keeps a fixed height.
-    const NAME_ANGLE = 42, NAME_CHARW = 5.4, NAME_MAX = 16;
+    const NAME_ANGLE = 42, NAME_CHARW = 6.7, NAME_MAX = 16;
     const longestName = games.reduce((m, g) => Math.max(m, Math.min(NAME_MAX, (g.opponent || '').length)), 0);
     const nameBand = Math.ceil(Math.sin(NAME_ANGLE * Math.PI / 180) * longestName * NAME_CHARW) + 10;
     const NAME_GAP = 12, TOURN_ROW = hasTournLabels ? 15 : 0;
@@ -8751,18 +8753,6 @@ function buildTimeSeriesSection() {
     const s = currentSelectionSummary();
     return slug(REPORT.teamName) + '_timeseries_' + slug(s.statLabel) + '.png';
   }
-  function wrapText(ctx, text, maxW) {
-    const words = text.split(' ');
-    const lines = [];
-    let cur = '';
-    words.forEach(w => {
-      const test = cur ? cur + ' ' + w : w;
-      if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; } else cur = test;
-    });
-    if (cur) lines.push(cur);
-    if (lines.length > 3) { lines.length = 3; lines[2] = lines[2] + '…'; }
-    return lines;
-  }
 
   // Rasterise the current chart to a PNG Blob, framed with a title, the
   // selection subtitle, and a rotated y-axis label. The live SVG styles its
@@ -8794,49 +8784,79 @@ function buildTimeSeriesSection() {
     const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }));
     const img = new Image();
     img.onload = () => {
-      const scale = 2, P = 22, yLabelW = 22;
-      const sel = currentSelectionSummary();
+      const scale = 2, P = 22, yLabelW = 26;
       const cs = getComputedStyle(document.documentElement);
       const bg = (cs.getPropertyValue('--ink') || '#17181A').trim();
       const fg = (cs.getPropertyValue('--chalk') || '#ECECEC').trim();
       const dim = (cs.getPropertyValue('--chalk-dim') || '#9C9CA1').trim();
+      const good = (cs.getPropertyValue('--good') || '#4FD1AE').trim();
+      const bad = (cs.getPropertyValue('--bad') || '#E8604C').trim();
       const fontStack = '-apple-system, "Segoe UI", Roboto, sans-serif';
-      const eyebrow = (REPORT.teamName + ' · Time Series').toUpperCase();
-      const subtitle = sel.modeLabel + ' · ' + (sel.names.length ? sel.names.join(', ') : 'nothing selected');
+      const stat = currentStat();
+      const title = REPORT.teamName + ' · Time Series';
+      const resolveColor = c => c === 'var(--chalk)' ? fg : c === 'var(--chalk-dim)' ? dim : c;
 
+      // Legend items mirror the on-screen legend: a line swatch per series, then
+      // the Win / Loss colour key. Lay them out with wrapping to size the canvas.
       const meas = document.createElement('canvas').getContext('2d');
-      meas.font = '13px ' + fontStack;
-      const subLines = wrapText(meas, subtitle, svgW);
-      const eyebrowH = 15, titleH = 24, subLineH = 17;
-      const headerH = eyebrowH + titleH + subLines.length * subLineH + 12;
+      const legendFont = '13px ' + fontStack;
+      meas.font = legendFont;
+      const SW = 18, GAP = 7, ITEM_GAP = 16, ROW_H = 21;
+      const items = lastSeries.map(s => ({ line: true, color: resolveColor(s.color), dash: !!s.dash, label: s.name }));
+      items.push({ dot: true, color: good, label: 'Win' });
+      items.push({ dot: true, color: bad, label: 'Loss' });
+      items.forEach(it => { it.w = SW + GAP + meas.measureText(it.label).width; });
+      const rows = [[]];
+      let rx = 0;
+      items.forEach(it => { if (rx > 0 && rx + it.w > svgW) { rows.push([]); rx = 0; } rows[rows.length - 1].push(it); rx += it.w + ITEM_GAP; });
+      const legendH = rows.length * ROW_H;
+
+      const titleH = 30;
       const canvasW = P + yLabelW + svgW + P;
-      const chartTop = P + headerH;
-      const canvasH = chartTop + svgH + P;
+      const chartTop = P + titleH;
+      const legendTop = chartTop + svgH + 14;
+      const canvasH = legendTop + legendH + P;
 
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(canvasW * scale);
       canvas.height = Math.round(canvasH * scale);
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
-      ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = bg; ctx.fillRect(0, 0, canvasW, canvasH);
 
       const xText = P + yLabelW;
-      ctx.fillStyle = dim; ctx.font = '600 11px ' + fontStack;
-      ctx.fillText(eyebrow, xText, P + 11);
-      ctx.fillStyle = fg; ctx.font = '600 18px ' + fontStack;
-      ctx.fillText(sel.statLabel, xText, P + eyebrowH + 18);
-      ctx.fillStyle = dim; ctx.font = '13px ' + fontStack;
-      subLines.forEach((ln, i) => ctx.fillText(ln, xText, P + eyebrowH + titleH + i * subLineH + 6));
+      ctx.fillStyle = fg; ctx.font = '600 16px ' + fontStack; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(title, xText, P + 18);
 
       ctx.drawImage(img, xText, chartTop, svgW, svgH);
 
       ctx.save();
-      ctx.translate(P + 12, chartTop + svgH / 2);
+      ctx.translate(P + 14, chartTop + svgH / 2);
       ctx.rotate(-Math.PI / 2);
-      ctx.fillStyle = dim; ctx.font = '600 12px ' + fontStack; ctx.textAlign = 'center';
-      ctx.fillText(sel.statLabel, 0, 0);
+      ctx.fillStyle = dim; ctx.font = '600 14px ' + fontStack; ctx.textAlign = 'center';
+      ctx.fillText(stat.label, 0, 0);
       ctx.restore();
+      ctx.textAlign = 'left';
+
+      ctx.font = legendFont; ctx.textBaseline = 'middle';
+      rows.forEach((row, ri) => {
+        let cx = xText;
+        const cy = legendTop + ri * ROW_H + ROW_H / 2;
+        row.forEach(it => {
+          if (it.line) {
+            ctx.strokeStyle = it.color; ctx.lineWidth = 2;
+            ctx.setLineDash(it.dash ? [4, 3] : []);
+            ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + SW, cy); ctx.stroke();
+            ctx.setLineDash([]);
+          } else {
+            ctx.fillStyle = it.color; ctx.beginPath(); ctx.arc(cx + SW / 2, cy, 4, 0, 2 * Math.PI); ctx.fill();
+          }
+          ctx.fillStyle = dim;
+          ctx.fillText(it.label, cx + SW + GAP, cy);
+          cx += it.w + ITEM_GAP;
+        });
+      });
+      ctx.textBaseline = 'alphabetic';
 
       URL.revokeObjectURL(url);
       canvas.toBlob(b => cb(b), 'image/png');

@@ -854,12 +854,12 @@
   .ts-svg .ts-grid { stroke: rgba(var(--chalk-rgb),0.09); stroke-width: 1; }
   .ts-svg .ts-zero { stroke: rgba(var(--chalk-rgb),0.28); stroke-width: 1.2; }
   .ts-svg .ts-sep { stroke: rgba(var(--chalk-rgb),0.24); stroke-width: 1; stroke-dasharray: 4 4; }
-  .ts-svg .ts-axis { fill: var(--chalk-dim); font-size: 11px; font-family: var(--sans); font-variant-numeric: tabular-nums; }
-  .ts-svg .ts-tourn { fill: var(--chalk-dim); font-size: 10px; font-weight: 600; font-family: var(--sans); }
+  .ts-svg .ts-axis { fill: var(--chalk-dim); font-size: 13px; font-family: var(--sans); font-variant-numeric: tabular-nums; }
+  .ts-svg .ts-tourn { fill: var(--chalk-dim); font-size: 11px; font-weight: 600; font-family: var(--sans); }
   .ts-svg circle.ts-win { fill: var(--good); }
   .ts-svg circle.ts-loss { fill: var(--bad); }
   .ts-svg circle.ts-tie { fill: var(--chalk-dim); }
-  .ts-svg .ts-gname { font-size: 10px; font-family: var(--sans); font-weight: 600; }
+  .ts-svg .ts-gname { font-size: 12.5px; font-family: var(--sans); font-weight: 600; }
   .ts-svg text.ts-gname.ts-win { fill: var(--good); }
   .ts-svg text.ts-gname.ts-loss { fill: var(--bad); }
   .ts-svg text.ts-gname.ts-tie { fill: var(--chalk-dim); }
