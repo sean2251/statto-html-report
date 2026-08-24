@@ -10257,8 +10257,8 @@ function buildTimeSeriesSection() {
     const NAME_ANGLE = 42, NAME_CHARW = 5.4, NAME_MAX = 16;
     const longestName = games.reduce((m, g) => Math.max(m, Math.min(NAME_MAX, (g.opponent || '').length)), 0);
     const nameBand = Math.ceil(Math.sin(NAME_ANGLE * Math.PI / 180) * longestName * NAME_CHARW) + 10;
-    const DOTS_GAP = 13, TOURN_ROW = hasTournLabels ? 15 : 0;
-    const mB = DOTS_GAP + nameBand + TOURN_ROW + 6;
+    const NAME_GAP = 12, TOURN_ROW = hasTournLabels ? 15 : 0;
+    const mB = NAME_GAP + nameBand + TOURN_ROW + 6;
     const plotH = narrow ? 190 : 225;
     const H = mT + plotH + mB;
 
@@ -10295,14 +10295,12 @@ function buildTimeSeriesSection() {
       }
     });
 
-    // X axis: a win/loss dot per game with the opponent's name tilted below it,
-    // the name coloured green for a win and red for a loss.
-    const dotsY = mT + plotH + DOTS_GAP;
-    const namesTopY = dotsY + 6;
+    // X axis: the opponent's name per game, tilted below the axis and coloured
+    // green for a win, red for a loss (the colour is the win/loss cue -- no dot).
+    const namesTopY = mT + plotH + NAME_GAP;
     games.forEach((g, i) => {
       const x = xFor(i);
       const cls = g.result === 'W' ? 'ts-win' : g.result === 'L' ? 'ts-loss' : 'ts-tie';
-      svg.appendChild(svgEl('circle', { cx: x, cy: dotsY, r: 3.5, class: cls }));
       const nm = svgEl('text', {
         x: x, y: namesTopY, class: 'ts-gname ' + cls,
         'text-anchor': 'end', transform: `rotate(-${NAME_ANGLE} ${x} ${namesTopY})`,
