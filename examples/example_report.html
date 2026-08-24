@@ -1446,8 +1446,8 @@
        transform, which would reparent the sticky tag panel's containing block). */
     grid-template-columns: minmax(0, 1fr) auto auto minmax(300px, 370px) minmax(0, 1fr);
     gap: 20px; align-items: stretch; margin-top: 8px;
-    width: min(1760px, calc(100vw - 40px));
-    margin-left: calc((100% - min(1760px, calc(100vw - 40px))) / 2);
+    width: min(2300px, calc(100vw - 40px));
+    margin-left: calc((100% - min(2300px, calc(100vw - 40px))) / 2);
   }
   .de-video-col { grid-column: 2; }
   .de-field-col { grid-column: 3; }
@@ -1489,10 +1489,15 @@
     overflow: hidden;
     width: 720px;
     min-width: 300px;
-    /* Cap so a fully-grown video still leaves room for the field + panel in the
-       breakout row rather than overlapping them (790px ≈ default field + panel
-       + the row's gaps). max() keeps it above the min on narrow viewports. */
-    max-width: max(300px, calc(min(1760px, 100vw - 40px) - 790px));
+    /* Two caps, whichever is smaller:
+       - a room cap, so a fully-grown video still leaves 790px (≈ default field +
+         panel + the row's gaps) beside it rather than overlapping them; and
+       - a hard cap of 1450px (~1.5x the old ~970px ceiling), so on a very wide
+         monitor the video tops out at "50% bigger" instead of swallowing the row.
+       The room cap is what limits growth on anything narrower than ~2240px wide,
+       since the video literally can't get bigger without pushing the field/panel
+       off screen. max() keeps it above the min on narrow viewports. */
+    max-width: min(1450px, max(300px, calc(min(2300px, 100vw - 40px) - 790px)));
     margin-bottom: 4px;
   }
   .de-player-host {
