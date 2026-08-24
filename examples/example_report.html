@@ -370,6 +370,13 @@
   .game-filter-row:hover { background: rgba(var(--chalk-rgb),0.06); }
   .game-filter-row input[type="checkbox"] { accent-color: var(--chalk); cursor: pointer; }
   .game-filter-sep { height: 1px; background: rgba(var(--chalk-rgb),0.14); margin: 4px 2px; }
+  .game-filter-clearrow { display: flex; justify-content: flex-end; padding: 0 2px 4px; margin-bottom: 4px; border-bottom: 1px solid rgba(var(--chalk-rgb),0.12); }
+  .game-filter-clear {
+    background: none; border: none; cursor: pointer;
+    color: var(--chalk-dim); font-family: var(--sans); font-size: 11.5px; font-weight: 600;
+    text-transform: none; letter-spacing: normal; padding: 3px 4px; border-radius: 5px;
+  }
+  .game-filter-clear:hover { color: var(--chalk); background: rgba(var(--chalk-rgb),0.06); }
   .game-filter-row.disabled { opacity: 0.4; }
   .game-filter-row.disabled input,
   .game-filter-row.disabled { cursor: not-allowed; }
@@ -817,6 +824,8 @@
 
   /* ---------- Time Series ---------- */
   .ts-controls { align-items: flex-end; gap: 10px 14px; }
+  .ts-hidden { display: none !important; }
+  .ts-entity-slot { display: inline-flex; }
   .ts-field { display: inline-flex; flex-direction: column; gap: 4px; }
   .ts-field-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--chalk-dim); }
   .ts-stat-select {
@@ -4921,6 +4930,20 @@ function buildPlayerSelector(onChange, options) {
   const btn = el('button', { class: 'game-filter-btn', type: 'button' }, []);
   const panel = el('div', { class: 'game-filter-panel' }, []);
   panel.style.display = 'none';
+
+  // One-click "Deselect all", available in every player/line picker.
+  const clearBtn = el('button', { class: 'game-filter-clear', type: 'button' }, [document.createTextNode('Deselect all')]);
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!selectedOrder.length) return;
+    selectedOrder = [];
+    entries.forEach(({ cb }) => { cb.checked = false; });
+    if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+    updateLabel();
+    updateDisabledStates();
+    onChange(selectedOrder.slice());
+  });
+  panel.appendChild(el('div', { class: 'game-filter-clearrow' }, [clearBtn]));
 
   // items lets callers select from an arbitrary list (e.g. named lines)
   // instead of the season roster -- same widget either way. initialSelected
@@ -9963,10 +9986,27 @@ const ADV_DESCRIPTIONS = [
 ];
 
 // ---------- Time Series section ----------
-// Each stat plots one value per game. Counting stats support a per-player line,
-// a whole-team total (sum) and a whole-team average (mean). Rate stats (%) plot
-// each player's rate and a whole-team *weighted* average (sum numer / sum denom)
-// -- a team "total" of a percentage is meaningless, so it's disabled for rates.
+// One value per game, plotted for the chosen entities. Two modes:
+//   * By Player -- per-player box-score and EDGE stats, with optional whole-team
+//     average / total lines.
+//   * By Line   -- per-line stats (from Line Analysis) plus "All Lines" (the
+//     whole team). No average/total there -- All Lines already is the aggregate.
+// Stat kinds: 'count' (sum-able -> team total available), 'rate' (a 0-100 %),
+// 'rating' (an unbounded score, e.g. EDGE / PE -- mean only, auto-scaled y).
+// source 'adv' pulls a game's row from computeAdvancedStats([gi]) instead of the
+// box score. `dec` sets display decimals.
+
+// Categorical colours for player/line series -- deliberately free of green and
+// red so a plotted line is never confused with the win/loss colouring on the
+// x-axis (opponent names + dots).
+const TS_ENTITY_COLORS = ['#4E9BE0', '#9B79EA', '#E0952E', '#D061C9', '#5D6FE0', '#B5793F', '#C9A227'];
+
+function tsLineName(line, tournaments) {
+  if (!line.tournamentId) return line.name;
+  const t = tournaments.find(tt => tt.id === line.tournamentId);
+  return line.name + (t ? ' · ' + t.label : '');
+}
+
 const TIMESERIES_STATS = [
   { key: 'goals', label: 'Goals', kind: 'count', get: r => r.goals },
   { key: 'assists', label: 'Assists', kind: 'count', get: r => r.assists },
@@ -9992,7 +10032,46 @@ const TIMESERIES_STATS = [
   { key: 'totalScoringEfficiency', label: 'Scoring efficiency %', kind: 'rate', get: r => r.totalScoringEfficiency, numer: r => (r.offenseWon || 0) + (r.defenseWon || 0), denom: r => (r.offensePlayed || 0) + (r.defensePlayed || 0) },
   { key: 'offensiveScoringEfficiency', label: 'O scoring efficiency %', kind: 'rate', get: r => r.offensiveScoringEfficiency, numer: r => r.offenseWon, denom: r => r.offensePlayed },
   { key: 'defensiveScoringEfficiency', label: 'D scoring efficiency %', kind: 'rate', get: r => r.defensiveScoringEfficiency, numer: r => r.defenseWon, denom: r => r.defensePlayed },
+  // EDGE / advanced, computed per game. EDGE-O/B/EDGE are goal-equivalents (a
+  // team total is meaningful -- EDGE-O sums to the team's goals); xE/PE are
+  // per-opportunity ratings (mean only). CR is a within-selection percentile, so
+  // it has no standalone per-game meaning and is deliberately left out.
+  { key: 'edgeO', label: 'EDGE-O', kind: 'count', source: 'adv', dec: 1, get: r => r.edgeO },
+  { key: 'edgeB', label: 'EDGE-B', kind: 'count', source: 'adv', dec: 1, get: r => r.edgeB },
+  { key: 'edge', label: 'EDGE', kind: 'count', source: 'adv', dec: 1, get: r => r.edge },
+  { key: 'xEO', label: 'xEO', kind: 'rating', source: 'adv', dec: 1, get: r => r.xEO },
+  { key: 'xEB', label: 'xEB', kind: 'rating', source: 'adv', dec: 1, get: r => r.xEB },
+  { key: 'xE', label: 'xE', kind: 'rating', source: 'adv', dec: 1, get: r => r.xE },
+  { key: 'cpPlus', label: 'CP+ (%)', kind: 'rate', source: 'adv', get: r => r.cpPlus },
+  { key: 'peO', label: 'PE-O', kind: 'rating', source: 'adv', dec: 2, get: r => r.peO },
+  { key: 'peB', label: 'PE-B', kind: 'rating', source: 'adv', dec: 2, get: r => r.peB },
+  { key: 'pe', label: 'PE', kind: 'rating', source: 'adv', dec: 2, get: r => r.pe },
 ];
+TIMESERIES_STATS.forEach(s => { s.group = s.source === 'adv' ? 'Advanced (EDGE)' : (s.kind === 'rate' ? 'Rates (%)' : 'Counting stats'); });
+
+// By-Line stats -- one value per game, read off computeLineStats() for a line's
+// points in that game. Only stats that read cleanly game-by-game are included.
+const LINE_TIMESERIES_STATS = [
+  { key: 'pointsPlayed', label: 'Points played', kind: 'count', get: l => l.pointsPlayed },
+  { key: 'offensePlayed', label: 'Offensive points', kind: 'count', get: l => l.offensePlayed },
+  { key: 'defensePlayed', label: 'Defensive points', kind: 'count', get: l => l.defensePlayed },
+  { key: 'blocks', label: 'Blocks', kind: 'count', get: l => l.blocks },
+  { key: 'oppTurnovers', label: 'Opponent turnovers', kind: 'count', get: l => l.oppTurnovers },
+  { key: 'avgLeverage', label: 'Avg point leverage', kind: 'rating', dec: 2, get: l => l.avgLeverage },
+  { key: 'pointsWonRate', label: 'Points won %', kind: 'rate', get: l => l.pointsWonRate },
+  { key: 'holdRate', label: 'Hold rate %', kind: 'rate', get: l => l.holdRate },
+  { key: 'breakRate', label: 'Break rate %', kind: 'rate', get: l => l.breakRate },
+  { key: 'seTotalPP', label: 'Scoring efficiency % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.total.pct },
+  { key: 'seOffPP', label: 'Offensive scoring eff % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.offense.pct },
+  { key: 'seDefPP', label: 'Defensive scoring eff % (per point)', kind: 'rate', get: l => l.scoringEfficiency.perPoint.defense.pct },
+  { key: 'seTotalPoss', label: 'Scoring efficiency % (per possession)', kind: 'rate', get: l => l.scoringEfficiency.perPossession.total.pct },
+  { key: 'seTotalFirst', label: 'Scoring efficiency % (first possession)', kind: 'rate', get: l => l.scoringEfficiency.firstPossession.total.pct },
+  { key: 'throwCompletionPct', label: 'Throw completion %', kind: 'rate', get: l => l.throwCompletionPct },
+  { key: 'huckCompletionPct', label: 'Huck completion %', kind: 'rate', get: l => l.huckCompletionPct },
+  { key: 'assistCompletionPct', label: 'Assist completion %', kind: 'rate', get: l => l.assistCompletionPct },
+  { key: 'redZoneRate', label: 'Red zone conversion %', kind: 'rate', get: l => l.redZoneRate },
+];
+LINE_TIMESERIES_STATS.forEach(s => { s.group = s.kind === 'rate' ? 'Rates & efficiency' : 'Counts'; });
 
 // "Nice" axis ticks spanning [min,max] at ~1/2/5 * 10^n steps (always includes
 // any 0 that falls in range, so the baseline lands on a gridline).
@@ -10012,39 +10091,81 @@ function tsAxisTicks(min, max) {
 function buildTimeSeriesSection() {
   const section = el('section', { class: 'view', id: 'time-series' }, []);
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Time Series')]));
-  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Track a stat game by game across the season. Add players, the team average, or the team total, and hover (or tap) any game for the details.')]));
+  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode('Track a stat game by game across the season — by player or by line. Add entities, and (for players) the team average or total, then hover or tap any game for the details.')]));
 
   const games = REPORT.games;
   const n = games.length;
 
-  // State.
-  let statKey = 'goals';
+  // State. statKey is remembered per mode so switching back restores your pick.
+  let mode = 'player';
+  const statKey = { player: 'goals', line: 'holdRate' };
   let selectedPlayers = [];
+  let selectedLineNames = [];
   let showAvg = false;
   let showTotal = true;
+  let lineEntities = [];  // rebuilt with the line selector
+
+  function catalogFor(m) { return m === 'line' ? LINE_TIMESERIES_STATS : TIMESERIES_STATS; }
+  function currentStat() { const cat = catalogFor(mode); return cat.find(s => s.key === statKey[mode]) || cat[0]; }
+
+  // Curated lines (named on the Line Analysis tab) plus "All Lines" = the whole
+  // team (every point). Each carries the pointKeys computeLineStats() needs.
+  function allLineEntities() {
+    const tournaments = getTournaments();
+    const lines = (loadLinesData().lines || []).map(l => ({ name: tsLineName(l, tournaments), pointKeys: l.pointKeys, isAll: false }));
+    const allKeys = [];
+    games.forEach((g, gi) => (g.points || []).forEach(p => allKeys.push(pointKey(gi, p.number))));
+    return [{ name: 'All Lines', pointKeys: allKeys, isAll: true }, ...lines];
+  }
+
+  function populateStatSelect() {
+    statSelect.innerHTML = '';
+    const groups = new Map();
+    catalogFor(mode).forEach(s => {
+      if (!groups.has(s.group)) { const og = el('optgroup', { label: s.group }, []); groups.set(s.group, og); statSelect.appendChild(og); }
+      groups.get(s.group).appendChild(el('option', { value: s.key }, [document.createTextNode(s.label)]));
+    });
+    statSelect.value = statKey[mode];
+  }
+
+  // The entity picker is the same multi-select widget either way; its items are
+  // the roster in player mode and the lines in line mode.
+  function buildEntitySelector() {
+    entitySlot.innerHTML = '';
+    if (mode === 'player') {
+      entitySlot.appendChild(buildPlayerSelector(sel => { selectedPlayers = sel; render(); }, { maxPlayers: 7, roleLabel: 'Players', initialSelected: selectedPlayers }));
+    } else {
+      lineEntities = allLineEntities();
+      entitySlot.appendChild(buildPlayerSelector(sel => { selectedLineNames = sel; render(); }, { maxPlayers: 7, roleLabel: 'Lines', items: lineEntities.map(e => e.name), preserveOrder: true, initialSelected: selectedLineNames }));
+    }
+  }
+
+  function onModeChange() {
+    populateStatSelect();
+    buildEntitySelector();
+    const playerMode = mode === 'player';
+    avgChip.classList.toggle('ts-hidden', !playerMode);
+    totalChip.classList.toggle('ts-hidden', !playerMode);
+    render();
+  }
 
   // ----- Controls row -----
   const controlsRow = el('div', { class: 'controls-row ts-controls' }, []);
 
-  // Stat dropdown -- a native <select> (best mobile picker), split into a
-  // counting-stats group and a rate-stats group.
+  // Player / Line mode toggle.
+  const modeToggle = buildSegToggle([{ key: 'player', label: 'By Player' }, { key: 'line', label: 'By Line' }], k => { if (k !== mode) { mode = k; onModeChange(); } }, 'player');
+  controlsRow.appendChild(el('label', { class: 'ts-field' }, [el('span', { class: 'ts-field-label' }, [document.createTextNode('Compare')]), modeToggle]));
+
+  // Stat dropdown -- a native <select> (best mobile picker), grouped by kind.
   const statSelect = el('select', { class: 'ts-stat-select', 'aria-label': 'Statistic' }, []);
-  const countGroup = el('optgroup', { label: 'Counting stats' }, []);
-  const rateGroup = el('optgroup', { label: 'Rates (%)' }, []);
-  TIMESERIES_STATS.forEach(s => {
-    const o = el('option', { value: s.key }, [document.createTextNode(s.label)]);
-    (s.kind === 'rate' ? rateGroup : countGroup).appendChild(o);
-  });
-  statSelect.appendChild(countGroup);
-  statSelect.appendChild(rateGroup);
-  statSelect.value = statKey;
-  statSelect.addEventListener('change', () => { statKey = statSelect.value; render(); });
+  statSelect.addEventListener('change', () => { statKey[mode] = statSelect.value; render(); });
   controlsRow.appendChild(el('label', { class: 'ts-field' }, [el('span', { class: 'ts-field-label' }, [document.createTextNode('Stat')]), statSelect]));
 
-  // Player multi-select (whole-team lines are the avg/total toggles below).
-  controlsRow.appendChild(buildPlayerSelector(sel => { selectedPlayers = sel; render(); }, { maxPlayers: 7, roleLabel: 'Players' }));
+  // Entity multi-select (players or lines), swapped in on mode change.
+  const entitySlot = el('span', { class: 'ts-entity-slot' }, []);
+  controlsRow.appendChild(entitySlot);
 
-  // Team average / total toggles.
+  // Team average / total toggles (player mode only).
   const avgCb = el('input', { type: 'checkbox' }, []);
   avgCb.checked = showAvg;
   const avgChip = el('label', { class: 'ts-toggle' }, [avgCb, el('span', { class: 'ts-toggle-sw ts-sw-avg' }, []), document.createTextNode('Team average')]);
@@ -10059,9 +10180,12 @@ function buildTimeSeriesSection() {
   controlsRow.appendChild(totalChip);
   section.appendChild(controlsRow);
 
-  const totalNote = el('p', { class: 'ts-total-note' }, [document.createTextNode('Team total isn’t shown for % stats — “Team average” is the whole team’s combined rate.')]);
+  const totalNote = el('p', { class: 'ts-total-note' }, [document.createTextNode('Team total is only shown for counting stats — for rates and ratings, “Team average” is the whole-team value.')]);
   totalNote.style.display = 'none';
   section.appendChild(totalNote);
+  const lineNote = el('p', { class: 'ts-total-note' }, [document.createTextNode('Only “All Lines” (the whole team) is available until you name some lines on the Line Analysis tab.')]);
+  lineNote.style.display = 'none';
+  section.appendChild(lineNote);
 
   const chartWrap = el('div', { class: 'ts-chart-wrap' }, []);
   section.appendChild(chartWrap);
@@ -10072,6 +10196,18 @@ function buildTimeSeriesSection() {
   const tip = el('div', { class: 'ts-tip' }, []);
   tip.style.display = 'none';
   chartWrap.appendChild(tip);
+
+  // Memoised per-game EDGE rows (games/box scores don't change during a section's
+  // life) so switching between advanced stats or resizing doesn't recompute them.
+  const advGameCache = new Map();
+  function advRowsFor(gi) {
+    if (!advGameCache.has(gi)) {
+      const m = new Map();
+      computeAdvancedStats([gi]).forEach(r => m.set(r.player, r));
+      advGameCache.set(gi, m);
+    }
+    return advGameCache.get(gi);
+  }
 
   // ----- Tournament grouping for the x-axis -----
   // Walk the games in order; a run of consecutive games in the same tournament
@@ -10089,10 +10225,10 @@ function buildTimeSeriesSection() {
     return groups;
   }
 
-  function fmtVal(v, kind, stat) {
+  function fmtVal(v, seriesKind, stat) {
     if (stat.kind === 'rate') return Math.round(v) + '%';
-    if (kind === 'avg') return (Math.round(v * 10) / 10).toFixed(1);
-    return String(Math.round(v));
+    const dec = stat.dec != null ? stat.dec : (seriesKind === 'avg' ? 1 : 0);
+    return v.toFixed(dec);
   }
   function tsTrunc(str, maxChars) {
     if (!str) return '';
@@ -10100,7 +10236,7 @@ function buildTimeSeriesSection() {
   }
 
   // Draw the chart into `chartWrap` for the current state + width.
-  function draw(series, isRate, stat) {
+  function draw(series, isPct, stat) {
     // Remove any previous <svg> (keep the tooltip node).
     [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
 
@@ -10128,7 +10264,7 @@ function buildTimeSeriesSection() {
 
     // Y domain.
     let vmin, vmax;
-    if (isRate) { vmin = 0; vmax = 100; }
+    if (isPct) { vmin = 0; vmax = 100; }
     else {
       const all = [];
       series.forEach(s => s.values.forEach(v => { if (v != null) all.push(v); }));
@@ -10147,7 +10283,7 @@ function buildTimeSeriesSection() {
       const zero = Math.abs(t) < 1e-9;
       svg.appendChild(svgEl('line', { x1: mL, y1: y, x2: W - mR, y2: y, class: zero ? 'ts-zero' : 'ts-grid' }));
       const lbl = svgEl('text', { x: mL - 6, y: y + 3, class: 'ts-axis', 'text-anchor': 'end' });
-      lbl.textContent = isRate ? t + '%' : String(t);
+      lbl.textContent = isPct ? t + '%' : String(t);
       svg.appendChild(lbl);
     });
 
@@ -10270,11 +10406,13 @@ function buildTimeSeriesSection() {
   }
 
   function render() {
-    const stat = TIMESERIES_STATS.find(s => s.key === statKey) || TIMESERIES_STATS[0];
-    const isRate = stat.kind === 'rate';
-    totalChip.classList.toggle('disabled', isRate);
-    totalCb.disabled = isRate;
-    totalNote.style.display = isRate ? 'block' : 'none';
+    const stat = currentStat();
+    const isPct = stat.kind === 'rate';
+    const canTotal = stat.kind === 'count';
+    totalChip.classList.toggle('disabled', !canTotal);
+    totalCb.disabled = !canTotal;
+    totalNote.style.display = (mode === 'player' && !canTotal) ? 'block' : 'none';
+    lineNote.style.display = (mode === 'line' && lineEntities.length <= 1) ? 'block' : 'none';
 
     if (!n) {
       [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
@@ -10283,50 +10421,66 @@ function buildTimeSeriesSection() {
       return;
     }
 
-    // Per-game player -> box-score row.
-    const rowsByGame = games.map(g => {
-      const m = new Map();
-      (g.boxScore || []).forEach(r => m.set(r.player, r));
-      return m;
-    });
-
     const series = [];
-    selectedPlayers.forEach((p, idx) => {
-      const values = rowsByGame.map(m => {
-        const r = m.get(p);
-        if (!r) return null;
-        const v = stat.get(r);
-        return (v == null || Number.isNaN(v)) ? null : v;
+    if (mode === 'player') {
+      // Per-game player -> row: box score, or an EDGE row for an advanced stat.
+      const dataByGame = games.map((g, gi) => {
+        if (stat.source === 'adv') return advRowsFor(gi);
+        const m = new Map();
+        (g.boxScore || []).forEach(r => m.set(r.player, r));
+        return m;
       });
-      series.push({ name: p, color: compareColorVar(idx), values, dash: '', width: 2, kind: 'player' });
-    });
-    if (showAvg) {
-      const values = rowsByGame.map(m => {
-        const rows = [...m.values()];
-        if (!rows.length) return null;
-        if (isRate) {
-          let nu = 0, de = 0;
-          rows.forEach(r => { nu += stat.numer(r) || 0; de += stat.denom(r) || 0; });
-          return de > 0 ? (nu / de) * 100 : null;
-        }
-        let sum = 0;
-        rows.forEach(r => { sum += stat.get(r) || 0; });
-        return sum / rows.length;
+      selectedPlayers.forEach((p, idx) => {
+        const values = dataByGame.map(m => {
+          const r = m.get(p);
+          if (!r) return null;
+          const v = stat.get(r);
+          return (v == null || Number.isNaN(v)) ? null : v;
+        });
+        series.push({ name: p, color: TS_ENTITY_COLORS[idx % TS_ENTITY_COLORS.length], values, dash: '', width: 2, kind: 'player' });
       });
-      series.push({ name: 'Team average', color: 'var(--chalk-dim)', values, dash: '5 4', width: 2, kind: 'avg' });
-    }
-    if (showTotal && !isRate) {
-      const values = rowsByGame.map(m => {
-        const rows = [...m.values()];
-        if (!rows.length) return null;
-        let sum = 0;
-        rows.forEach(r => { sum += stat.get(r) || 0; });
-        return sum;
+      if (showAvg) {
+        const values = dataByGame.map(m => {
+          const rows = [...m.values()];
+          if (!rows.length) return null;
+          if (stat.kind === 'rate' && stat.numer && stat.denom) {
+            let nu = 0, de = 0;
+            rows.forEach(r => { nu += stat.numer(r) || 0; de += stat.denom(r) || 0; });
+            return de > 0 ? (nu / de) * 100 : null;
+          }
+          let sum = 0, cnt = 0;
+          rows.forEach(r => { const v = stat.get(r); if (v != null && !Number.isNaN(v)) { sum += v; cnt++; } });
+          return cnt ? sum / cnt : null;
+        });
+        series.push({ name: 'Team average', color: 'var(--chalk-dim)', values, dash: '5 4', width: 2, kind: 'avg' });
+      }
+      if (showTotal && canTotal) {
+        const values = dataByGame.map(m => {
+          const rows = [...m.values()];
+          if (!rows.length) return null;
+          let sum = 0;
+          rows.forEach(r => { const v = stat.get(r); if (v != null && !Number.isNaN(v)) sum += v; });
+          return sum;
+        });
+        series.push({ name: 'Team total', color: 'var(--chalk)', values, dash: '', width: 2.6, kind: 'total' });
+      }
+    } else {
+      const ents = selectedLineNames.map(nm => lineEntities.find(e => e.name === nm)).filter(Boolean);
+      let cIdx = 0;
+      ents.forEach(en => {
+        const values = games.map((g, gi) => {
+          const ls = computeLineStats(en.pointKeys, [gi]);
+          if (!ls.pointsPlayed) return null;   // line didn't play this game
+          const v = stat.get(ls);
+          return (v == null || Number.isNaN(v)) ? null : v;
+        });
+        // "All Lines" (the team) gets the neutral chalk line, like Team total.
+        const color = en.isAll ? 'var(--chalk)' : TS_ENTITY_COLORS[cIdx++ % TS_ENTITY_COLORS.length];
+        series.push({ name: en.name, color, values, dash: '', width: en.isAll ? 2.6 : 2, kind: 'entity' });
       });
-      series.push({ name: 'Team total', color: 'var(--chalk)', values, dash: '', width: 2.6, kind: 'total' });
     }
 
-    // Legend (win/loss key always; series when any).
+    // Legend (series, then the win/loss colour key).
     legend.innerHTML = '';
     series.forEach(s => {
       legend.appendChild(el('span', { class: 'ts-leg-item' }, [
@@ -10341,13 +10495,18 @@ function buildTimeSeriesSection() {
     if (!series.length) {
       [...chartWrap.querySelectorAll('svg')].forEach(s => s.remove());
       tip.style.display = 'none';
-      chartWrap.appendChild(el('p', { class: 'pitch-caption ts-empty' }, [document.createTextNode('Pick players above, or turn on Team average / Team total, to plot a stat over the season.')]));
+      const msg = mode === 'line'
+        ? 'Pick one or more lines (or All Lines) above to plot a stat over the season.'
+        : 'Pick players above, or turn on Team average / Team total, to plot a stat over the season.';
+      chartWrap.appendChild(el('p', { class: 'pitch-caption ts-empty' }, [document.createTextNode(msg)]));
       return;
     }
     [...chartWrap.querySelectorAll('.ts-empty')].forEach(e => e.remove());
-    draw(series, isRate, stat);
+    draw(series, isPct, stat);
   }
 
+  populateStatSelect();
+  buildEntitySelector();
   render();
   // Redraw at the real width once the tab becomes visible, and on resize.
   if (typeof ResizeObserver !== 'undefined') {
@@ -10465,9 +10624,9 @@ const TOURS = {
   ],
   'time-series': [
     { title: 'Time Series', body: 'How a stat moved game by game across the season, in chronological order, with dashed lines marking where one tournament ends and the next begins.' },
-    { sel: '.ts-stat-select', title: 'Pick a stat', body: 'Choose any counting stat or rate from the dropdown — the whole chart redraws for it.' },
-    { sel: '.ts-controls', title: 'Choose what to plot', body: 'Add up to seven players as their own lines, and layer on the team average or team total for context.' },
-    { sel: '.ts-chart-wrap', title: 'The chart', body: 'Each point is one game. The dots underneath are green for a win and red for a loss — hover or tap any game for the exact numbers.' },
+    { sel: '.ts-controls', title: 'By player or by line', body: 'Switch between comparing players and comparing lines (drawn from Line Analysis, plus “All Lines” for the whole team). Pick who to plot on the right.' },
+    { sel: '.ts-stat-select', title: 'Pick a stat', body: 'Counting stats, rates, and the EDGE advanced metrics for players; scoring efficiency and more for lines — the whole chart redraws for your pick.' },
+    { sel: '.ts-chart-wrap', title: 'The chart', body: 'Each point is one game. The opponent name below is green for a win and red for a loss — hover or tap any game for the exact numbers.' },
   ],
   'advanced-stats': [
     { title: 'Advanced Stats', body: 'The Ultiworld EDGE metrics: a way of valuing every yard, score and turnover on one scale so players can be compared with a single number.' },

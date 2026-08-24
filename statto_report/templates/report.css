@@ -354,6 +354,13 @@
   .game-filter-row:hover { background: rgba(var(--chalk-rgb),0.06); }
   .game-filter-row input[type="checkbox"] { accent-color: var(--chalk); cursor: pointer; }
   .game-filter-sep { height: 1px; background: rgba(var(--chalk-rgb),0.14); margin: 4px 2px; }
+  .game-filter-clearrow { display: flex; justify-content: flex-end; padding: 0 2px 4px; margin-bottom: 4px; border-bottom: 1px solid rgba(var(--chalk-rgb),0.12); }
+  .game-filter-clear {
+    background: none; border: none; cursor: pointer;
+    color: var(--chalk-dim); font-family: var(--sans); font-size: 11.5px; font-weight: 600;
+    text-transform: none; letter-spacing: normal; padding: 3px 4px; border-radius: 5px;
+  }
+  .game-filter-clear:hover { color: var(--chalk); background: rgba(var(--chalk-rgb),0.06); }
   .game-filter-row.disabled { opacity: 0.4; }
   .game-filter-row.disabled input,
   .game-filter-row.disabled { cursor: not-allowed; }
@@ -801,6 +808,8 @@
 
   /* ---------- Time Series ---------- */
   .ts-controls { align-items: flex-end; gap: 10px 14px; }
+  .ts-hidden { display: none !important; }
+  .ts-entity-slot { display: inline-flex; }
   .ts-field { display: inline-flex; flex-direction: column; gap: 4px; }
   .ts-field-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--chalk-dim); }
   .ts-stat-select {
