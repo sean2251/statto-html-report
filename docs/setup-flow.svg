@@ -11,7 +11,7 @@
   <circle cx="52" cy="150" r="6" fill="#2E7D4E"/>
   <text x="64" y="155" font-size="13" fill="#5A665C"><tspan font-weight="700" fill="#1C271F">Set up editor</tspan> — desktop, where you author</text>
   <rect x="406" y="145" width="10" height="10" rx="2" fill="#2F6DB5"/>
-  <text x="424" y="155" font-size="13" fill="#5A665C"><tspan font-weight="700" fill="#1C271F">Team Report</tspan> — read-only &amp; mobile, what your team opens</text>
+  <text x="424" y="155" font-size="13" fill="#5A665C"><tspan font-weight="700" fill="#1C271F">Team Report</tspan> — read-only, what your team opens</text>
 
   <!-- ============ inputs (green spine) ============ -->
   <line x1="78" y1="205" x2="78" y2="349" stroke="#2E7D4E" stroke-width="2" opacity="0.30"/>
@@ -55,7 +55,7 @@
   <!-- Line set up tab -->
   <rect x="68" y="541" width="102" height="26" rx="13" fill="#E6F0E9"/>
   <text x="119" y="558" font-size="13" font-weight="700" text-anchor="middle" fill="#1F5A38">Line set up</text>
-  <text x="182" y="558" font-size="14.5" fill="#1C271F">Confirm the recurring 7-person lines and name them.</text>
+  <text x="182" y="558" font-size="14.5" fill="#1C271F">Confirm the recurring lines and name them.</text>
 
   <!-- optional gold side path -->
   <rect x="68" y="592" width="744" height="50" rx="12" fill="#F6EEDC" stroke="#B67C15" stroke-width="1.5" stroke-dasharray="6 5"/>
@@ -71,7 +71,7 @@
 
   <!-- ============ TEAM REPORT panel ============ -->
   <rect x="44" y="756" width="792" height="146" rx="16" fill="#FCFBF6" stroke="#2F6DB5" stroke-width="1.5"/>
-  <text x="68" y="786" font-size="11.5" font-weight="600" letter-spacing="1.4" fill="#1C3A5E">TEAM REPORT — READ-ONLY · MOBILE · WHAT YOUR TEAM OPENS</text>
+  <text x="68" y="786" font-size="11.5" font-weight="600" letter-spacing="1.4" fill="#1C3A5E">TEAM REPORT — READ-ONLY · WHAT YOUR TEAM OPENS</text>
   <line x1="68" y1="800" x2="812" y2="800" stroke="#E2E0D7" stroke-width="1"/>
 
   <!-- analysis row -->
