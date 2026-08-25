@@ -718,7 +718,8 @@ function hidePassTooltip() {
 // `extra`, if given, is appended (e.g. which game this pass is from) -- only
 // relevant where a diagram spans more than one game, so callers within a single
 // game's own field diagram simply omit it and get the original plain tooltip.
-function attachPassHover(routeLayer, x1, y1, x2, y2, p, extra) {
+function attachPassHover(routeLayer, x1, y1, x2, y2, p, extra, opts) {
+  opts = opts || {};
   const hit = svgEl('line', {
     x1, y1, x2, y2, stroke: '#000', 'stroke-width': 14, opacity: 0,
     'pointer-events': 'stroke', style: 'cursor: pointer;',
@@ -727,9 +728,11 @@ function attachPassHover(routeLayer, x1, y1, x2, y2, p, extra) {
   if (p.throwerError) label += ' \u00b7 throwaway';
   else if (p.receiverError) label += ' \u00b7 drop';
   if (extra) label += ` \u00b7 ${extra}`;
+  if (opts.tagLine) label += ` \u00b7 ${opts.tagLine}`;
   hit.addEventListener('mouseenter', (e) => showPassTooltip(e, label));
   hit.addEventListener('mousemove', (e) => positionPassTooltip(e));
   hit.addEventListener('mouseleave', hidePassTooltip);
+  if (opts.onClick) hit.addEventListener('click', opts.onClick);
   routeLayer.appendChild(hit);
 }
 
@@ -1550,16 +1553,75 @@ function buildFieldAnalysisSection() {
   const controlsRow = el('div', { class: 'controls-row field-analysis-controls' }, []);
   section.appendChild(controlsRow);
 
+  const layout = el('div', { class: 'field-analysis-layout' }, []);
   const pitchWrap = el('div', { class: 'field-analysis-pitch-wrap' }, []);
   const { svg, routeLayer } = buildPitch();
+  // A definite height lets the viewBox drive the width -- width:auto collapses
+  // to 0 for an inline SVG inside a flex row (the pitch + video layout).
   svg.style.width = 'auto';
-  svg.style.height = 'auto';
-  svg.style.maxWidth = '82vw';
-  svg.style.maxHeight = '58vh';
+  svg.style.height = 'min(58vh, 640px)';
+  svg.style.maxWidth = '88vw';
   pitchWrap.appendChild(svg);
-  section.appendChild(pitchWrap);
+  layout.appendChild(pitchWrap);
+
+  // Right-hand video panel, shown only in "Video annotations" mode: click a
+  // throw and it plays here from its tagged timestamp. Resizable (drag the
+  // corner), like the tagging editor's player.
+  const videoCol = el('div', { class: 'fa-video-col' }, []);
+  videoCol.style.display = 'none';
+  const videoResize = el('div', { class: 'fa-video-resize' }, []);
+  const playerHost = el('div', { class: 'fa-player-host' }, []);
+  videoResize.appendChild(playerHost);
+  const videoNote = el('p', { class: 'pitch-caption fa-video-note' }, [document.createTextNode('Click a throw to play it here. Drag the video’s bottom-right corner to resize it.')]);
+  videoCol.appendChild(videoResize);
+  videoCol.appendChild(videoNote);
+  layout.appendChild(videoCol);
+  section.appendChild(layout);
   const legendHolder = el('div', {}, []);
   section.appendChild(legendHolder);
+
+  // Remembered video width (drag to resize).
+  const FA_VIDEO_SIZE_KEY = 'statto-report-fa-video-width::' + REPORT.teamName;
+  try { const w = parseInt(localStorage.getItem(FA_VIDEO_SIZE_KEY), 10); if (w > 0) videoResize.style.width = w + 'px'; } catch (e) {}
+  function saveFaVideoWidth() { try { localStorage.setItem(FA_VIDEO_SIZE_KEY, String(Math.round(videoResize.getBoundingClientRect().width))); } catch (e) {} }
+  videoResize.addEventListener('pointerup', saveFaVideoWidth);
+  if (typeof ResizeObserver === 'function') { let vt = null; new ResizeObserver(() => { clearTimeout(vt); vt = setTimeout(saveFaVideoWidth, 300); }).observe(videoResize); }
+
+  // Clicking a throw loads its game's video and seeks to the tagged timestamp.
+  let faPlayer = null, faPlayerVid = null;
+  function playThrow(p, gameIndex, rec) {
+    const vid = parseYouTubeId(loadSetupData().videoLinks[gameIndex]);
+    const ts = (rec && rec.timestamp != null) ? rec.timestamp : null;
+    if (!vid) { faPlayer = null; faPlayerVid = null; playerHost.innerHTML = ''; videoNote.textContent = 'No video link for this game — add one on the Set up tab.'; return; }
+    if (location.protocol === 'file:') {
+      playerHost.innerHTML = ''; faPlayer = null; faPlayerVid = null;
+      videoNote.innerHTML = '';
+      videoNote.appendChild(document.createTextNode('The embedded player needs the report opened from a web address (http/https). '));
+      videoNote.appendChild(el('a', { href: 'https://www.youtube.com/watch?v=' + vid + (ts != null ? '&t=' + Math.floor(ts) + 's' : ''), target: '_blank', rel: 'noopener noreferrer' }, [document.createTextNode('Watch on YouTube ↗')]));
+      return;
+    }
+    videoNote.textContent = ts == null ? 'This throw has no video timestamp tagged.' : '';
+    ensureYouTubeAPI(() => {
+      const seek = () => { if (faPlayer && faPlayer.seekTo && ts != null) { faPlayer.seekTo(ts, true); if (faPlayer.playVideo) faPlayer.playVideo(); } };
+      if (faPlayer && faPlayerVid === vid) { seek(); return; }
+      if (faPlayer && faPlayer.loadVideoById) {
+        if (ts != null) faPlayer.loadVideoById({ videoId: vid, startSeconds: ts }); else faPlayer.loadVideoById(vid);
+        faPlayerVid = vid; return;
+      }
+      playerHost.innerHTML = '';
+      const target = el('div', {}, []);
+      target.id = 'fa-yt-' + Math.random().toString(36).slice(2, 8);
+      playerHost.appendChild(target);
+      const playerVars = { rel: 0, modestbranding: 1, enablejsapi: 1 };
+      if (location.origin && location.origin !== 'null') playerVars.origin = location.origin;
+      if (ts != null) playerVars.start = Math.floor(ts);
+      faPlayer = new YT.Player(target.id, {
+        videoId: vid, width: '100%', height: '100%', playerVars: playerVars,
+        events: { onReady: () => seek(), onError: () => { videoNote.textContent = 'This video couldn’t be embedded here.'; } },
+      });
+      faPlayerVid = vid;
+    });
+  }
 
   const exportRow = el('div', { class: 'field-analysis-export-row' }, []);
   const exportBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Export as PNG')]);
@@ -1575,6 +1637,7 @@ function buildFieldAnalysisSection() {
   let possessionMode = 'final';
   let fieldMode = 'full';
   let colorBy = 'outcome';  // outcome (default) | thrower | receiver | game
+  let videoMode = false;    // false = Default | true = Video annotations
   // Seed the full view (players, games, filters, toggles) from a shared link.
   const shared = shareStateFor('field-analysis');
   if (shared) {
@@ -1590,7 +1653,9 @@ function buildFieldAnalysisSection() {
     if (shared.possession === 'final' || shared.possession === 'possession') possessionMode = shared.possession;
     if (shared.field === 'full' || shared.field === 'redzone') fieldMode = shared.field;
     if (['outcome', 'thrower', 'receiver', 'game'].includes(shared.colorBy)) colorBy = shared.colorBy;
+    if (shared.video) videoMode = true;
   }
+  videoCol.style.display = videoMode ? '' : 'none';
 
   // Colour scheme for a "Color by" mode: assign each distinct value on the
   // diagram a palette colour (green/red-free, so a route never reads as an
@@ -1612,14 +1677,15 @@ function buildFieldAnalysisSection() {
   function render() {
     const { passes, blocks } = computeFieldAnalysisData(selectedThrowers, selectedReceivers, selectedGames, categories, pointTypeFilter, possessionMode, fieldMode);
     legendHolder.innerHTML = '';
+    const impactOpts = { videoMode: videoMode, onPassClick: playThrow };
     if (colorBy === 'outcome') {
-      renderPlayerImpact(routeLayer, passes, blocks);
       legendHolder.appendChild(buildFieldLegend());
     } else {
       const scheme = fieldColorScheme(passes);
-      renderPlayerImpact(routeLayer, passes, blocks, { colorFn: scheme.colorFn });
+      impactOpts.colorFn = scheme.colorFn;
       legendHolder.appendChild(scheme.legend);
     }
+    renderPlayerImpact(routeLayer, passes, blocks, impactOpts);
   }
 
   const categoryControl = buildImpactCategoryDropdown((cats) => { categories = cats; render(); }, null, { initialSelected: [...categories] });
@@ -1657,6 +1723,13 @@ function buildFieldAnalysisSection() {
       { key: 'receiver', label: 'Receiver' },
       { key: 'game', label: 'Game' },
     ], (key) => { colorBy = key; render(); }, colorBy),
+  ]));
+  controlsRow.appendChild(el('label', { class: 'ts-field' }, [
+    el('span', { class: 'ts-field-label' }, [document.createTextNode('Mode')]),
+    buildSegToggle([
+      { key: 'default', label: 'Default' },
+      { key: 'video', label: 'Video annotations' },
+    ], (key) => { videoMode = key === 'video'; videoCol.style.display = videoMode ? '' : 'none'; render(); }, videoMode ? 'video' : 'default'),
   ]));
 
   function describeSelection() {
@@ -1705,6 +1778,7 @@ function buildFieldAnalysisSection() {
     if (g) st.games = g;
     if (!(categories.size === 1 && categories.has('all'))) st.categories = [...categories];
     if (colorBy !== 'outcome') st.colorBy = colorBy;
+    if (videoMode) st.video = true;
     return st;
   }));
 
@@ -1781,6 +1855,9 @@ function exportFieldAnalysisPNG(svgElement, configLines) {
 // where it would just be redundant clutter.
 function renderPlayerImpact(routeLayer, passes, blocks, opts) {
   const colorFn = (opts && opts.colorFn) || null;
+  const videoMode = !!(opts && opts.videoMode);
+  const onPassClick = opts && opts.onPassClick;
+  const ann = videoMode ? loadAnnotations() : null;
   routeLayer.innerHTML = '';
   passes.forEach(({ pass: p, gameIndex }) => {
     const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
@@ -1805,7 +1882,18 @@ function renderPlayerImpact(routeLayer, passes, blocks, opts) {
     });
     routeLayer.appendChild(line);
     const game = REPORT.games[gameIndex];
-    attachPassHover(routeLayer, x1, y1, x2, y2, p, game ? `vs ${game.opponent}` : null);
+    let hoverOpts = null;
+    if (videoMode) {
+      const rec = p.uuid ? ann.passes[p.uuid] : null;
+      const parts = rec ? filmTagValues(rec, FILM_PASS_TAG_KEYS) : [];
+      if (rec && rec.notes) parts.push('“' + rec.notes + '”');
+      if (rec && rec.timestamp != null) parts.push('▶ ' + formatTimestamp(rec.timestamp));
+      hoverOpts = {
+        tagLine: parts.length ? parts.join(' · ') : 'no video tags',
+        onClick: onPassClick ? () => onPassClick(p, gameIndex, rec) : null,
+      };
+    }
+    attachPassHover(routeLayer, x1, y1, x2, y2, p, game ? `vs ${game.opponent}` : null, hoverOpts);
   });
   blocks.forEach(({ block: b, gameIndex }) => {
     const cx = b.locationX * PITCH_W, cy = b.locationY * PITCH_H;
