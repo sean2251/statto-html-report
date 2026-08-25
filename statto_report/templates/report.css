@@ -904,6 +904,8 @@
 
   .field-legend { justify-content: center; }
   .field-legend-glyph { font-weight: 700; font-size: 13px; line-height: 1; }
+  .field-legend-line { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--chalk-dim); vertical-align: middle; }
+  .field-legend-line.dashed { border-top-style: dashed; }
   .summary-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

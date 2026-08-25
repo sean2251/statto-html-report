@@ -772,6 +772,11 @@ function buildPitch() {
   marker.appendChild(svgEl('path', { d: 'M0,0 L7,3.5 L0,7 Z', fill: '#F3F1E9' }));
   const defs = svgEl('defs', {});
   defs.appendChild(marker);
+  // Arrowhead that inherits its line's stroke colour -- used by the Field
+  // Analysis "Color by" mode so a coloured route gets a matching arrowhead.
+  const markerCtx = svgEl('marker', { id: 'arrowhead-ctx-' + uid, markerWidth: 9, markerHeight: 9, refX: 7, refY: 3.5, orient: 'auto' });
+  markerCtx.appendChild(svgEl('path', { d: 'M0,0 L7,3.5 L0,7 Z', fill: 'context-stroke' }));
+  defs.appendChild(markerCtx);
   const markerTO = svgEl('marker', { id: 'arrowhead-to-' + uid, markerWidth: 9, markerHeight: 9, refX: 7, refY: 3.5, orient: 'auto' });
   markerTO.appendChild(svgEl('path', { d: 'M0,0 L7,3.5 L0,7 Z', fill: '#E8604C' }));
   defs.appendChild(markerTO);
@@ -840,6 +845,23 @@ function buildFieldLegend() {
       document.createTextNode(label),
     ]));
   });
+  return legend;
+}
+
+// The "Color by" legend: one coloured line swatch per value on the diagram,
+// plus the dashed = incomplete reminder (outcome colour is gone in this mode).
+function buildFieldColorLegend(entries) {
+  const legend = el('div', { class: 'diff-legend field-legend' }, []);
+  entries.forEach(({ color, label }) => {
+    legend.appendChild(el('span', { class: 'item' }, [
+      el('span', { class: 'field-legend-line', style: `border-top-color:${color};` }, []),
+      document.createTextNode(label),
+    ]));
+  });
+  legend.appendChild(el('span', { class: 'item' }, [
+    el('span', { class: 'field-legend-line dashed' }, []),
+    document.createTextNode('dashed = incomplete'),
+  ]));
   return legend;
 }
 
@@ -1531,7 +1553,8 @@ function buildFieldAnalysisSection() {
   svg.style.maxHeight = '58vh';
   pitchWrap.appendChild(svg);
   section.appendChild(pitchWrap);
-  section.appendChild(buildFieldLegend());
+  const legendHolder = el('div', {}, []);
+  section.appendChild(legendHolder);
 
   const exportRow = el('div', { class: 'field-analysis-export-row' }, []);
   const exportBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Export as PNG')]);
@@ -1546,6 +1569,7 @@ function buildFieldAnalysisSection() {
   let pointTypeFilter = 'combined';
   let possessionMode = 'final';
   let fieldMode = 'full';
+  let colorBy = 'outcome';  // outcome (default) | thrower | receiver | game
   // Seed the full view (players, games, filters, toggles) from a shared link.
   const shared = shareStateFor('field-analysis');
   if (shared) {
@@ -1560,11 +1584,37 @@ function buildFieldAnalysisSection() {
     if (['combined', 'offense', 'defense'].includes(shared.pointType)) pointTypeFilter = shared.pointType;
     if (shared.possession === 'final' || shared.possession === 'possession') possessionMode = shared.possession;
     if (shared.field === 'full' || shared.field === 'redzone') fieldMode = shared.field;
+    if (['outcome', 'thrower', 'receiver', 'game'].includes(shared.colorBy)) colorBy = shared.colorBy;
+  }
+
+  // Colour scheme for a "Color by" mode: assign each distinct value on the
+  // diagram a palette colour (green/red-free, so a route never reads as an
+  // outcome) and build the matching legend.
+  function fieldColorScheme(passes) {
+    const keyFor = (p, gi) => colorBy === 'thrower' ? (p.thrower || '?') : colorBy === 'receiver' ? (p.receiver || '?') : String(gi);
+    const labelFor = (k) => colorBy === 'game' ? ('vs ' + (REPORT.games[Number(k)] ? REPORT.games[Number(k)].opponent : '?')) : k;
+    const seen = [];
+    passes.forEach(({ pass: p, gameIndex }) => { const k = keyFor(p, gameIndex); if (!seen.includes(k)) seen.push(k); });
+    seen.sort((a, b) => colorBy === 'game' ? Number(a) - Number(b) : a.localeCompare(b));
+    const colorMap = {};
+    seen.forEach((k, i) => { colorMap[k] = TS_ENTITY_COLORS[i % TS_ENTITY_COLORS.length]; });
+    return {
+      colorFn: (p, gi) => colorMap[keyFor(p, gi)] || 'var(--chalk)',
+      legend: buildFieldColorLegend(seen.map(k => ({ color: colorMap[k], label: labelFor(k) }))),
+    };
   }
 
   function render() {
     const { passes, blocks } = computeFieldAnalysisData(selectedThrowers, selectedReceivers, selectedGames, categories, pointTypeFilter, possessionMode, fieldMode);
-    renderPlayerImpact(routeLayer, passes, blocks);
+    legendHolder.innerHTML = '';
+    if (colorBy === 'outcome') {
+      renderPlayerImpact(routeLayer, passes, blocks);
+      legendHolder.appendChild(buildFieldLegend());
+    } else {
+      const scheme = fieldColorScheme(passes);
+      renderPlayerImpact(routeLayer, passes, blocks, { colorFn: scheme.colorFn });
+      legendHolder.appendChild(scheme.legend);
+    }
   }
 
   const categoryControl = buildImpactCategoryDropdown((cats) => { categories = cats; render(); }, null, { initialSelected: [...categories] });
@@ -1594,6 +1644,15 @@ function buildFieldAnalysisSection() {
     updateControlAvailability();
     render();
   }, fieldMode === 'redzone' ? 'b' : 'a'));
+  controlsRow.appendChild(el('label', { class: 'ts-field' }, [
+    el('span', { class: 'ts-field-label' }, [document.createTextNode('Color by')]),
+    buildSegToggle([
+      { key: 'outcome', label: 'Outcome' },
+      { key: 'thrower', label: 'Thrower' },
+      { key: 'receiver', label: 'Receiver' },
+      { key: 'game', label: 'Game' },
+    ], (key) => { colorBy = key; render(); }, colorBy),
+  ]));
   controlsRow.appendChild(buildCopyViewLinkButton('field-analysis', () => {
     const st = { pointType: pointTypeFilter, possession: possessionMode, field: fieldMode };
     if (selectedThrowers.length < rosterAll.length) st.throwers = selectedThrowers.slice();
@@ -1601,6 +1660,7 @@ function buildFieldAnalysisSection() {
     const g = shareGamesValue(selectedGames);
     if (g) st.games = g;
     if (!(categories.size === 1 && categories.has('all'))) st.categories = [...categories];
+    if (colorBy !== 'outcome') st.colorBy = colorBy;
     return st;
   }));
 
@@ -1696,14 +1756,25 @@ function exportFieldAnalysisPNG(svgElement, configLines) {
 // Since this view can span multiple games, the hover tooltip also names which
 // game each line/block came from -- omitted in the single-game field diagram,
 // where it would just be redundant clutter.
-function renderPlayerImpact(routeLayer, passes, blocks) {
+function renderPlayerImpact(routeLayer, passes, blocks, opts) {
+  const colorFn = (opts && opts.colorFn) || null;
   routeLayer.innerHTML = '';
   passes.forEach(({ pass: p, gameIndex }) => {
     const x1 = p.startX * PITCH_W, y1 = p.startY * PITCH_H;
     const x2 = p.endX * PITCH_W, y2 = p.endY * PITCH_H;
-    let stroke = '#F3F1E9', markerEnd = markerRef(routeLayer, 'arrowhead'), width = 2, dash = '0';
-    if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p, routeLayer); dash = '3 3'; }
-    else if (p.assist) { stroke = '#FFB800'; markerEnd = markerRef(routeLayer, 'arrowhead-goal'); width = 3; }
+    let stroke, markerEnd, width, dash;
+    if (colorFn) {
+      // "Color by" mode: the route is coloured by thrower/receiver/game; outcome
+      // is carried by a dashed line (incomplete) and slightly thicker assists.
+      stroke = colorFn(p, gameIndex);
+      width = p.assist ? 3 : 2;
+      dash = p.turnover ? '3 3' : '0';
+      markerEnd = markerRef(routeLayer, 'arrowhead-ctx');
+    } else {
+      stroke = '#F3F1E9'; markerEnd = markerRef(routeLayer, 'arrowhead'); width = 2; dash = '0';
+      if (p.turnover) { stroke = '#E8604C'; markerEnd = turnoverMarker(p, routeLayer); dash = '3 3'; }
+      else if (p.assist) { stroke = '#FFB800'; markerEnd = markerRef(routeLayer, 'arrowhead-goal'); width = 3; }
+    }
     const line = svgEl('line', {
       x1, y1, x2, y2, stroke, 'stroke-width': width, 'marker-end': markerEnd,
       'stroke-dasharray': dash === '0' ? 'none' : dash,
