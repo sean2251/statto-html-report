@@ -59,10 +59,12 @@ ready to run it.
 python3 statto_to_html_report.py path/to/yourfile.statto -o report.html
 ```
 
-If you skip `-o`, the report is written to `<yourfile>_report.html` in the
-current directory. Open the resulting file directly in a browser — it's a
-single HTML file with everything (data, styling, and behavior) baked in, so
-it's easy to share or archive.
+This generates the **Set up editor** — the desktop authoring console you use to
+group tournaments, tag film, and define lines, and from which you publish the
+read-only **Team Report** that carries all the analysis (see the workflow
+below). If you skip `-o`, it's written to `<yourfile>_setup_editor.html` in the
+current directory. It's a single HTML file with everything (data, styling, and
+behavior) baked in.
 
 Add `-t/--title` to set the browser tab title (the `<title>` tag). This is
 handy when you deploy several otherwise-identical builds side by side — e.g. a
@@ -73,7 +75,8 @@ same. It only changes the tab title; the on-page header still shows the team.
 python3 statto_to_html_report.py season.statto -o spectre/index.html --title "RAMP 2026 · Spectre (tagging)"
 ```
 
-When omitted, the title defaults to `<team> — Season Report`.
+When omitted, the title defaults to `<team> — Set up editor` (and a published
+Team Report is titled `<team> — Team Report`).
 
 The report remembers your light/dark theme choice in the browser it's
 opened in (via `localStorage`, since this is a file you own and open
@@ -82,11 +85,13 @@ yourself, not something running inside a hosted app).
 ## Example
 
 `examples/` has a fully made-up 3-game season (fake players, fake opponents,
-no real data) so you can see what a report looks like without needing a
-`.statto` export of your own:
+no real data) so you can see it in action without needing a `.statto` export of
+your own:
 
-- [`examples/example_report.html`](examples/example_report.html) — download
-  it and open it in a browser (GitHub doesn't render HTML files inline)
+- [`examples/example_report.html`](examples/example_report.html) — the **Set up
+  editor** for the fake season; download and open it in a browser (GitHub
+  doesn't render HTML files inline), then use **Set up → Preview Team Report**
+  to see the read-only Team Report with all the analysis
 - `examples/example_season.statto` — the fake data behind it
 - `examples/generate_example_data.py` — the script that generated it, if you
   want to regenerate or tweak it
@@ -96,39 +101,42 @@ python3 examples/generate_example_data.py
 python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
 ```
 
-## Recommended workflow: from a `.statto` file to a team report
+## Recommended workflow: from a `.statto` file to a Team Report
 
-This is the end-to-end path for whoever is leading the effort — coach,
-captain, or stats keeper. Every step below saves its data in *your* browser,
-and the final **Publish** step bakes it all into one file you hand to the
-team. (The separate helper instructions in the next section are what you send
+There are two artifacts. The script generates a **Set up editor** — a
+desktop authoring console where you group tournaments, tag film, and define
+lines. From it you **publish** the **Team Report** — a self-contained,
+mobile-friendly, read-only file that carries all the analysis (Season, Player,
+Line, Time Series, and the rest) and is the thing you hand to the team. The Set
+up editor's work all saves in *your* browser; publishing bakes it into the Team
+Report. (The separate helper instructions in the next section are what you send
 to anyone pitching in on video tagging.)
 
-**1. Generate the report.** Run the tool on your Statto export:
+**1. Generate the Set up editor.** Run the tool on your Statto export:
 
 ```bash
-python3 statto_to_html_report.py path/to/season.statto -o report.html
+python3 statto_to_html_report.py path/to/season.statto -o setup_editor.html
 ```
 
-Open `report.html` in a browser. If you want the film features (embedded
-video and "grab current time"), open it through a local web server rather
-than double-clicking it — see the note at the end of this section.
+Open it in a browser (it's desktop-oriented). If you want the film features
+(embedded video and "grab current time"), open it through a local web server
+rather than double-clicking it — see the note at the end of this section.
 
 **2. Set up your season** — the **Set up** tab:
 
 - **Tournaments** — group your games and name them (e.g. "Regionals"). These
-  groups then appear in every games filter across the report.
+  groups then appear in every games filter in the Team Report.
 - **Video links** — paste one YouTube link per game. This powers the **▶
-  Watch game** button on each game page and all the film-tagging tools.
+  Watch game** button and all the film-tagging tools.
 - **Player photos** — give each player a round avatar, either one at a time or
   by tagging faces on a single team photo.
 
-**3. Curate your lines** — the **Line Analysis** tab. Confirm the recurring
-7-person lineups the tool auto-detects, name them, and compare them like
-players.
+**3. Curate your lines** — the **Line set up** tab. Confirm the recurring
+7-person lineups the tool auto-detects, name them, and check their rosters. (The
+side-by-side comparison of those lines lives in the Team Report.)
 
-**4. Tag the film** — the **Data Editor** tab (optional, but it's what unlocks
-clip queries like "show me all our inside-flick turnovers"). Either:
+**4. Tag the film** — the **Video annotation editor** tab (optional, but it's
+what unlocks clip queries like "show me all our inside-flick turnovers"). Either:
 
 - **Do it yourself**, stepping through each pass, block, and defensive
   possession; or
@@ -138,24 +146,25 @@ clip queries like "show me all our inside-flick turnovers"). Either:
   helpers*, below). When they email back their exported annotations JSON,
   click **Upload tags** next to that game to merge it in.
 
-**5. Publish for the team** — the **Set up** tab, **Publish for team
-(read-only)**. This downloads one self-contained HTML file with all your
-tournaments, lines, photos, video links, and film tags baked in, but with the
-editing surfaces stripped down to a clean, read-only report (no Set up tab;
-the Data Editor becomes a read-only film-clip browser). Email it, AirDrop it,
-or drop it on any static host (GitHub Pages, a Netlify drag-and-drop deploy,
-etc.) to share a link.
+**5. Publish the Team Report** — the **Set up** tab. Hit **Preview Team Report**
+to open the read-only report in a new tab and check it looks right, then
+**Publish Team Report** to download one self-contained HTML file with all your
+tournaments, lines, photos, video links, and film tags baked in. It's the clean,
+mobile-friendly report with every analysis tab — and it's a point-in-time
+snapshot, so re-publish whenever you change anything in the editor. Email it,
+AirDrop it, or drop it on any static host (GitHub Pages, a Netlify drag-and-drop
+deploy, etc.) to share a link.
 
 > **A note on the video player.** The embedded YouTube player only works when
-> the report is opened from a web address (`http://…`), not straight off disk
+> the file is opened from a web address (`http://…`), not straight off disk
 > (`file://`) — YouTube blocks the embed otherwise. The simplest fix is to
-> serve the folder locally: in a terminal, `cd` into the report's folder and
-> run `python3 -m http.server`, then open the `http://localhost:8000/…` URL it
-> prints. (Hosting the report online works too.) The same applies to a
-> **published team report**: its baked-in tags, video links and photos load
-> from the browser's storage, which is also blocked off `file://`, so serve it
-> over `http(s)` too. Your own authoring report — where you entered the data —
-> works fine straight off disk apart from the embedded player.
+> serve the folder locally: in a terminal, `cd` into the folder and run
+> `python3 -m http.server`, then open the `http://localhost:8000/…` URL it
+> prints. (Hosting online works too.) The same applies to a published **Team
+> Report**: its baked-in tags, video links and photos load from the browser's
+> storage, which is also blocked off `file://`, so serve it over `http(s)` too.
+> Your **Set up editor** — where you entered the data — works fine straight off
+> disk apart from the embedded player.
 
 ## For video-tagging helpers (no coding needed)
 
@@ -415,20 +424,19 @@ file:
   Analysis**'s side-by-side comparison, and photos download as a ZIP from the
   **Raw Data** tab. Anyone without one just shows their name, so a
   half-photographed roster still reads consistently.
-- **Publish for the team** — everything you enter on this tab (plus your
-  curated lines and film tags) is saved in *your* browser only, so it doesn't
-  travel with the HTML file on its own. **Publish for team (read-only)** bakes
-  it all into one standalone HTML file that opens with everything preloaded —
-  email it, AirDrop it, or drop it on any static host (GitHub Pages, Netlify
-  drop, etc.) to get a link. The team gets a clean, read-only report: no Set up
-  tab, the Data Editor becomes a read-only **Film Clips** browser (positioned
-  right of Games — filter tags → jump to video clips, no editing), while
-  **Line Analysis stays editable** so a teammate can build their own lines on
-  top of yours. Because Line Analysis is the only thing a teammate can change,
-  re-opening a newer team report refreshes the film tags, video links and
-  photos (the sharer's, always the latest) while keeping the recipient's own
-  lines untouched — so a browser that opened an earlier build always catches up
-  to your latest tags and links instead of getting stuck on a stale copy.
+- **Publish the Team Report** — everything you enter in the Set up editor (plus
+  your curated lines and film tags) is saved in *your* browser only, so it
+  doesn't travel on its own. **Preview Team Report** opens the read-only report
+  in a new tab so you can check it first; **Publish Team Report** bakes
+  everything into one standalone, mobile-friendly HTML file that opens with it
+  all preloaded — email it, AirDrop it, or drop it on any static host (GitHub
+  Pages, Netlify drop, etc.) to get a link. The Team Report is where the data and
+  analysis live: every analysis tab (Season, Player, Line, Time Series, …), with
+  no editing surfaces — no Set up, the Video annotation editor becomes a
+  read-only **Film Clips** browser, and Line Analysis shows the comparison
+  without the curation controls. It's a **point-in-time snapshot** (stamped with
+  its publish time in the footer), so re-publish after you change anything in the
+  editor.
 
   **Open it from a host, not straight off disk.** The preloaded data lives in
   the browser's `localStorage`, which browsers block for pages opened as a
@@ -452,11 +460,11 @@ file:
   and send just that small file back; you **Upload tags** on that game's row to
   merge it (per field on Statto's stable pass IDs, filtered to that game, so
   overlapping taggers don't clobber and a mis-sent file can't pollute other
-  games). When everything's collected, **Publish for team**. Note that hosting
-  the report online doesn't make tagging live-collaborative — each person's
-  tags stay in their own browser until exported.
+  games). When everything's collected, **Publish the Team Report**. Note that
+  hosting the report online doesn't make tagging live-collaborative — each
+  person's tags stay in their own browser until exported.
 
-### Data Editor
+### Video annotation editor
 
 Step through a game's events on its field diagram and tag them, building a
 richer, queryable film dataset on top of the raw Statto data.
@@ -584,7 +592,7 @@ Clutch Efficiency → Box score.**
     instead of getting compressed toward the bottom of the scale — see
     [Stat glossary](#stat-glossary) for the exact formula
 
-- **Film tags.** Once a game has been tagged in the Data Editor, the layout
+- **Film tags.** Once a game has been tagged in the Video annotation editor, the layout
   gains a third column — point log, field diagram, **Tagged events** — and
   until then nothing changes, so an untagged game looks exactly as it always
   did:
@@ -647,12 +655,19 @@ side by side:
   attempts, Huck attempts, Throwing errors, Receiving errors, Blocks — "All
   throws" is exclusive with the rest, the others can be combined)
 
-### Line Analysis
+### Line set up / Line Analysis
+
+> **Split across the two artifacts.** *Curating* lines — the point picker and
+> naming below — lives on the **Line set up** tab of the Set up editor. *Comparing*
+> them — the side-by-side table, scoring efficiency, and field diagrams — lives on
+> the **Line Analysis** tab of the published Team Report. Both share the machinery
+> described here; the editor shows the builder + rosters, the Team Report shows
+> the read-only comparison.
 
 Compares specific 7-person lineups ("lines") the way Player Analysis compares
 individual players — useful for questions like "which line is best in the
 red zone" or "which line gets the most blocks." A line isn't something
-Statto tracks directly, so this tab walks you through building one:
+Statto tracks directly, so setting one up walks you through building it:
 
 A toggle at the top switches between **Across Tournaments** (one pool of
 lines for the whole season) and **Within Tournament** (pick 1-to-all
