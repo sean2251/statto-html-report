@@ -6,12 +6,15 @@
 > detailed walkthrough starts at
 > [Recommended workflow](#recommended-workflow-from-a-statto-file-to-a-team-report).
 
-`statto_to_html_report.py` turns a single Statto (`.statto`) export into one
-self-contained, interactive HTML report covering your whole season: team
-performance, individual games, per-player breakdowns, field-position
-analysis, and gender-equity analysis for mixed rosters. No server, no
-internet connection, and no dependencies beyond the Python standard library
-— open the output file in any browser and everything runs client-side.
+`statto_to_html_report.py` turns a single Statto (`.statto`) export into a
+**Set up editor** — a self-contained, desktop authoring page where you group
+tournaments, tag film, and name lines — from which you **publish** the
+**Team Report**: one self-contained, mobile-friendly, read-only HTML file
+covering your whole season (team performance, individual games, per-player
+breakdowns, field-position analysis, gender-equity analysis, and game-by-game
+time series). No server, no internet connection, and no dependencies beyond the
+Python standard library — open either file in a browser and everything runs
+client-side.
 
 ## Requirements
 
@@ -375,16 +378,23 @@ running a tiny local server fixes it. Pick your operating system.
 > of through `http://localhost:8000/` — go back to step 5. Either way you can
 > still tag using **Option A** (type timestamps by hand); nothing is lost.
 
-## What's in the report
+## What's in the two reports
 
-The top nav has nine destinations: **Set up**, **Season**, a **Games**
-dropdown (hover or click to jump to any individual game), **Player
-Analysis**, **Line Analysis**, **Thrower-Receiver Analysis**, **Field
-Analysis**, **Gender Analysis**, and **Raw Data**.
+The tabs are split across the two artifacts (see [the workflow](#recommended-workflow-from-a-statto-file-to-a-team-report)):
 
-### Set up
+- **Set up editor** (the desktop file the script generates) — **Set up**, the
+  **Video annotation editor**, and **Line set up**. This is where you author;
+  none of the analysis lives here.
+- **Team Report** (what you publish from the editor) — **Season**, a **Games**
+  dropdown, **Film Clips**, **Player Analysis**, **Line Analysis**,
+  **Thrower-Receiver Analysis**, **Field Analysis**, **Gender Analysis**, **Time
+  Series**, **Advanced Stats**, and **Raw Data**. Read-only and mobile-friendly.
 
-One-time (per browser) configuration that the rest of the report reads from.
+The sections below walk through each tab; the heading notes which report it's in.
+
+### Set up  ·  *Set up editor*
+
+One-time (per browser) configuration that the Team Report reads from.
 Everything here is saved in `localStorage`, not baked into the `.statto`
 file:
 
@@ -464,7 +474,7 @@ file:
   hosting the report online doesn't make tagging live-collaborative — each
   person's tags stay in their own browser until exported.
 
-### Video annotation editor
+### Video annotation editor  ·  *Set up editor*
 
 Step through a game's events on its field diagram and tag them, building a
 richer, queryable film dataset on top of the raw Statto data.
@@ -509,8 +519,8 @@ richer, queryable film dataset on top of the raw Statto data.
   (`python3 -m http.server` in that folder, then open the printed
   `http://localhost:…` URL) or host the report; the editor falls back to a
   "Watch on YouTube" link and manual timestamps when it can't embed.
-- Tags are saved in your browser per team, ride along when you **Publish for
-  team**, and have their own **Export / Import annotations JSON** backup (this
+- Tags are saved in your browser per team, ride along when you **Publish the
+  Team Report**, and have their own **Export / Import annotations JSON** backup (this
   is also how a helper's single-game tagging comes back — see the Set up tab's
   per-game **Upload tags**). They key to Statto's stable pass IDs, so they
   survive regenerating the report as you log more games.
@@ -527,7 +537,7 @@ richer, queryable film dataset on top of the raw Statto data.
   button grabs every result's video link at once (e.g. to paste into a
   scouting doc or share with players).
 
-### Season
+### Season  ·  *Team Report*
 
 - Season W–L record, plus total cumulative point differential across every
   game
@@ -547,7 +557,7 @@ richer, queryable film dataset on top of the raw Statto data.
     of the whole season
   - **Download CSV** on every table
 
-### Games (one page per game, reached via the Games dropdown)
+### Games (one page per game, reached via the Games dropdown)  ·  *Team Report*
 
 - Score, opponent, and result
 - A **▶ Watch game** button, if you've added a video link for this game on
@@ -630,7 +640,7 @@ Clutch Efficiency → Box score.**
     with their cumulative points played in the game so far
 - A sortable **box score** for the game (Download CSV available here too)
 
-### Player Analysis
+### Player Analysis  ·  *Team Report*
 
 Pick 1–7 players (and, separately, which games to include) to compare
 side by side:
@@ -655,7 +665,7 @@ side by side:
   attempts, Huck attempts, Throwing errors, Receiving errors, Blocks — "All
   throws" is exclusive with the rest, the others can be combined)
 
-### Line set up / Line Analysis
+### Line set up / Line Analysis  ·  *Set up editor + Team Report*
 
 > **Split across the two artifacts.** *Curating* lines — the point picker and
 > naming below — lives on the **Line set up** tab of the Set up editor. *Comparing*
@@ -739,7 +749,7 @@ Your named lines are saved in the browser (`localStorage`), plus an
 the report with new games, moving to another device, or sharing the file
 with a teammate.
 
-### Thrower-Receiver Analysis
+### Thrower-Receiver Analysis  ·  *Team Report*
 
 Looks at specific thrower → receiver connections rather than individual
 players or lines:
@@ -787,7 +797,7 @@ players or lines:
 A shared **Games filter** scopes the heatmap, Compare Pairs, and the All
 pairs data table together.
 
-### Field Analysis
+### Field Analysis  ·  *Team Report*
 
 One large, screen-responsive field diagram with independently combinable
 filters:
@@ -810,7 +820,7 @@ filters:
 - **Export as PNG**, which bakes in a small header summarizing exactly
   which filters were active
 
-### Gender Analysis
+### Gender Analysis  ·  *Team Report*
 
 For mixed rosters, using Statto's own player gender field (no external
 spreadsheet needed): infers each point's on-field gender ratio (4
@@ -833,7 +843,27 @@ gender at all.
   worth reading once if the "percentage points above/below fairness" idea
   is new to you
 
-### Advanced Stats — Ultiworld EDGE Stats
+### Time Series  ·  *Team Report*
+
+Tracks one stat game-by-game across the season as a line chart, so you can see
+form and trends rather than just season totals.
+
+- A **By Player / By Line** toggle at the top switches what the lines represent.
+  In player mode you pick players and can add whole-team **average** and
+  **total** reference lines; in line mode you pick curated lines (from Line set
+  up) plus **All Lines** — the whole team.
+- A **big stat dropdown** covers box-score counts and rates, the **EDGE**
+  metrics (the ones that read game-by-game), and — in line mode — line stats
+  like hold/break rate, scoring efficiency, and completion %.
+- The **x-axis** is every game in order, with **dashed lines separating
+  tournaments** and each **opponent's name tilted underneath, coloured green for
+  a win and red for a loss**. Hover (or tap) any game for a tooltip with the
+  exact values, and for rate stats the underlying fraction (e.g. `38/45 · 84%`).
+- **Export / Copy** the chart as a captioned PNG, or **Copy view link** — a URL
+  that reopens the exact chart you're looking at (config only, resolved against
+  the recipient's copy; needs the Team Report hosted, not opened off disk).
+
+### Advanced Stats — Ultiworld EDGE Stats  ·  *Team Report*
 
 One row per player, filterable by game/tournament, with the **EDGE** family of
 goal-equivalent and efficiency metrics:
@@ -853,7 +883,7 @@ but not against outside benchmarks. (Opponent turnovers, needed for the game
 scoring-efficiency term, are inferred from the per-point defensive-possession
 count.)
 
-### Raw Data
+### Raw Data  ·  *Team Report*
 
 Export the underlying data behind the report, scoped to a shared **games
 filter** (1 to all games):
