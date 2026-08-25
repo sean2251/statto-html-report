@@ -554,7 +554,11 @@
   .rose-label { font-size: 11px; color: var(--chalk-dim); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
   .connections-grid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
   .field-analysis-pitch-wrap { display: flex; justify-content: center; margin: 0 0 16px; }
-  .field-analysis-export-row { display: flex; justify-content: center; margin-bottom: 20px; }
+  .field-analysis-export-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin-bottom: 20px; }
+  /* A pill-btn in a flex control row shouldn't carry its stacking top margin --
+     that pushed the Copy view link out of line with the dropdowns beside it. */
+  .controls-row .pill-btn, .field-analysis-export-row .pill-btn, .de-query-actions .pill-btn { margin-top: 0; }
+  .de-query-actions { display: flex; align-items: center; gap: 8px; }
   .control-disabled { opacity: 0.35; pointer-events: none; }
 
   /* ---------- schedule cards ---------- */

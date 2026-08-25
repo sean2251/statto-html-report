@@ -1537,6 +1537,11 @@ function buildGenderAnalysisSection() {
   return section;
 }
 
+// "Color by" palette -- the first five are hand-picked to be pairwise distinct
+// (blue, orange, magenta, gold, purple), avoiding green/red so a route never
+// reads as an outcome colour.
+const FIELD_COLORBY_COLORS = ['#4E9BE0', '#EE8A2E', '#D65BB8', '#E6C21F', '#9B6BEA', '#B5793F', '#6C6FE0'];
+
 function buildFieldAnalysisSection() {
   const section = el('section', { class: 'view', id: 'field-analysis' }, []);
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Field Analysis')]));
@@ -1557,7 +1562,7 @@ function buildFieldAnalysisSection() {
   section.appendChild(legendHolder);
 
   const exportRow = el('div', { class: 'field-analysis-export-row' }, []);
-  const exportBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Export as PNG')]);
+  const exportBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Export as PNG')]);
   exportRow.appendChild(exportBtn);
   section.appendChild(exportRow);
 
@@ -1597,7 +1602,7 @@ function buildFieldAnalysisSection() {
     passes.forEach(({ pass: p, gameIndex }) => { const k = keyFor(p, gameIndex); if (!seen.includes(k)) seen.push(k); });
     seen.sort((a, b) => colorBy === 'game' ? Number(a) - Number(b) : a.localeCompare(b));
     const colorMap = {};
-    seen.forEach((k, i) => { colorMap[k] = TS_ENTITY_COLORS[i % TS_ENTITY_COLORS.length]; });
+    seen.forEach((k, i) => { colorMap[k] = FIELD_COLORBY_COLORS[i % FIELD_COLORBY_COLORS.length]; });
     return {
       colorFn: (p, gi) => colorMap[keyFor(p, gi)] || 'var(--chalk)',
       legend: buildFieldColorLegend(seen.map(k => ({ color: colorMap[k], label: labelFor(k) }))),
@@ -1653,16 +1658,6 @@ function buildFieldAnalysisSection() {
       { key: 'game', label: 'Game' },
     ], (key) => { colorBy = key; render(); }, colorBy),
   ]));
-  controlsRow.appendChild(buildCopyViewLinkButton('field-analysis', () => {
-    const st = { pointType: pointTypeFilter, possession: possessionMode, field: fieldMode };
-    if (selectedThrowers.length < rosterAll.length) st.throwers = selectedThrowers.slice();
-    if (selectedReceivers.length < rosterAll.length) st.receivers = selectedReceivers.slice();
-    const g = shareGamesValue(selectedGames);
-    if (g) st.games = g;
-    if (!(categories.size === 1 && categories.has('all'))) st.categories = [...categories];
-    if (colorBy !== 'outcome') st.colorBy = colorBy;
-    return st;
-  }));
 
   function describeSelection() {
     const allNames = REPORT.seasonLeaderboard.map(r => r.player);
@@ -1692,6 +1687,26 @@ function buildFieldAnalysisSection() {
   }
 
   exportBtn.addEventListener('click', () => exportFieldAnalysisPNG(svg, describeSelection()));
+  const copyPngBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Copy PNG')]);
+  copyPngBtn.addEventListener('click', () => {
+    if (!(navigator.clipboard && window.ClipboardItem)) { alert('Copying images isn’t supported in this browser — use Export instead.'); return; }
+    const blobPromise = new Promise(resolve => fieldAnalysisPngBlob(svg, describeSelection(), resolve));
+    navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blobPromise })]).then(() => {
+      copyPngBtn.textContent = 'Copied!';
+      setTimeout(() => { copyPngBtn.textContent = 'Copy PNG'; }, 1500);
+    }).catch(() => { alert('Couldn’t copy to the clipboard — use Export instead.'); });
+  });
+  exportRow.appendChild(copyPngBtn);
+  exportRow.appendChild(buildCopyViewLinkButton('field-analysis', () => {
+    const st = { pointType: pointTypeFilter, possession: possessionMode, field: fieldMode };
+    if (selectedThrowers.length < rosterAll.length) st.throwers = selectedThrowers.slice();
+    if (selectedReceivers.length < rosterAll.length) st.receivers = selectedReceivers.slice();
+    const g = shareGamesValue(selectedGames);
+    if (g) st.games = g;
+    if (!(categories.size === 1 && categories.has('all'))) st.categories = [...categories];
+    if (colorBy !== 'outcome') st.colorBy = colorBy;
+    return st;
+  }));
 
   updateControlAvailability();
   render();
@@ -1700,7 +1715,9 @@ function buildFieldAnalysisSection() {
 
 // Rasterizes the current field diagram plus a small header summarizing the
 // active filters, and downloads it as a single PNG.
-function exportFieldAnalysisPNG(svgElement, configLines) {
+// Rasterise the field diagram to a PNG Blob, framed with a header + the current
+// selection. Shared by Export (download) and Copy PNG (clipboard).
+function fieldAnalysisPngBlob(svgElement, configLines, cb) {
   const svgString = new XMLSerializer().serializeToString(svgElement);
   const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svgBlob);
@@ -1738,16 +1755,22 @@ function exportFieldAnalysisPNG(svgElement, configLines) {
     ctx.drawImage(img, padding, headerHeight + padding, svgW, svgH);
     URL.revokeObjectURL(url);
 
-    canvas.toBlob(blob => {
-      const dlUrl = URL.createObjectURL(blob);
-      const a = el('a', { href: dlUrl, download: 'field_analysis.png' }, []);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(dlUrl);
-    }, 'image/png');
+    canvas.toBlob(blob => cb(blob), 'image/png');
   };
+  img.onerror = () => { URL.revokeObjectURL(url); cb(null); };
   img.src = url;
+}
+
+function exportFieldAnalysisPNG(svgElement, configLines) {
+  fieldAnalysisPngBlob(svgElement, configLines, blob => {
+    if (!blob) return;
+    const dlUrl = URL.createObjectURL(blob);
+    const a = el('a', { href: dlUrl, download: 'field_analysis.png' }, []);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(dlUrl);
+  });
 }
 
 // Same visual language as the game-tab field diagram (color-coded lines, hover
@@ -7177,8 +7200,17 @@ function buildAnnotationQueryPane() {
   topRow.appendChild(labeled('Show', buildSegToggle(
     Object.keys(QUERY_KINDS).map(k => ({ key: k, label: QUERY_KINDS[k].label })),
     (k) => { showKind = k; buildFilterControls(); render(); }, showKind)));
+
+  const filterRow = el('div', { class: 'de-query-filters' }, []);
+  pane.appendChild(filterRow);
+
+  const summary = el('div', { class: 'de-query-summary' }, []);
+  const copyBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Copy timestamp links')]);
+  copyBtn.addEventListener('click', copyLinks);
+  const queryActions = el('div', { class: 'de-query-actions' }, []);
+  // Team Report only: a Copy view link sits to the left of Copy timestamp links.
   if (VIEWER_MODE) {
-    topRow.appendChild(buildCopyViewLinkButton('data-editor', () => {
+    queryActions.appendChild(buildCopyViewLinkButton('data-editor', () => {
       const st = { kind: showKind };
       const g = shareGamesValue(selectedGames);
       if (g) st.games = g;
@@ -7188,14 +7220,8 @@ function buildAnnotationQueryPane() {
       return st;
     }));
   }
-
-  const filterRow = el('div', { class: 'de-query-filters' }, []);
-  pane.appendChild(filterRow);
-
-  const summary = el('div', { class: 'de-query-summary' }, []);
-  const copyBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Copy timestamp links')]);
-  copyBtn.addEventListener('click', copyLinks);
-  pane.appendChild(el('div', { class: 'controls-row de-query-summary-row' }, [summary, copyBtn]));
+  queryActions.appendChild(copyBtn);
+  pane.appendChild(el('div', { class: 'controls-row de-query-summary-row' }, [summary, queryActions]));
 
   const results = el('div', { class: 'de-query-results' }, []);
   pane.appendChild(results);
