@@ -1,6 +1,6 @@
 # Statto HTML Season Report
 
-![Field to Team Report — the setup flow at a glance: take stats, import the file, run the script, customise, optionally split the video tagging across people, publish the read-only team report, and share it.](docs/setup-flow.svg)
+![From field to Team Report — the workflow at a glance: take stats, export the .statto file, and run the script to build a desktop Set up editor. In the editor you set up tournaments and video links, annotate the film (optionally splitting tagging across helpers), and set up your lines — then publish the read-only, mobile Team Report, with every analysis tab and shareable view links, which is what your team opens.](docs/setup-flow.svg)
 
 > **New here?** The picture above is the whole workflow at a glance. The
 > detailed walkthrough starts at
