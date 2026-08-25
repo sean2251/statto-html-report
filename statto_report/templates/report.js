@@ -1538,24 +1538,40 @@ function buildFieldAnalysisSection() {
   exportRow.appendChild(exportBtn);
   section.appendChild(exportRow);
 
-  let selectedThrowers = REPORT.seasonLeaderboard.map(r => r.player);
-  let selectedReceivers = REPORT.seasonLeaderboard.map(r => r.player);
+  const rosterAll = REPORT.seasonLeaderboard.map(r => r.player);
+  let selectedThrowers = rosterAll.slice();
+  let selectedReceivers = rosterAll.slice();
   let selectedGames = REPORT.games.map((g, i) => i);
   let categories = new Set(['all']);
   let pointTypeFilter = 'combined';
   let possessionMode = 'final';
   let fieldMode = 'full';
+  // Seed the full view (players, games, filters, toggles) from a shared link.
+  const shared = shareStateFor('field-analysis');
+  if (shared) {
+    const roster = new Set(rosterAll);
+    if (Array.isArray(shared.throwers)) { const t = shared.throwers.filter(x => roster.has(x)); if (t.length) selectedThrowers = t; }
+    if (Array.isArray(shared.receivers)) { const r = shared.receivers.filter(x => roster.has(x)); if (r.length) selectedReceivers = r; }
+    selectedGames = applySharedGames(shared.games);
+    if (Array.isArray(shared.categories)) {
+      const c = shared.categories.filter(k => IMPACT_CATEGORIES.some(ic => ic.key === k));
+      if (c.length) categories = new Set(c);
+    }
+    if (['combined', 'offense', 'defense'].includes(shared.pointType)) pointTypeFilter = shared.pointType;
+    if (shared.possession === 'final' || shared.possession === 'possession') possessionMode = shared.possession;
+    if (shared.field === 'full' || shared.field === 'redzone') fieldMode = shared.field;
+  }
 
   function render() {
     const { passes, blocks } = computeFieldAnalysisData(selectedThrowers, selectedReceivers, selectedGames, categories, pointTypeFilter, possessionMode, fieldMode);
     renderPlayerImpact(routeLayer, passes, blocks);
   }
 
-  const categoryControl = buildImpactCategoryDropdown((cats) => { categories = cats; render(); });
+  const categoryControl = buildImpactCategoryDropdown((cats) => { categories = cats; render(); }, null, { initialSelected: [...categories] });
   const possessionControl = buildToggle('Final Throw', 'Entire Possession', (which) => {
     possessionMode = which === 'a' ? 'final' : 'possession';
     render();
-  });
+  }, possessionMode === 'possession' ? 'b' : 'a');
 
   function updateControlAvailability() {
     const disabled = fieldMode === 'redzone';
@@ -1564,19 +1580,28 @@ function buildFieldAnalysisSection() {
   }
 
   controlsRow.appendChild(categoryControl);
-  controlsRow.appendChild(buildPlayerSelector((names) => { selectedThrowers = names; render(); }, { maxPlayers: Infinity, defaultAll: true, includeSelectAll: true, roleLabel: 'Thrower' }));
-  controlsRow.appendChild(buildPlayerSelector((names) => { selectedReceivers = names; render(); }, { maxPlayers: Infinity, defaultAll: true, includeSelectAll: true, roleLabel: 'Receiver' }));
-  controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; render(); }));
+  controlsRow.appendChild(buildPlayerSelector((names) => { selectedThrowers = names; render(); }, { maxPlayers: Infinity, defaultAll: true, includeSelectAll: true, roleLabel: 'Thrower', initialSelected: selectedThrowers }));
+  controlsRow.appendChild(buildPlayerSelector((names) => { selectedReceivers = names; render(); }, { maxPlayers: Infinity, defaultAll: true, includeSelectAll: true, roleLabel: 'Receiver', initialSelected: selectedReceivers }));
+  controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; render(); }, { initialSelected: selectedGames }));
   controlsRow.appendChild(buildSegToggle([
     { key: 'combined', label: 'Combined' },
     { key: 'offense', label: 'O-points' },
     { key: 'defense', label: 'D-points' },
-  ], (key) => { pointTypeFilter = key; render(); }));
+  ], (key) => { pointTypeFilter = key; render(); }, pointTypeFilter));
   controlsRow.appendChild(possessionControl);
   controlsRow.appendChild(buildToggle('Full Field', 'Red Zone', (which) => {
     fieldMode = which === 'a' ? 'full' : 'redzone';
     updateControlAvailability();
     render();
+  }, fieldMode === 'redzone' ? 'b' : 'a'));
+  controlsRow.appendChild(buildCopyViewLinkButton('field-analysis', () => {
+    const st = { pointType: pointTypeFilter, possession: possessionMode, field: fieldMode };
+    if (selectedThrowers.length < rosterAll.length) st.throwers = selectedThrowers.slice();
+    if (selectedReceivers.length < rosterAll.length) st.receivers = selectedReceivers.slice();
+    const g = shareGamesValue(selectedGames);
+    if (g) st.games = g;
+    if (!(categories.size === 1 && categories.has('all'))) st.categories = [...categories];
+    return st;
   }));
 
   function describeSelection() {
@@ -1719,13 +1744,18 @@ function clampFilterPanel(panel) {
 // categoryList overrides the default IMPACT_CATEGORIES -- used by Thrower-
 // Receiver Analysis to drop "Blocks" (not a thrower->receiver event, so it'd
 // just always be an empty no-op checkbox there).
-function buildImpactCategoryDropdown(onChange, categoryList) {
+function buildImpactCategoryDropdown(onChange, categoryList, opts) {
+  opts = opts || {};
   const categories = categoryList || IMPACT_CATEGORIES;
   const wrap = el('div', { class: 'game-filter' }, []);
   const btn = el('button', { class: 'game-filter-btn', type: 'button' }, []);
   const panel = el('div', { class: 'game-filter-panel' }, []);
   panel.style.display = 'none';
-  let selected = new Set(['all']);
+  const validKeys = new Set(categories.map(c => c.key));
+  let selected = Array.isArray(opts.initialSelected)
+    ? new Set(opts.initialSelected.filter(k => validKeys.has(k)))
+    : new Set(['all']);
+  if (!selected.size) selected = new Set(['all']);
   const cbs = {};
 
   function updateLabel() {
@@ -1737,7 +1767,7 @@ function buildImpactCategoryDropdown(onChange, categoryList) {
 
   categories.forEach(cat => {
     const cb = el('input', { type: 'checkbox' }, []);
-    cb.checked = cat.key === 'all';
+    cb.checked = selected.has(cat.key);
     const row = el('label', { class: 'game-filter-row' }, [cb, document.createTextNode(cat.label)]);
     panel.appendChild(row);
     cbs[cat.key] = cb;
@@ -2624,12 +2654,17 @@ function aggregateSeasonStats(gameIndices) {
 // once, while individual game checkboxes still work one at a time. The
 // onChange contract is unchanged -- it always receives a sorted array of the
 // selected game indices -- so every call site is tournament-aware for free.
-function buildGameFilterDropdown(onChange) {
+function buildGameFilterDropdown(onChange, opts) {
+  opts = opts || {};
   const wrap = el('div', { class: 'game-filter' }, []);
   const btn = el('button', { class: 'game-filter-btn', type: 'button' }, []);
   const panel = el('div', { class: 'game-filter-panel' }, []);
   panel.style.display = 'none';
-  let selected = new Set(REPORT.games.map((g, i) => i));
+  const allIdx = REPORT.games.map((g, i) => i);
+  let selected = Array.isArray(opts.initialSelected)
+    ? new Set(opts.initialSelected.filter(i => Number.isInteger(i) && i >= 0 && i < REPORT.games.length))
+    : new Set(allIdx);
+  if (!selected.size) selected = new Set(allIdx);
 
   const tournaments = getTournaments();
   const unassigned = unassignedGameIndices(tournaments);
@@ -2659,7 +2694,7 @@ function buildGameFilterDropdown(onChange) {
   function emit() { updateLabel(); syncGroupState(); onChange([...selected].sort((a, b) => a - b)); }
 
   const selectAllCb = el('input', { type: 'checkbox' }, []);
-  selectAllCb.checked = true;
+  selectAllCb.checked = selected.size === REPORT.games.length;
   panel.appendChild(el('label', { class: 'game-filter-row' }, [selectAllCb, document.createTextNode('Select all')]));
   panel.appendChild(el('div', { class: 'game-filter-sep' }, []));
   selectAllCb.addEventListener('change', () => {
@@ -2672,7 +2707,7 @@ function buildGameFilterDropdown(onChange) {
 
   groups.forEach(group => {
     const groupCb = el('input', { type: 'checkbox' }, []);
-    groupCb.checked = true;
+    groupCb.checked = group.indices.every(i => selected.has(i));
     const groupRow = el('label', { class: 'game-filter-row game-filter-group' }, [
       groupCb, document.createTextNode(`${group.label} (${group.indices.length})`),
     ]);
@@ -2689,7 +2724,7 @@ function buildGameFilterDropdown(onChange) {
     group.indices.forEach(i => {
       const g = REPORT.games[i];
       const cb = el('input', { type: 'checkbox' }, []);
-      cb.checked = true;
+      cb.checked = selected.has(i);
       panel.appendChild(el('label', { class: 'game-filter-row game-filter-game' }, [cb, document.createTextNode(`vs ${g.opponent} (${g.dateDisplay})`)]));
       gameCbByIndex.set(i, cb);
       cb.addEventListener('change', () => {
@@ -2703,6 +2738,7 @@ function buildGameFilterDropdown(onChange) {
 
   updateLabel();
   syncGroupState();
+  selectAllCb.indeterminate = selected.size > 0 && selected.size < REPORT.games.length;
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     const opening = panel.style.display === 'none';
@@ -2736,10 +2772,11 @@ function zeroPlayerRow(name) {
   return r;
 }
 
-function buildToggle(labelA, labelB, onChange) {
+function buildToggle(labelA, labelB, onChange, initial) {
+  const bActive = initial === 'b';
   const wrap = el('div', { class: 'seg-toggle' }, []);
-  const btnA = el('button', { class: 'seg-btn active', type: 'button' }, [document.createTextNode(labelA)]);
-  const btnB = el('button', { class: 'seg-btn', type: 'button' }, [document.createTextNode(labelB)]);
+  const btnA = el('button', { class: 'seg-btn' + (bActive ? '' : ' active'), type: 'button' }, [document.createTextNode(labelA)]);
+  const btnB = el('button', { class: 'seg-btn' + (bActive ? ' active' : ''), type: 'button' }, [document.createTextNode(labelB)]);
   btnA.addEventListener('click', () => {
     if (btnA.classList.contains('active')) return;
     btnA.classList.add('active'); btnB.classList.remove('active');
@@ -3224,6 +3261,15 @@ function buildPlayerAnalysisSection() {
 
   let selectedPlayers = [];
   let selectedGames = REPORT.games.map((g, i) => i);
+  // Seed players + games from a shared view link.
+  const shared = shareStateFor('player-analysis');
+  if (shared) {
+    if (Array.isArray(shared.players)) {
+      const roster = new Set(REPORT.seasonLeaderboard.map(r => r.player));
+      selectedPlayers = shared.players.filter(x => roster.has(x)).slice(0, 7);
+    }
+    selectedGames = applySharedGames(shared.games);
+  }
 
   function render() {
     contentArea.innerHTML = '';
@@ -3267,8 +3313,14 @@ function buildPlayerAnalysisSection() {
     contentArea.appendChild(buildImpactSection(players, selectedGames));
   }
 
-  controlsRow.appendChild(buildPlayerSelector((names) => { selectedPlayers = names; render(); }));
-  controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; render(); }));
+  controlsRow.appendChild(buildPlayerSelector((names) => { selectedPlayers = names; render(); }, { initialSelected: selectedPlayers }));
+  controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; render(); }, { initialSelected: selectedGames }));
+  controlsRow.appendChild(buildCopyViewLinkButton('player-analysis', () => {
+    const st = { players: selectedPlayers.slice() };
+    const g = shareGamesValue(selectedGames);
+    if (g) st.games = g;
+    return st;
+  }));
   headerRow.appendChild(controlsRow);
   section.appendChild(headerRow);
   section.appendChild(contentArea);
@@ -4452,14 +4504,17 @@ function modeLineupForKeys(keys) {
 // Who actually played on a line and how often: for each of the line's points,
 // count every player in that point's lineup. Returns the point total and a
 // name -> points-present map, so a caller can show "on 12 of 14 points (86%)".
-// Uses the line's full point set (not the compare-tab games filter), so a
-// line's roster reads the same however the comparison below it is scoped.
-function lineRosterPresence(pointKeys) {
+// gameIndices (optional) restricts the count to those games -- so the Line
+// Analysis games filter scopes the rosters too.
+function lineRosterPresence(pointKeys, gameIndices) {
+  const gset = gameIndices ? new Set(gameIndices) : null;
   let total = 0;
   const counts = new Map();
   pointKeys.forEach(key => {
     const [giStr, pnStr] = key.split('|');
-    const game = REPORT.games[Number(giStr)];
+    const gi = Number(giStr);
+    if (gset && !gset.has(gi)) return;
+    const game = REPORT.games[gi];
     const pt = game && (game.points || []).find(p => p.number === Number(pnStr));
     if (!pt) return;
     total++;
@@ -4820,6 +4875,15 @@ function buildLineAnalysisSection(variant) {
   // an older lines.json aren't destroyed, even though they're no longer edited here.
   let tournamentLabels = savedData.tournamentLabels;
   let selectedGames = REPORT.games.map((g, i) => i);
+  let compareSelection = null; // line display-names chosen in the compare (null = all)
+  // Seed the games filter + compared lines from a shared view link (Team Report).
+  if (!isSetup) {
+    const shared = shareStateFor('line-analysis');
+    if (shared) {
+      selectedGames = applySharedGames(shared.games);
+      if (Array.isArray(shared.lines)) compareSelection = shared.lines.filter(x => typeof x === 'string');
+    }
+  }
   // Every line spans the whole season. (The old Across / Within-Tournament
   // toggle was removed -- it added confusion and went unused. Any
   // tournament-scoped lines left in older data still show here.)
@@ -4835,6 +4899,19 @@ function buildLineAnalysisSection(variant) {
     section.appendChild(managementWrap);
     section.appendChild(rostersWrap);
   } else {
+    // A games filter at the top scopes everything below it -- the rosters and
+    // the comparison -- plus a Copy view link button.
+    const topControls = el('div', { class: 'controls-row' }, []);
+    topControls.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; renderAll(); }, { initialSelected: selectedGames }));
+    topControls.appendChild(buildCopyViewLinkButton('line-analysis', () => {
+      const st = {};
+      const g = shareGamesValue(selectedGames);
+      if (g) st.games = g;
+      const allNames = relevantLinesNow().map(displayName);
+      if (compareSelection && compareSelection.length && compareSelection.length < allNames.length) st.lines = compareSelection.slice();
+      return st;
+    }));
+    section.appendChild(topControls);
     section.appendChild(compareWrap);
   }
 
@@ -5209,7 +5286,7 @@ function buildLineAnalysisSection(variant) {
     const wrap = el('div', { class: 'line-rosters' }, []);
     wrap.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Line rosters')]));
 
-    const rosters = relevantLines.map(line => Object.assign({ line }, lineRosterPresence(line.pointKeys)));
+    const rosters = relevantLines.map(line => Object.assign({ line }, lineRosterPresence(line.pointKeys, selectedGames)));
     // How many of these lines each player appears on, so shared players stand out.
     const lineCountByName = new Map();
     rosters.forEach(r => r.counts.forEach((_, name) => lineCountByName.set(name, (lineCountByName.get(name) || 0) + 1)));
@@ -5265,12 +5342,17 @@ function buildLineAnalysisSection(variant) {
 
     // Lines are identified by their (already-unique) display name here, not
     // id, since buildPlayerSelector's widget is built around "the value is
-    // both the checkbox label and the returned identifier."
-    let selectedNames = relevantLines.map(displayName);
+    // both the checkbox label and the returned identifier." The selection is
+    // kept on the section (compareSelection) so the games filter and shared
+    // links preserve it; null means "all lines".
+    const allNames = relevantLines.map(displayName);
+    if (compareSelection == null) compareSelection = allNames.slice();
+    else compareSelection = compareSelection.filter(n => allNames.includes(n));
+    if (!compareSelection.length) compareSelection = allNames.slice();
 
     function renderContent() {
       contentArea.innerHTML = '';
-      const selectedLines = relevantLines.filter(l => selectedNames.includes(displayName(l)));
+      const selectedLines = relevantLines.filter(l => compareSelection.includes(displayName(l)));
       if (!selectedLines.length) {
         contentArea.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Select 1 or more lines above to compare.')]));
         return;
@@ -5310,11 +5392,11 @@ function buildLineAnalysisSection(variant) {
       renderFields();
     }
 
-    controlsRow.appendChild(buildPlayerSelector((names) => { selectedNames = names; renderContent(); }, {
+    controlsRow.appendChild(buildPlayerSelector((names) => { compareSelection = names; renderContent(); }, {
       maxPlayers: Infinity, defaultAll: true, includeSelectAll: true, roleLabel: 'Line',
-      items: relevantLines.map(displayName),
+      items: allNames, initialSelected: compareSelection,
     }));
-    controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; renderContent(); }));
+    // The games filter now lives at the top of the tab and scopes everything.
     renderContent();
   }
 
@@ -5866,6 +5948,14 @@ function buildThrowerReceiverSection() {
   let selectedPairLabels = [];
   let heatmapMetric = 'n';
   let heatmapScope = 'totals';
+  // Seed pairs, games, and the heatmap metric/scale from a shared view link.
+  const shared = shareStateFor('thrower-receiver-analysis');
+  if (shared) {
+    selectedGames = applySharedGames(shared.games);
+    if (Array.isArray(shared.pairs)) selectedPairLabels = shared.pairs.filter(x => typeof x === 'string').slice(0, 7);
+    if (shared.metric && HEATMAP_METRICS.some(m => m.key === shared.metric)) heatmapMetric = shared.metric;
+    if (shared.scope === 'totals' || shared.scope === 'perThrower') heatmapScope = shared.scope;
+  }
 
   function renderHeatmap() {
     heatmapWrap.innerHTML = '';
@@ -5933,7 +6023,13 @@ function buildThrowerReceiverSection() {
     compareWrap.appendChild(buildPairComparisonSection(chosen, selectedGames));
   }
 
-  controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; renderTop(); }));
+  controlsRow.appendChild(buildGameFilterDropdown((indices) => { selectedGames = indices; renderTop(); }, { initialSelected: selectedGames }));
+  controlsRow.appendChild(buildCopyViewLinkButton('thrower-receiver-analysis', () => {
+    const st = { pairs: selectedPairLabels.slice(), metric: heatmapMetric, scope: heatmapScope };
+    const g = shareGamesValue(selectedGames);
+    if (g) st.games = g;
+    return st;
+  }));
   heatmapControlsRow.appendChild(el('span', { class: 'heatmap-toggle-label' }, [document.createTextNode('Color by:')]));
   heatmapControlsRow.appendChild(buildSegToggle(
     HEATMAP_METRICS.map(m => ({ key: m.key, label: m.label })),
@@ -5944,7 +6040,7 @@ function buildThrowerReceiverSection() {
   heatmapScopeRow.appendChild(buildToggle('Totals', 'Per thrower', (which) => {
     heatmapScope = which === 'a' ? 'totals' : 'perThrower';
     renderHeatmap();
-  }));
+  }, heatmapScope === 'perThrower' ? 'b' : 'a'));
   renderTop();
   return section;
 }
@@ -6990,6 +7086,15 @@ function buildAnnotationQueryPane() {
   let selectedGames = REPORT.games.map((g, i) => i);
   let showKind = 'pass';
   const filters = {};
+  // Seed the query (games, kind, filters) from a shared view link.
+  const sharedQuery = shareStateFor('data-editor');
+  if (sharedQuery) {
+    selectedGames = applySharedGames(sharedQuery.games);
+    if (sharedQuery.kind && QUERY_KINDS[sharedQuery.kind]) showKind = sharedQuery.kind;
+    if (sharedQuery.filters && typeof sharedQuery.filters === 'object') {
+      Object.keys(sharedQuery.filters).forEach(k => { if (typeof sharedQuery.filters[k] === 'string') filters[k] = sharedQuery.filters[k]; });
+    }
+  }
 
   function labeled(labelText, node) {
     return el('div', { class: 'de-qfield' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), node]);
@@ -6997,10 +7102,21 @@ function buildAnnotationQueryPane() {
 
   const topRow = el('div', { class: 'de-query-top' }, []);
   pane.appendChild(topRow);
-  topRow.appendChild(labeled('Games', buildGameFilterDropdown(idx => { selectedGames = idx; render(); })));
+  topRow.appendChild(labeled('Games', buildGameFilterDropdown(idx => { selectedGames = idx; render(); }, { initialSelected: selectedGames })));
   topRow.appendChild(labeled('Show', buildSegToggle(
     Object.keys(QUERY_KINDS).map(k => ({ key: k, label: QUERY_KINDS[k].label })),
     (k) => { showKind = k; buildFilterControls(); render(); }, showKind)));
+  if (VIEWER_MODE) {
+    topRow.appendChild(buildCopyViewLinkButton('data-editor', () => {
+      const st = { kind: showKind };
+      const g = shareGamesValue(selectedGames);
+      if (g) st.games = g;
+      const f = {};
+      Object.keys(filters).forEach(k => { if (filters[k]) f[k] = filters[k]; });
+      if (Object.keys(f).length) st.filters = f;
+      return st;
+    }));
+  }
 
   const filterRow = el('div', { class: 'de-query-filters' }, []);
   pane.appendChild(filterRow);
@@ -7023,8 +7139,8 @@ function buildAnnotationQueryPane() {
     return labeled(labelText, sel);
   }
 
-  function buildFilterControls() {
-    Object.keys(filters).forEach(k => delete filters[k]);
+  function buildFilterControls(preserve) {
+    if (!preserve) Object.keys(filters).forEach(k => delete filters[k]);
     filterRow.innerHTML = '';
     if (showKind === 'pass') {
       // Outcome / Thrower / Receiver come from the pass data itself (not tags),
@@ -7265,7 +7381,7 @@ function buildAnnotationQueryPane() {
     setTimeout(() => { copyBtn.textContent = orig; }, 1500);
   }
 
-  buildFilterControls();
+  buildFilterControls(true);
   render();
   return { pane, refresh: render };
 }
@@ -8306,6 +8422,44 @@ function shareStateFor(tab) {
 }
 function buildShareUrl(tab, state) {
   return location.href.split('#')[0] + '#share=' + encodeURIComponent(JSON.stringify({ v: 1, tab: tab, state: state }));
+}
+// A "Copy view link" button for any tab: getState() returns the tab's shareable
+// selections; clicking copies a #share= link that reopens them. Shared across
+// every sharing tab so the clipboard + fallback behave identically.
+function buildCopyViewLinkButton(tab, getState) {
+  const btn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Copy view link')]);
+  function done() { btn.textContent = 'Link copied!'; setTimeout(() => { btn.textContent = 'Copy view link'; }, 1500); }
+  function fallback(url) {
+    try {
+      const inp = el('input', { type: 'text' }, []);
+      inp.value = url;
+      document.body.appendChild(inp);
+      inp.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      document.body.removeChild(inp);
+      if (ok) { done(); return; }
+    } catch (e) { /* fall through */ }
+    window.prompt('Copy this link to share the current view:', url);
+  }
+  btn.addEventListener('click', () => {
+    const url = buildShareUrl(tab, getState());
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(() => fallback(url));
+    } else {
+      fallback(url);
+    }
+  });
+  return btn;
+}
+// Games are shared as an index array only when a strict subset is selected
+// (all-selected is the default, so omit it). Clamped to valid indices on apply.
+function shareGamesValue(selectedGames) {
+  return (selectedGames && selectedGames.length && selectedGames.length < REPORT.games.length) ? selectedGames.slice() : undefined;
+}
+function applySharedGames(arr) {
+  if (!Array.isArray(arr)) return REPORT.games.map((g, i) => i);
+  const valid = arr.filter(i => Number.isInteger(i) && i >= 0 && i < REPORT.games.length);
+  return valid.length ? valid : REPORT.games.map((g, i) => i);
 }
 
 function buildTimeSeriesSection() {
