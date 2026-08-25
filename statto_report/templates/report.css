@@ -1126,13 +1126,12 @@
   .line-roster-player, .line-roster-pct { position: relative; z-index: 1; }
   .line-roster-player { color: var(--chalk); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
   .line-roster-pct { color: var(--chalk-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
-  /* Shared players (on >1 of the shown lines) read gold, with a count chip. */
-  .line-roster-row.shared .line-roster-fill { background: rgba(255,184,0,0.15); }
-  .line-roster-row.shared .line-roster-player { color: #FFB800; }
+  /* A small neutral box on each player: how many of these lines they're on. */
   .line-roster-chip {
     font-size: 9px; font-weight: 800; line-height: 1;
-    color: var(--ink); background: #FFB800;
-    border-radius: 999px; padding: 2px 5px; font-variant-numeric: tabular-nums;
+    color: var(--chalk-dim); background: rgba(var(--chalk-rgb),0.08);
+    border: 1px solid rgba(var(--chalk-rgb),0.18);
+    border-radius: 4px; padding: 2px 5px; font-variant-numeric: tabular-nums;
   }
   .line-name-input {
     background: rgba(var(--chalk-rgb),0.06);

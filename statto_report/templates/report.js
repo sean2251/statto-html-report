@@ -4820,23 +4820,11 @@ function buildLineAnalysisSection(variant) {
   // an older lines.json aren't destroyed, even though they're no longer edited here.
   let tournamentLabels = savedData.tournamentLabels;
   let selectedGames = REPORT.games.map((g, i) => i);
-  // Rosters often differ tournament to tournament, so a line's identity can
-  // either span the whole season ('across', tournamentId: null on the line)
-  // or be scoped to one tournament at a time ('within', tagged with that
-  // tournament's id) -- see currentScopes(). Lines from both modes coexist
-  // in `lines`; only the current mode's subset is shown/edited at once.
-  let scopeMode = 'across';
-  let selectedTournamentIds = TOURNAMENTS.map(t => t.id);
-
-  const modeControlsRow = el('div', { class: 'controls-row' }, []);
-  const tournamentSelectorHolder = el('div', {}, []);
-  modeControlsRow.appendChild(buildToggle('Across Tournaments', 'Within Tournament', (which) => {
-    scopeMode = which === 'a' ? 'across' : 'within';
-    renderTournamentSelector();
-    renderAll();
-  }));
-  modeControlsRow.appendChild(tournamentSelectorHolder);
-  section.appendChild(modeControlsRow);
+  // Every line spans the whole season. (The old Across / Within-Tournament
+  // toggle was removed -- it added confusion and went unused. Any
+  // tournament-scoped lines left in older data still show here.)
+  const scopeMode = 'across';
+  const selectedTournamentIds = TOURNAMENTS.map(t => t.id);
 
   const managementWrap = el('div', { class: 'line-mgmt' }, []);
   const rostersWrap = el('div', {}, []);
@@ -4850,18 +4838,7 @@ function buildLineAnalysisSection(variant) {
     section.appendChild(compareWrap);
   }
 
-  function renderTournamentSelector() {
-    tournamentSelectorHolder.innerHTML = '';
-    if (scopeMode !== 'within') return;
-    tournamentSelectorHolder.appendChild(buildPlayerSelector((labels) => {
-      selectedTournamentIds = TOURNAMENTS.filter(t => labels.includes(tournamentDisplay(t))).map(t => t.id);
-      renderAll();
-    }, {
-      maxPlayers: Infinity, defaultAll: true, includeSelectAll: true, roleLabel: 'Tournament',
-      items: TOURNAMENTS.map(t => tournamentDisplay(t)),
-      initialSelected: TOURNAMENTS.filter(t => selectedTournamentIds.includes(t.id)).map(t => tournamentDisplay(t)),
-    }));
-  }
+  function renderTournamentSelector() { /* Within-Tournament scoping was removed. */ }
 
   // In across-mode there's one pseudo-scope covering the whole season; in
   // within-mode there's one real scope per selected tournament, each with
@@ -4878,11 +4855,7 @@ function buildLineAnalysisSection(variant) {
     return s;
   }
   function persist() { saveLinesData(lines, tournamentLabels); }
-  function relevantLinesNow() {
-    return scopeMode === 'across'
-      ? lines.filter(l => !l.tournamentId)
-      : lines.filter(l => l.tournamentId && selectedTournamentIds.includes(l.tournamentId));
-  }
+  function relevantLinesNow() { return lines.slice(); }
   function renderSetupRosters() {
     rostersWrap.innerHTML = '';
     const rl = relevantLinesNow();
@@ -5129,7 +5102,7 @@ function buildLineAnalysisSection(variant) {
     }
 
     block.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Your lines')]));
-    const scopedLines = lines.filter(l => (l.tournamentId || null) === scope.tournamentId);
+    const scopedLines = lines.slice();
     if (!scopedLines.length) {
       block.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('No lines confirmed yet — follow the steps below to create your first one.')]));
     } else {
@@ -5240,11 +5213,9 @@ function buildLineAnalysisSection(variant) {
     // How many of these lines each player appears on, so shared players stand out.
     const lineCountByName = new Map();
     rosters.forEach(r => r.counts.forEach((_, name) => lineCountByName.set(name, (lineCountByName.get(name) || 0) + 1)));
-    const anyShared = [...lineCountByName.values()].some(n => n > 1);
 
     wrap.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(
-      'Everyone who played on each line, and the share of that line’s points they were on the field for.' +
-      (anyShared ? ' Players highlighted in gold appear on more than one of these lines.' : '')
+      'Everyone who played on each line, and the share of that line’s points they were on the field for. The small box by each name is how many of these lines they’re on.'
     )]));
 
     const grid = el('div', { class: 'line-roster-grid' }, []);
@@ -5263,12 +5234,11 @@ function buildLineAnalysisSection(variant) {
         .forEach(([name, n]) => {
           const pct = Math.round((n / total) * 100);
           const nLines = lineCountByName.get(name) || 1;
-          const shared = nLines > 1;
-          const rowEl = el('div', { class: 'line-roster-row' + (shared ? ' shared' : '') }, []);
-          if (shared) rowEl.title = `${name} plays on ${nLines} of these lines`;
+          const rowEl = el('div', { class: 'line-roster-row' }, []);
+          rowEl.title = `${name} is on ${nLines} of these line${nLines === 1 ? '' : 's'}`;
           rowEl.appendChild(el('span', { class: 'line-roster-fill', style: `width:${pct}%;` }, []));
           const nameEl = el('span', { class: 'line-roster-player' }, [document.createTextNode(name)]);
-          if (shared) nameEl.appendChild(el('span', { class: 'line-roster-chip' }, [document.createTextNode(String(nLines))]));
+          nameEl.appendChild(el('span', { class: 'line-roster-chip', title: `On ${nLines} of these lines` }, [document.createTextNode(String(nLines))]));
           rowEl.appendChild(nameEl);
           rowEl.appendChild(el('span', { class: 'line-roster-pct' }, [document.createTextNode(`${pct}% · ${n}/${total}`)]));
           list.appendChild(rowEl);
