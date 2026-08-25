@@ -8314,6 +8314,30 @@ function tsAxisTicks(min, max) {
   return ticks;
 }
 
+// ---------- Shareable view links (Team Report) ----------
+// A view's *config* (not its data) is encoded into the URL hash as
+// #share=<uri-encoded JSON {v,tab,state}>. On load the target tab seeds itself
+// from it (see shareStateFor), and a "Copy view link" button builds a fresh one
+// from the current selection. Only config that resolves against this report's
+// own baked-in data travels -- players/lines by name, the chosen stat, toggles.
+// Extensible: another tab just reads shareStateFor(<its id>) and calls
+// buildShareUrl(<its id>, state). For now only Time Series uses it.
+function parseShareHash() {
+  try {
+    const m = (location.hash || '').match(/[#&]share=([^&]+)/);
+    if (!m) return null;
+    const obj = JSON.parse(decodeURIComponent(m[1]));
+    return (obj && obj.v === 1 && obj.tab) ? obj : null;
+  } catch (e) { return null; }
+}
+const PENDING_SHARE_VIEW = parseShareHash();
+function shareStateFor(tab) {
+  return (PENDING_SHARE_VIEW && PENDING_SHARE_VIEW.tab === tab && PENDING_SHARE_VIEW.state) ? PENDING_SHARE_VIEW.state : null;
+}
+function buildShareUrl(tab, state) {
+  return location.href.split('#')[0] + '#share=' + encodeURIComponent(JSON.stringify({ v: 1, tab: tab, state: state }));
+}
+
 function buildTimeSeriesSection() {
   const section = el('section', { class: 'view', id: 'time-series' }, []);
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode('Time Series')]));
@@ -8331,6 +8355,25 @@ function buildTimeSeriesSection() {
   let showTotal = true;
   let lineEntities = [];  // rebuilt with the line selector
   let lastSeries = [];    // the series currently drawn, for the export legend
+
+  // Seed from a shared view link, if this is its target tab. Everything is
+  // validated on the way in: an unknown stat falls back to the default, and
+  // players/lines that don't exist here are dropped by the selectors / render.
+  const shared = shareStateFor('time-series');
+  if (shared) {
+    if (shared.mode === 'player' || shared.mode === 'line') mode = shared.mode;
+    if (shared.stat && catalogFor(mode).some(s => s.key === shared.stat)) statKey[mode] = shared.stat;
+    if (Array.isArray(shared.players)) {
+      const roster = new Set(REPORT.seasonLeaderboard.map(r => r.player));
+      selectedPlayers = shared.players.filter(x => roster.has(x)).slice(0, 7);
+    }
+    if (Array.isArray(shared.lines)) {
+      const names = new Set(allLineEntities().map(e => e.name));
+      selectedLineNames = shared.lines.filter(x => names.has(x)).slice(0, 7);
+    }
+    if (typeof shared.avg === 'boolean') showAvg = shared.avg;
+    if (typeof shared.total === 'boolean') showTotal = shared.total;
+  }
 
   function catalogFor(m) { return m === 'line' ? LINE_TIMESERIES_STATS : TIMESERIES_STATS; }
   function currentStat() { const cat = catalogFor(mode); return cat.find(s => s.key === statKey[mode]) || cat[0]; }
@@ -8380,7 +8423,7 @@ function buildTimeSeriesSection() {
   const controlsRow = el('div', { class: 'controls-row ts-controls' }, []);
 
   // Player / Line mode toggle.
-  const modeToggle = buildSegToggle([{ key: 'player', label: 'By Player' }, { key: 'line', label: 'By Line' }], k => { if (k !== mode) { mode = k; onModeChange(); } }, 'player');
+  const modeToggle = buildSegToggle([{ key: 'player', label: 'By Player' }, { key: 'line', label: 'By Line' }], k => { if (k !== mode) { mode = k; onModeChange(); } }, mode);
   controlsRow.appendChild(el('label', { class: 'ts-field' }, [el('span', { class: 'ts-field-label' }, [document.createTextNode('Compare')]), modeToggle]));
 
   // Stat dropdown -- a native <select> (best mobile picker), grouped by kind.
@@ -8443,8 +8486,39 @@ function buildTimeSeriesSection() {
       setTimeout(() => { copyBtn.textContent = 'Copy .png'; }, 1500);
     }).catch(() => { alert('Couldn’t copy to the clipboard — use Export instead.'); });
   });
+  // Copy a link that reopens this exact view (config only -- resolves against
+  // whatever data the recipient's copy of the report already has).
+  const copyLinkBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Copy view link')]);
+  function serializeView() {
+    const state = { mode: mode, stat: statKey[mode] };
+    if (mode === 'player') { state.players = selectedPlayers.slice(); state.avg = showAvg; state.total = showTotal; }
+    else { state.lines = selectedLineNames.slice(); }
+    return state;
+  }
+  function shareLinkCopied() { copyLinkBtn.textContent = 'Link copied!'; setTimeout(() => { copyLinkBtn.textContent = 'Copy view link'; }, 1500); }
+  function shareLinkFallback(url) {
+    try {
+      const inp = el('input', { type: 'text' }, []);
+      inp.value = url;
+      document.body.appendChild(inp);
+      inp.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      document.body.removeChild(inp);
+      if (ok) { shareLinkCopied(); return; }
+    } catch (e) { /* fall through to prompt */ }
+    window.prompt('Copy this link to share the current view:', url);
+  }
+  copyLinkBtn.addEventListener('click', () => {
+    const url = buildShareUrl('time-series', serializeView());
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(shareLinkCopied).catch(() => shareLinkFallback(url));
+    } else {
+      shareLinkFallback(url);
+    }
+  });
   exportRow.appendChild(exportBtn);
   exportRow.appendChild(copyBtn);
+  exportRow.appendChild(copyLinkBtn);
   section.appendChild(exportRow);
 
   // Floating tooltip lives inside the (relatively positioned) chart wrap.
@@ -8903,9 +8977,9 @@ function buildTimeSeriesSection() {
     img.src = url;
   }
 
-  populateStatSelect();
-  buildEntitySelector();
-  render();
+  // Sets up the stat dropdown, entity selector, avg/total chip visibility and
+  // draws -- all keyed off the current (possibly share-seeded) mode.
+  onModeChange();
   // Redraw at the real width once the tab becomes visible, and on resize.
   if (typeof ResizeObserver !== 'undefined') {
     let lastW = 0;
@@ -9263,9 +9337,15 @@ function init() {
   mountRebuildableView(buildRawDataSection);
   REPORT.games.forEach((g, i) => main.appendChild(buildGameSection(g, i)));
   initTableScrollAffordance(main);
-  // Season is active on load without going through showView, so its tour has
-  // to be kicked off here.
-  maybeAutoTour('season');
+  // A shared view link (#share=) opens straight onto its tab, already seeded at
+  // build time. Then drop the hash so a reload behaves normally. Otherwise
+  // Season is active on load and kicks off its tour here.
+  if (PENDING_SHARE_VIEW && document.getElementById(PENDING_SHARE_VIEW.tab)) {
+    showView(PENDING_SHARE_VIEW.tab);
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  } else {
+    maybeAutoTour('season');
+  }
 }
 
 // Wide tables scroll horizontally on a phone (the leaderboard is ~2600px), but
