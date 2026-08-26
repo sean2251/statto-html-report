@@ -7888,6 +7888,27 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     return el('label', { class: 'de-field' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), sel]);
   }
 
+  // Chip-row version of annField: every option is a button, so tagging is one
+  // click instead of open-then-pick. Single-select; clicking the selected chip
+  // again clears the field (its "un-set", replacing the dropdown's blank "—").
+  function annChipField(labelText, vocabList, key, rec) {
+    const current = (rec && rec[key]) || '';
+    const row = el('div', { class: 'de-chip-row' }, []);
+    const chips = [];
+    vocabList.forEach(v => {
+      const chip = el('button', { type: 'button', class: 'de-chip' + (v === current ? ' selected' : '') }, [document.createTextNode(vocabLabel(key, v))]);
+      chip.addEventListener('click', () => {
+        const wasSelected = chip.classList.contains('selected');
+        chips.forEach(c => c.classList.remove('selected'));
+        if (wasSelected) { setField(key, undefined); }
+        else { chip.classList.add('selected'); setField(key, v); }
+      });
+      chips.push(chip);
+      row.appendChild(chip);
+    });
+    return el('div', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode(labelText)]), row]);
+  }
+
   // Checkbox-group version of annField, for tags where more than one option
   // can genuinely apply at once (e.g. a turnover can be both "Too far" and
   // "Into doublecoverage"). Stored as an array; an emptied selection deletes
@@ -8052,14 +8073,12 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
         el('div', { class: 'de-panel-title' }, [document.createTextNode(`${p.thrower || 'Unknown'} → ${p.receiver || 'Unknown'}`)]),
         el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · ${outcome}`)]),
       ]));
-      const grid = el('div', { class: 'de-field-grid' }, []);
-      grid.appendChild(annField('Hand', ANNOTATION_VOCAB.hand, 'hand', rec));
-      grid.appendChild(annField('Release', ANNOTATION_VOCAB.release, 'release', rec));
-      grid.appendChild(annField('Distance', ANNOTATION_VOCAB.distance, 'distance', rec));
-      grid.appendChild(annField('Stall', ANNOTATION_VOCAB.stall, 'stall', rec));
-      grid.appendChild(annField('Catch', ANNOTATION_VOCAB.catch, 'catch', rec));
-      grid.appendChild(annField('Highlight', ANNOTATION_VOCAB.highlight, 'highlight', rec));
-      panel.appendChild(grid);
+      panel.appendChild(annChipField('Hand', ANNOTATION_VOCAB.hand, 'hand', rec));
+      panel.appendChild(annChipField('Release', ANNOTATION_VOCAB.release, 'release', rec));
+      panel.appendChild(annChipField('Distance', ANNOTATION_VOCAB.distance, 'distance', rec));
+      panel.appendChild(annChipField('Stall', ANNOTATION_VOCAB.stall, 'stall', rec));
+      panel.appendChild(annChipField('Catch', ANNOTATION_VOCAB.catch, 'catch', rec));
+      panel.appendChild(annChipField('Highlight', ANNOTATION_VOCAB.highlight, 'highlight', rec));
       // Turnover reason can genuinely be more than one thing at once (e.g.
       // "Too far" AND "Into doublecoverage"), so it's a checkbox group rather
       // than a single-choice dropdown like the fields above.
