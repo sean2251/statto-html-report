@@ -37,3 +37,10 @@ README_files/
 .DS_Store
 .Rhistory
 .claude/
+
+# Game files for the shared tagging site (real names), and build output
+*.tagging.json
+*_custom_data.json
+build/
+dist/
+_site/

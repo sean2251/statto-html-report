@@ -1,0 +1,44 @@
+# Builds the shared, data-free video-tagging site (statto_report/tagging_site.py)
+# and publishes it to GitHub Pages, so helpers can open a game file at
+# https://<owner>.github.io/<repo>/ with nothing else to host.
+#
+# One-time setup: repo Settings -> Pages -> "Build and deployment" -> Source:
+# "GitHub Actions". After that every push to main that touches the report code
+# redeploys the site.
+name: Shared tagging site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "statto_report/**"
+      - ".github/workflows/tagging-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the tagging site
+        run: python3 -m statto_report.tagging_site _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

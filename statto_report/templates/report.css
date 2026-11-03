@@ -1826,3 +1826,71 @@
 
   /* Line Analysis: static tournament heading (rename moved to Set up) */
   .line-scope-title { font-size: 16px; font-weight: 700; color: var(--chalk); }
+
+/* ---------- Local app (statto_app): save status, dialogs, home link ---------- */
+.app-home-link {
+    text-decoration: none;
+    white-space: nowrap;
+}
+.app-status {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: var(--ink-soft);
+    color: var(--chalk-dim);
+    border: 1px solid rgba(var(--chalk-rgb), 0.15);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    font-family: var(--sans);
+    font-size: 13px;
+}
+.app-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--good);
+    flex: none;
+}
+.app-status-pending .app-status-dot,
+.app-status-saving .app-status-dot { background: var(--chalk-dim); }
+.app-status-error,
+.app-status-conflict {
+    color: var(--chalk);
+    border-color: var(--bad);
+    border-radius: 12px;
+}
+.app-status-error .app-status-dot,
+.app-status-conflict .app-status-dot { background: var(--bad); }
+.app-status-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.app-dialog { max-width: min(560px, calc(100vw - 32px)); }
+.app-dialog-body { font-size: 14px; line-height: 1.5; }
+.app-dialog-body p { margin: 0 0 10px; }
+.app-dialog-body h4 { margin: 14px 0 6px; font-size: 14px; }
+.app-dialog-body .controls-row { margin: 6px 0 4px; }
+.app-dialog-body textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 120px;
+    font: inherit;
+    font-size: 13px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(var(--chalk-rgb), 0.2);
+    background: var(--ink);
+    color: var(--chalk);
+}
+.app-dialog-body pre {
+    max-height: 160px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+.app-dialog-note { color: var(--chalk-dim); font-size: 13px; }

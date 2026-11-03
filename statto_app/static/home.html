@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Statto Reports</title>
+<meta name="color-scheme" content="dark light">
+<style>
+  :root { --bg:#17181A; --card:#212226; --fg:#ECECEC; --dim:#9C9CA1; --line:rgba(236,236,236,.14); --accent:#4FD1AE; --accent-ink:#0b1f18; --bad:#E8604C; }
+  @media (prefers-color-scheme: light) { :root { --bg:#F7F7F6; --card:#FFFFFF; --fg:#1A1A1A; --dim:#6B6B70; --line:rgba(26,26,26,.13); --accent:#1F9D74; --accent-ink:#ffffff; --bad:#C0392B; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 24px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  header .ver { color:var(--dim); font-size:13px; font-weight:400; margin-left:6px; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h2 { font-size:17px; margin:28px 0 12px; }
+  p { margin:0 0 10px; }
+  .dim { color:var(--dim); font-size:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  .card h3 { margin:0; font-size:17px; overflow-wrap:anywhere; }
+  .stats { display:flex; flex-wrap:wrap; gap:4px 14px; color:var(--dim); font-size:13px; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+  button, .btn { font:inherit; font-size:14px; cursor:pointer; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--fg); padding:6px 14px; text-decoration:none; display:inline-block; }
+  button.primary, .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  form.card label { display:flex; flex-direction:column; gap:4px; font-size:14px; font-weight:600; }
+  form.card label span { font-weight:400; }
+  input[type=text], input[type=url] { font:inherit; padding:7px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); width:100%; }
+  input[type=file] { font-size:13px; max-width:100%; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .row input[type=text] { flex:1 1 240px; }
+  .msg { font-size:14px; padding:8px 12px; border-radius:8px; border:1px solid var(--line); }
+  .msg.err { border-color:var(--bad); }
+  .published { font-size:13px; }
+  .published a { color:var(--accent); }
+  details { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 16px; margin-top:12px; }
+  summary { cursor:pointer; font-weight:600; }
+  details .field { margin-top:14px; }
+  details .field > div:first-child { font-weight:600; font-size:14px; }
+  .empty { background:var(--card); border:1px dashed var(--line); border-radius:14px; padding:20px; }
+  ol { margin:6px 0 0; padding-left:20px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Statto Reports <span class="ver" id="ver"></span></h1>
+  <button type="button" id="quit" title="Stop the app (your work is already saved)">Quit</button>
+</header>
+<main>
+  <div id="flash" hidden></div>
+
+  <h2>Your seasons</h2>
+  <div id="empty" class="empty" hidden>
+    <p><strong>Welcome!</strong> A season is one team’s Statto export plus everything you add to it — tournaments, video links, lines and video tags. It all saves to a folder on this computer.</p>
+    <ol>
+      <li>In Statto, export your team (you’ll get a <code>.statto</code> file).</li>
+      <li>Create a season from it below, then open its editor.</li>
+      <li>Whenever you’ve stat’d more games, export again and use <em>Add newer Statto export</em> on the season.</li>
+    </ol>
+  </div>
+  <div class="grid" id="seasons"></div>
+
+  <h2>New season</h2>
+  <form class="card" id="create">
+    <label>Season name <input type="text" id="c-name" placeholder="e.g. RAMP 2026" required></label>
+    <label>Statto export <span class="dim">The <code>.statto</code> file you exported from Statto</span>
+      <input type="file" id="c-statto" accept=".statto" required></label>
+    <label>Bring in existing work (optional)
+      <span class="dim">Already set this season up in an older Set up editor file? In that file, click Set up → “Export all custom data”, and choose that <code>.json</code> here. For the safest import, use the same <code>.statto</code> file that editor was built from (newer games can be added afterwards).</span>
+      <input type="file" id="c-data" accept=".json,application/json"></label>
+    <div class="row"><button class="primary" type="submit" id="c-go">Create season</button></div>
+  </form>
+
+  <details id="settings">
+    <summary>Settings</summary>
+    <div class="field">
+      <div>Seasons folder</div>
+      <p class="dim">Where your seasons are saved. Each season is a normal folder you can back up or copy.</p>
+      <div class="row"><input type="text" id="s-dir"><button type="button" data-choose="s-dir">Choose…</button><button type="button" id="s-dir-open">Show</button></div>
+    </div>
+    <div class="field">
+      <div>Shared tagging site</div>
+      <p class="dim">The address you send helpers along with a game file. Leave as is unless you host your own copy of the tagging site (<a class="dl" href="/tagging-site/" download="index.html">download it</a> · <a href="/tagging-site/" target="_blank" rel="noopener">preview</a>).</p>
+      <input type="url" id="s-site">
+    </div>
+    <div class="field">
+      <div>My own tagging site folder (optional)</div>
+      <p class="dim">If you host tagging pages yourself — e.g. a GitHub repo that Cloudflare Pages deploys — choose your local copy of it. “Publish to my site” then saves the page there and, if it’s a git repository, commits and pushes it for you.</p>
+      <div class="row"><input type="text" id="s-own" placeholder="Not set"><button type="button" data-choose="s-own">Choose…</button></div>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="primary" type="button" id="s-save">Save settings</button></div>
+  </details>
+</main>
+
+<script>
+(function () {
+  var settings = {};
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function api(method, path, body, type) {
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) { opts.body = body; opts.headers['Content-Type'] = type || 'application/json'; }
+    return fetch(path, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var e = new Error(j.error || ('Error ' + r.status)); e.status = r.status; e.data = j; throw e; }
+        return j;
+      });
+    });
+  }
+  function flash(text, isErr) {
+    var f = $('flash');
+    f.className = 'msg' + (isErr ? ' err' : '');
+    f.textContent = text;
+    f.hidden = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function when(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+  function readAs(file, how) {
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = function () { reject(r.error); };
+      if (how === 'text') r.readAsText(file); else if (how === 'buffer') r.readAsArrayBuffer(file); else r.readAsDataURL(file);
+    });
+  }
+
+  function renderSeasons(list) {
+    var grid = $('seasons');
+    grid.innerHTML = '';
+    $('empty').hidden = list.length > 0;
+    list.forEach(function (s) {
+      var card = document.createElement('div');
+      card.className = 'card';
+      var editor = '/seasons/' + encodeURIComponent(s.id) + '/editor';
+      var pub = (s.published || []).slice(0, 3).map(function (f) {
+        return '<a href="/seasons/' + encodeURIComponent(s.id) + '/published/' + encodeURIComponent(f) + '" target="_blank" rel="noopener">' + esc(f) + '</a>';
+      }).join(' · ');
+      card.innerHTML =
+        '<h3>' + esc(s.name) + '</h3>' +
+        '<div class="stats"><span>' + esc(s.teamName || '') + '</span><span>' + (s.games || 0) + ' games</span>' +
+        '<span>' + s.videoLinks + ' video links</span><span>' + s.taggedEvents + ' events tagged</span></div>' +
+        '<div class="dim">Last saved ' + esc(when(s.updatedAt)) + '</div>' +
+        (pub ? '<div class="published dim">Published: ' + pub + '</div>' : '') +
+        '<div class="actions"><a class="btn primary" href="' + editor + '">Open editor</a>' +
+        '<button type="button" class="upd">Add newer Statto export</button>' +
+        '<button type="button" class="open">Show in ' + esc(settings.fileBrowserName || 'folder') + '</button></div>' +
+        '<input type="file" accept=".statto" hidden>';
+      var input = card.querySelector('input[type=file]');
+      card.querySelector('.upd').onclick = function () { input.click(); };
+      input.onchange = function () {
+        var f = input.files && input.files[0];
+        input.value = '';
+        if (f) updateStatto(s, f, false);
+      };
+      card.querySelector('.open').onclick = function () {
+        api('POST', '/api/seasons/' + encodeURIComponent(s.id) + '/open-folder', '').catch(function (e) { flash(e.message, true); });
+      };
+      grid.appendChild(card);
+    });
+  }
+
+  function updateStatto(s, file, confirmed) {
+    readAs(file, 'buffer').then(function (buf) {
+      return api('POST', '/api/seasons/' + encodeURIComponent(s.id) + '/statto' + (confirmed ? '?confirm=1' : ''), buf, 'application/octet-stream');
+    }).then(function (r) {
+      var parts = [s.name + ' updated: ' + r.games + ' games.'];
+      parts.push(r.added.length ? 'New: ' + r.added.join(', ') + '.' : 'No new games in this export.');
+      if (r.removed.length) parts.push('Not in this export: ' + r.removed.join(', ') + '.');
+      flash(parts.join(' '));
+      load();
+    }).catch(function (e) {
+      if (e.status === 409 && e.data && e.data.needsConfirm) {
+        if (confirm(e.message + '\n\nUse this export anyway? (The previous one is kept in the season’s backups folder.)')) updateStatto(s, file, true);
+        return;
+      }
+      flash(e.message, true);
+    });
+  }
+
+  $('create').onsubmit = function (ev) {
+    ev.preventDefault();
+    var name = $('c-name').value.trim();
+    var statto = $('c-statto').files[0], data = $('c-data').files[0];
+    if (!name || !statto) return;
+    $('c-go').disabled = true;
+    Promise.all([readAs(statto, 'dataurl'), data ? readAs(data, 'text') : Promise.resolve(null)]).then(function (res) {
+      var bundle = null;
+      if (res[1] != null) {
+        try { bundle = JSON.parse(res[1]); } catch (e) { throw new Error('The existing-work file isn’t valid JSON.'); }
+      }
+      return api('POST', '/api/seasons', JSON.stringify({ name: name, statto: String(res[0]).split(',')[1] || '', data: bundle }));
+    }).then(function (s) {
+      location.href = '/seasons/' + encodeURIComponent(s.id) + '/editor';
+    }).catch(function (e) {
+      flash(e.message, true);
+    }).then(function () { $('c-go').disabled = false; });
+  };
+
+  function fillSettings() {
+    $('s-dir').value = settings.seasonsDir || '';
+    $('s-site').value = settings.taggingSiteUrl || '';
+    $('s-own').value = settings.ownSiteFolder || '';
+    document.querySelectorAll('[data-choose]').forEach(function (b) { b.hidden = !settings.canChooseFolder; });
+  }
+  document.querySelectorAll('[data-choose]').forEach(function (b) {
+    b.onclick = function () {
+      api('POST', '/api/choose-folder?prompt=' + encodeURIComponent('Choose a folder'), '').then(function (r) {
+        if (r.path) $(b.getAttribute('data-choose')).value = r.path;
+      }).catch(function (e) { flash(e.message, true); });
+    };
+  });
+  $('s-dir-open').onclick = function () { api('POST', '/api/open-folder', '').catch(function (e) { flash(e.message, true); }); };
+  $('s-save').onclick = function () {
+    api('POST', '/api/settings', JSON.stringify({ seasonsDir: $('s-dir').value, taggingSiteUrl: $('s-site').value, ownSiteFolder: $('s-own').value }))
+      .then(function (s) { settings = s; fillSettings(); flash('Settings saved.'); load(); })
+      .catch(function (e) { flash(e.message, true); });
+  };
+
+  $('quit').onclick = function () {
+    api('POST', '/api/quit', '').catch(function () {}).then(function () {
+      document.body.innerHTML = '<main><h2>Statto Reports has stopped.</h2><p class="dim">Everything is saved in your seasons folder. You can close this tab — open the app again whenever you need it.</p></main>';
+    });
+  };
+
+  function load() {
+    return api('GET', '/api/seasons').then(function (r) { renderSeasons(r.seasons || []); })
+      .catch(function (e) { flash('Couldn’t load your seasons: ' + e.message, true); });
+  }
+  api('GET', '/api/ping').then(function (p) { $('ver').textContent = 'v' + p.version; }).catch(function () {});
+  api('GET', '/api/settings').then(function (s) { settings = s; fillSettings(); }).catch(function () {}).then(load);
+  // Coming back from an editor tab: refresh the counts.
+  window.addEventListener('pageshow', function (e) { if (e.persisted) load(); });
+})();
+</script>
+</body>
+</html>
