@@ -802,6 +802,11 @@ def _build_game_report(game, all_points, all_possessions, all_blocks, all_stallo
         result_char = "T"
 
     game_report = {
+        # Stable identity for everything the editor saves per game (video
+        # links, tournament assignments, curated-line points). Games are
+        # listed by date, so a game's *position* shifts whenever an
+        # earlier-dated game is added to the export -- its UUID never does.
+        "uuid": game.get("uuid"),
         "opponent": game.get("opponent", "Unknown"),
         "date": game.get("date", ""),
         "dateDisplay": fmt_display_date(game.get("date", "")),

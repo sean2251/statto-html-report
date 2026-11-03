@@ -125,6 +125,19 @@ Open it in a browser (it's desktop-oriented). If you want the film features
 (embedded video and "grab current time"), open it through a local web server
 rather than double-clicking it — see the note at the end of this section.
 
+Re-run this whenever you've stat'd more games — export the whole team from
+Statto again and regenerate. Everything you've set up is saved against each
+game's own Statto ID, not its position in the (date-sorted) list, so it's safe
+to work through film in any order: adding a game dated earlier than ones
+you've already set up won't shift video links, tournament assignments or lines
+onto the wrong game.
+
+> **Upgrading from an older build?** The first time a new Set up editor opens,
+> it converts your saved data to the ID-based format, matching it against that
+> build's games. Make that first open with a build whose games are the same
+> as last time, or only adds games dated *after* them (back up first with
+> **Export all custom data** if unsure); after that, order no longer matters.
+
 **2. Set up your season** — the **Set up** tab:
 
 - **Tournaments** — group your games and name them (e.g. "Regionals"). These

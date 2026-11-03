@@ -4178,7 +4178,30 @@ function unassignedGameIndices(tournaments) {
   return REPORT.games.map((g, i) => i).filter(i => !claimed.has(i));
 }
 
-const SETUP_SCHEMA_VERSION = 1;
+// ---------- Stable game identity for saved data ----------
+// REPORT.games is sorted by date, so a game's *index* is only a position: it
+// shifts whenever a regenerated export gains an earlier-dated game (e.g. film
+// worked through out of order). Everything saved per game -- video links,
+// tournament assignments, curated-line points -- is therefore stored keyed by
+// the game's Statto UUID and translated to/from indices only at the storage
+// boundary (load*/save* below), so the rest of the code keeps working in
+// indices. Saved entries for a UUID that isn't in this build (a game missing
+// from a partial export) are carried forward on save, never dropped.
+//
+// Schema v1 (before this) stored raw indices. A v1 blob is read assuming its
+// indices match this build's game order -- true for any build whose games were
+// only ever appended -- and the Set up editor rewrites it as v2 on open (see
+// migrateLegacyStorage), after which the order no longer matters.
+const GAME_INDEX_BY_UUID = new Map();
+REPORT.games.forEach((g, i) => { if (g && g.uuid) GAME_INDEX_BY_UUID.set(g.uuid, i); });
+function gameUUIDAt(i) { const g = REPORT.games[i]; return (g && g.uuid) || null; }
+function gameIndexOfUUID(uuid) { return GAME_INDEX_BY_UUID.has(uuid) ? GAME_INDEX_BY_UUID.get(uuid) : null; }
+function isValidGameIndex(i) { return Number.isInteger(i) && i >= 0 && i < REPORT.games.length; }
+function readStoredJSON(key) {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+
+const SETUP_SCHEMA_VERSION = 2;
 
 function setupStorageKey() { return 'statto-report-setup::' + REPORT.teamName; }
 
@@ -4187,25 +4210,63 @@ function setupStorageKey() { return 'statto-report-setup::' + REPORT.teamName; }
 // Photos are stored as PNG data URLs, bounded to 256px on the crop side, so
 // even a full roster stays comfortably within localStorage's budget. All
 // three are independent maps so a partial/older saved blob still loads.
+//
+// In memory: { tournaments: [{ id, label, gameIndices }], videoLinks: { <index>: url }, playerPhotos }
+// Stored (v2): { tournaments: [{ id, label, gameUUIDs }], videoLinks: { <gameUUID>: url }, playerPhotos }
+function setupFromStored(parsed) {
+  parsed = parsed || {};
+  const legacy = !(parsed.version >= 2);
+  const tournaments = (Array.isArray(parsed.tournaments) ? parsed.tournaments : []).map(t => {
+    const gameIndices = legacy
+      ? (t.gameIndices || []).filter(isValidGameIndex)
+      : (t.gameUUIDs || []).map(gameIndexOfUUID).filter(i => i != null);
+    return { id: t.id, label: t.label, gameIndices: [...new Set(gameIndices)].sort((a, b) => a - b) };
+  });
+  const videoLinks = {};
+  const storedLinks = (parsed.videoLinks && typeof parsed.videoLinks === 'object') ? parsed.videoLinks : {};
+  Object.keys(storedLinks).forEach(k => {
+    const i = legacy ? Number(k) : gameIndexOfUUID(k);
+    if (i != null && isValidGameIndex(i) && storedLinks[k]) videoLinks[i] = storedLinks[k];
+  });
+  return {
+    tournaments,
+    videoLinks,
+    playerPhotos: (parsed.playerPhotos && typeof parsed.playerPhotos === 'object') ? parsed.playerPhotos : {},
+  };
+}
+
 function loadSetupData() {
-  try {
-    const raw = localStorage.getItem(setupStorageKey());
-    if (!raw) return { tournaments: [], videoLinks: {}, playerPhotos: {} };
-    const parsed = JSON.parse(raw) || {};
-    return {
-      tournaments: Array.isArray(parsed.tournaments) ? parsed.tournaments : [],
-      videoLinks: (parsed.videoLinks && typeof parsed.videoLinks === 'object') ? parsed.videoLinks : {},
-      playerPhotos: (parsed.playerPhotos && typeof parsed.playerPhotos === 'object') ? parsed.playerPhotos : {},
-    };
-  } catch (e) { return { tournaments: [], videoLinks: {}, playerPhotos: {} }; }
+  return setupFromStored(readStoredJSON(setupStorageKey()));
 }
 
 function saveSetupData(data) {
+  // Entries for games not in this build, from what's saved now (v2 only --
+  // a v1 blob's indices have all been resolved against this build already).
+  const prev = readStoredJSON(setupStorageKey());
+  const prevV2 = prev && prev.version >= 2 ? prev : null;
+  const videoLinks = {};
+  if (prevV2 && prevV2.videoLinks) {
+    Object.keys(prevV2.videoLinks).forEach(u => { if (gameIndexOfUUID(u) == null) videoLinks[u] = prevV2.videoLinks[u]; });
+  }
+  Object.keys(data.videoLinks || {}).forEach(k => {
+    const u = gameUUIDAt(Number(k));
+    if (u && data.videoLinks[k]) videoLinks[u] = data.videoLinks[k];
+  });
+  const prevUnknownByTournament = {};
+  if (prevV2 && Array.isArray(prevV2.tournaments)) {
+    prevV2.tournaments.forEach(t => {
+      prevUnknownByTournament[t.id] = (t.gameUUIDs || []).filter(u => gameIndexOfUUID(u) == null);
+    });
+  }
+  const tournaments = (data.tournaments || []).map(t => ({
+    id: t.id, label: t.label,
+    gameUUIDs: (t.gameIndices || []).map(gameUUIDAt).filter(Boolean).concat(prevUnknownByTournament[t.id] || []),
+  }));
   try {
     localStorage.setItem(setupStorageKey(), JSON.stringify({
       version: SETUP_SCHEMA_VERSION, teamName: REPORT.teamName,
-      tournaments: data.tournaments || [],
-      videoLinks: data.videoLinks || {},
+      tournaments,
+      videoLinks,
       playerPhotos: data.playerPhotos || {},
     }));
     return true;
@@ -4214,12 +4275,11 @@ function saveSetupData(data) {
 
 function newTournamentId() { return 'tournament-' + Math.random().toString(36).slice(2, 10); }
 
-const LINES_SCHEMA_VERSION = 1;
+const LINES_SCHEMA_VERSION = 2;
 
-// Point identity is (gameIndex, pointNumber). This stays stable across
-// report regenerations as long as existing games are only ever appended to
-// (never reordered or re-edited) -- exactly how this tool is used through a
-// season, but worth knowing if you ever hand-edit an already-logged game.
+// Point identity in memory is (gameIndex, pointNumber); in storage and in an
+// exported lines.json it's (gameUUID, pointNumber) -- see linesFromStored /
+// linesToStored -- so a line keeps its points when games shift position.
 function pointKey(gameIndex, pointNumber) { return gameIndex + '|' + pointNumber; }
 
 function linesStorageKey() { return 'statto-report-lines::' + REPORT.teamName; }
@@ -4415,7 +4475,8 @@ function parseTimestamp(str) {
 // stale setup blob forever and never picks up newly added video links, photos or
 // tags (the missing "Watch"/timestamp links being the visible symptom). Lines
 // stay non-destructive in every build; annotations stay non-destructive on a
-// tagging page, where the recipient is the one creating them.
+// tagging page, where the recipient is the one creating them (its setup config
+// is force-refreshed, like a team report's -- see forceKeys).
 function buildDistributableHtml(opts) {
   opts = opts || {};
   const seed = {};
@@ -4423,7 +4484,12 @@ function buildDistributableHtml(opts) {
     const v = localStorage.getItem(k);
     if (v !== null) seed[k] = v;
   });
-  const forceKeys = opts.viewer ? [setupStorageKey(), annotationsStorageKey()] : [];
+  // A tagging page also force-refreshes the setup config: it's read-only there
+  // (the helper only tags), and every tagging page hosted on the same site
+  // shares one localStorage, so without this a helper who'd opened an earlier
+  // game's page would keep that page's stale video links.
+  const forceKeys = opts.viewer ? [setupStorageKey(), annotationsStorageKey()]
+    : (opts.tagOnlyGame != null ? [setupStorageKey()] : []);
   // < keeps any "<" in the data (e.g. a stray character in a label) from
   // being read as markup once this sits inside a <script> tag.
   const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
@@ -4612,22 +4678,82 @@ function importGameAnnotationsFile(gameIndex, file, onDone) {
 // tournamentLabels maps tournament id -> user-chosen name (absent = use the
 // default date-based label); files saved before this field existed just
 // come back with an empty map.
+// In-memory point keys are "<gameIndex>|<pointNumber>"; stored (v2) ones are
+// "<gameUUID>|<pointNumber>". A v1 file/blob's index keys are taken as-is.
+// Stored keys for games not in this build are dropped from memory but carried
+// forward per line id by linesToStored.
+function linesFromStored(parsed) {
+  parsed = parsed || {};
+  const legacy = !(parsed.version >= 2);
+  const lines = (Array.isArray(parsed.lines) ? parsed.lines : []).map(l => {
+    const pointKeys = [];
+    (l.pointKeys || []).forEach(k => {
+      const bar = String(k).lastIndexOf('|');
+      if (bar < 0) return;
+      const g = String(k).slice(0, bar), pn = String(k).slice(bar + 1);
+      const gi = legacy ? Number(g) : gameIndexOfUUID(g);
+      if (gi != null && isValidGameIndex(gi)) pointKeys.push(pointKey(gi, Number(pn)));
+    });
+    return Object.assign({}, l, { pointKeys });
+  });
+  return {
+    lines,
+    tournamentLabels: (parsed.tournamentLabels && typeof parsed.tournamentLabels === 'object') ? parsed.tournamentLabels : {},
+  };
+}
+
+// `prev` (optional) is a previously stored v2 object whose keys for games not
+// in this build should survive the save.
+function linesToStored(lines, tournamentLabels, prev) {
+  const prevUnknownByLine = {};
+  if (prev && prev.version >= 2 && Array.isArray(prev.lines)) {
+    prev.lines.forEach(l => {
+      prevUnknownByLine[l.id] = (l.pointKeys || []).filter(k => {
+        const bar = String(k).lastIndexOf('|');
+        return bar >= 0 && gameIndexOfUUID(String(k).slice(0, bar)) == null;
+      });
+    });
+  }
+  return {
+    version: LINES_SCHEMA_VERSION, teamName: REPORT.teamName,
+    lines: (lines || []).map(l => {
+      const pointKeys = (l.pointKeys || []).map(k => {
+        const [gi, pn] = String(k).split('|');
+        const u = gameUUIDAt(Number(gi));
+        return u ? u + '|' + pn : null;
+      }).filter(Boolean).concat(prevUnknownByLine[l.id] || []);
+      return Object.assign({}, l, { pointKeys });
+    }),
+    tournamentLabels: tournamentLabels || {},
+  };
+}
+
+// Both curated lines and any custom tournament names travel together --
+// one localStorage entry, and one exported lines.json covers both.
+// tournamentLabels maps tournament id -> user-chosen name (absent = use the
+// default date-based label); files saved before this field existed just
+// come back with an empty map.
 function loadLinesData() {
-  try {
-    const raw = localStorage.getItem(linesStorageKey());
-    if (!raw) return { lines: [], tournamentLabels: {} };
-    const parsed = JSON.parse(raw);
-    return {
-      lines: (parsed && Array.isArray(parsed.lines)) ? parsed.lines : [],
-      tournamentLabels: (parsed && parsed.tournamentLabels && typeof parsed.tournamentLabels === 'object') ? parsed.tournamentLabels : {},
-    };
-  } catch (e) { return { lines: [], tournamentLabels: {} }; }
+  return linesFromStored(readStoredJSON(linesStorageKey()));
 }
 
 function saveLinesData(lines, tournamentLabels) {
   try {
-    localStorage.setItem(linesStorageKey(), JSON.stringify({ version: LINES_SCHEMA_VERSION, teamName: REPORT.teamName, lines, tournamentLabels }));
+    const stored = linesToStored(lines, tournamentLabels, readStoredJSON(linesStorageKey()));
+    localStorage.setItem(linesStorageKey(), JSON.stringify(stored));
   } catch (e) {}
+}
+
+// Rewrite any schema-v1 (index-keyed) setup / lines data as v2 (UUID-keyed)
+// the first time this Set up editor opens it, resolving the old indices
+// against this build's game order. Done eagerly -- not on the next edit -- so
+// the indices are pinned to game UUIDs before a later regenerate (with an
+// earlier-dated game added) can shift what they point at.
+function migrateLegacyStorage() {
+  const setup = readStoredJSON(setupStorageKey());
+  if (setup && !(setup.version >= 2)) saveSetupData(loadSetupData());
+  const lines = readStoredJSON(linesStorageKey());
+  if (lines && !(lines.version >= 2)) { const d = loadLinesData(); saveLinesData(d.lines, d.tournamentLabels); }
 }
 
 function newLineId() { return 'line-' + Math.random().toString(36).slice(2, 10); }
@@ -5406,7 +5532,7 @@ function buildLineAnalysisSection(variant) {
     const exportBtn = el('button', { class: 'csv-download', type: 'button' }, [document.createTextNode('Export lines.json')]);
     exportBtn.addEventListener('click', () => {
       downloadFile(
-        JSON.stringify({ version: LINES_SCHEMA_VERSION, teamName: REPORT.teamName, lines, tournamentLabels }, null, 2),
+        JSON.stringify(linesToStored(lines, tournamentLabels, readStoredJSON(linesStorageKey())), null, 2),
         slug(REPORT.teamName) + '_lines.json',
         'application/json'
       );
@@ -5423,8 +5549,9 @@ function buildLineAnalysisSection(variant) {
         try {
           const parsed = JSON.parse(reader.result);
           if (parsed && Array.isArray(parsed.lines)) {
-            lines = parsed.lines;
-            tournamentLabels = (parsed.tournamentLabels && typeof parsed.tournamentLabels === 'object') ? parsed.tournamentLabels : {};
+            const imported = linesFromStored(parsed);
+            lines = imported.lines;
+            tournamentLabels = imported.tournamentLabels;
             persist();
             renderTournamentSelector();
             renderAll();
@@ -9621,6 +9748,7 @@ function currentViewId() {
 
 // ---------- Bootstrap: build nav + all sections on load ----------
 function init() {
+  if (SETUP_MODE) migrateLegacyStorage();
   buildNav();
   const main = document.getElementById('main');
   // Per-game tagging page: just the Data Editor, locked to one game.
