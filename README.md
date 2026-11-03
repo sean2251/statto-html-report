@@ -2,9 +2,12 @@
 
 ![From field to Team Report — the workflow at a glance: take stats, export the .statto file, and run the script to build a desktop Set up editor. In the editor you set up tournaments and video links, annotate the film (optionally splitting tagging across helpers), and set up your lines — then publish the read-only, mobile Team Report, with every analysis tab and shareable view links, which is what your team opens.](docs/setup-flow.svg)
 
-> **New here?** The picture above is the whole workflow at a glance. The
-> detailed walkthrough starts at
+> **New here?** The picture above is the whole workflow at a glance. On a Mac,
+> the easiest way in is the **[Statto Reports app](#the-statto-reports-app-mac)**
+> — no terminal needed. The command-line walkthrough starts at
 > [Recommended workflow](#recommended-workflow-from-a-statto-file-to-a-team-report).
+> **Tagging a game for someone?** Jump to
+> [For video-tagging helpers](#for-video-tagging-helpers-no-coding-needed).
 
 `statto_to_html_report.py` turns a single Statto (`.statto`) export into a
 **Set up editor** — a self-contained, desktop authoring page where you group
@@ -15,6 +18,158 @@ breakdowns, field-position analysis, gender-equity analysis, and game-by-game
 time series). No server, no internet connection, and no dependencies beyond the
 Python standard library — open either file in a browser and everything runs
 client-side.
+
+## The Statto Reports app (Mac)
+
+The app wraps everything below into a double-click: no terminal, no local
+server to start, and nothing to lose if your browser's data gets cleared.
+
+- **Seasons are folders on your computer.** Create one from a `.statto`
+  export; everything you add in its Set up editor — tournaments, video links,
+  photos, lines and video tags — saves automatically to that folder, with
+  rolling backups.
+- **The video just works.** The app serves the editor from your own computer,
+  so the embedded YouTube player and **Grab current time** work when you tag
+  your own games.
+- **Adding games is one step.** Stat'd a few more games? Export from Statto
+  again and click **Add newer Statto export** on the season — in any order;
+  everything stays attached to the right game.
+- **Sharing a game for tagging is one click** — see
+  [Sharing a game with a helper](#sharing-a-game-with-a-helper).
+- **Publishing** saves the Team Report into the season's `published` folder.
+
+### Installing the app on a Mac
+
+1. Download **Statto-Reports-mac.zip** from the
+   [latest release](https://github.com/sean2251/statto-html-report/releases/latest)
+   and double-click it to unzip. Drag **Statto Reports** into your
+   **Applications** folder.
+2. Double-click it. The first time, macOS says it can't check the app for
+   malicious software (it isn't signed with a paid Apple developer
+   certificate). Click **Done**, then open **System Settings → Privacy &
+   Security**, scroll down to the message about Statto Reports and click
+   **Open Anyway**. You only do this once.
+3. Your browser opens the app's home page. That's the app: it has no window or
+   Dock icon of its own. Double-clicking it again just reopens the page.
+   Use **Quit** (top right of the home page) to stop it; your work is already
+   saved.
+
+The download is for Apple Silicon Macs (M1 and later). On an Intel Mac — or
+on Windows or Linux for now — run it from source instead (below); it's the
+same app.
+
+### Running the app from source (any computer)
+
+With [the code](#getting-the-code) downloaded and Python 3 installed:
+
+```bash
+python3 statto_app.py
+```
+
+It opens your browser at `http://127.0.0.1:8642/`. Stop it with **Quit** on
+the home page or Ctrl+C in the terminal. `python3 statto_app.py --help` lists
+the options.
+
+### Working through a season
+
+1. **Create a season.** On the home page, under **New season**, name it
+   (e.g. "RAMP 2026") and choose your `.statto` export, then **Create season**.
+   Its Set up editor opens.
+2. **Set up, tag and curate**, exactly as described in
+   [Recommended workflow](#recommended-workflow-from-a-statto-file-to-a-team-report):
+   tournaments and video links on **Set up**, tagging on **Video annotation
+   editor**, lines on **Line set up**. A pill at the bottom right shows
+   **Saved to the season folder** after each change.
+3. **More games?** Export from Statto again (the whole team, as usual), go back
+   to the home page (**← Seasons**) and click **Add newer Statto export** on
+   the season. It tells you which games are new. If the export is for a
+   different team, or is missing games the season already had, it asks before
+   going ahead.
+4. **Publish** with **Publish Team Report** on the Set up tab. The file lands
+   in the season's `published` folder (**Show in Finder** opens it), ready to
+   send or host. As before, re-publish whenever you change something.
+
+If you open the same season in two browser windows and both change things, the
+second one to save is told so and gets to choose which version to keep.
+
+### Moving an existing season into the app
+
+If you've been using a Set up editor file you generated with the script:
+
+1. In that file, click **Set up → Export all custom data** (you'll get a
+   `…_custom_data.json`).
+2. In the app, create the season with **the same `.statto` file that editor
+   was built from**, and choose the `…_custom_data.json` under **Bring in
+   existing work**.
+3. Then add your newer export, if you have one, with **Add newer Statto
+   export**.
+
+(Older editors saved video links and lines by each game's *position* in the
+season. The first time the app opens that data it re-links it to each game's
+permanent ID, using the games in the export you created the season with —
+hence step 2.)
+
+### Sharing a game with a helper
+
+Click **Share for tagging** next to a game on the Set up tab. You get two ways:
+
+- **Shared tagging site (easiest).** Click **Download game file** — a small
+  `….tagging.json` for that game, including its video link — and **Copy
+  message**, a ready-to-send note with the tagging site's address and the
+  steps. Send both. The helper opens the site, drops in the file, and tags;
+  there's nothing for anyone to host. When they send back their annotations
+  JSON, click **Upload tags** next to the game, as before.
+- **A page on your own site.** **Download tagging page** gives you the full
+  single-game page to host wherever you like (e.g. Cloudflare Pages), so the
+  helper only needs a link. If you set **My own tagging site folder** in the
+  home page's **Settings** to your local copy of that site — e.g. a clone of
+  the GitHub repo Cloudflare deploys from — **Publish to my site** saves the
+  page there and, if it's a git repository, commits and pushes it for you.
+
+### Where everything lives
+
+```
+Documents/Statto Seasons/        ← change it under Settings on the home page
+  RAMP 2026/
+    season.statto                the latest Statto export
+    season_data.json             everything you've added in the editor
+    backups/                     earlier copies of both, kept automatically
+    published/                   Team Reports you've published
+```
+
+A season folder is ordinary files: back it up, copy it to another Mac (point
+that Mac's **Settings → Seasons folder** at it), or keep the seasons folder in
+iCloud Drive or Dropbox. Use only one computer at a time on a season. The app's
+own settings and log live in `~/Library/Application Support/Statto Reports/`.
+
+### For maintainers: the shared tagging site and app releases
+
+- **The shared tagging site** is one static page built from this repo
+  (`python3 -m statto_report.tagging_site <folder>` writes its
+  `index.html`). `.github/workflows/tagging-site.yml` deploys it to GitHub
+  Pages on every push to `main` that changes the report code, at
+  `https://sean2251.github.io/statto-html-report/`. One-time setup: repo
+  **Settings → Pages → Source: GitHub Actions**. To host your own copy instead
+  (anywhere static), use **download it** under the app's Settings, and put
+  your address in **Shared tagging site**. The site holds no data: game files
+  and tags stay in each helper's browser.
+- **A new app version:** bump `__version__` in `statto_app/__init__.py`,
+  then push a tag:
+
+  ```bash
+  git tag v0.1.0
+  ```
+
+  ```bash
+  git push origin v0.1.0
+  ```
+
+  `.github/workflows/build-mac-app.yml` runs the tests, builds the app with
+  PyInstaller (`packaging/statto_reports.spec`), checks the built app starts,
+  and attaches `Statto-Reports-mac.zip` to a new GitHub Release. You can also
+  run it by hand from the Actions tab, which builds without making a release.
+- **Tests:** `python3 -m unittest discover -s tests` (standard library only;
+  also run by `.github/workflows/tests.yml` on every push and pull request).
 
 ## Requirements
 
@@ -157,10 +312,14 @@ what unlocks clip queries like "show me all our inside-flick turnovers"). Either
 - **Do it yourself**, stepping through each pass, block, and defensive
   possession; or
 - **Split it across helpers** — on the **Set up** tab's Games table, click
-  **Create tagging page** for a game to produce a stripped-down, single-game
-  file, and send one to each helper (point them at *For video-tagging
-  helpers*, below). When they email back their exported annotations JSON,
-  click **Upload tags** next to that game to merge it in.
+  **Share for tagging** for a game. Either download its small **game file**
+  and send it with the shared tagging site's link (the dialog has a
+  ready-to-copy message), or download a full single-game **tagging page** to
+  host yourself — see
+  [Sharing a game with a helper](#sharing-a-game-with-a-helper) and point
+  helpers at *For video-tagging helpers*, below. When they email back their
+  exported annotations JSON, click **Upload tags** next to that game to merge
+  it in.
 
 **5. Publish the Team Report** — the **Set up** tab. Hit **Preview Team Report**
 to open the read-only report in a new tab and check it looks right, then
@@ -183,6 +342,29 @@ deploy, etc.) to share a link.
 > disk apart from the embedded player.
 
 ## For video-tagging helpers (no coding needed)
+
+### Got a link and a `.tagging.json` file?
+
+That's the shared tagging site; nothing to install.
+
+1. Open the link you were sent (usually
+   `https://sean2251.github.io/statto-html-report/`).
+2. Drop the `.tagging.json` file onto the page, or click **Choose game file…**.
+   The tagging page opens with the game's video playing right in it.
+3. Tag away; the rest of this section explains the screen. Your work saves
+   **in this browser** as you go, so keep to the same browser on the same
+   computer. Next time, open the same link: your game is listed under **Your
+   games on this computer**; click **Continue tagging**. (**← Games** at the
+   top left goes back to that list.)
+4. When you're done, follow
+   [When you're finished → send it back](#when-youre-finished--send-it-back).
+
+### Got a web link to a tagging page?
+
+Just open it and start tagging (skip to [The tagging screen](#the-tagging-screen)).
+The same two rules apply: same browser each time, and export when you're done.
+
+### Got an HTML file?
 
 Someone sent you an HTML file (something like `team_tag_glass_cannons.html`)
 and asked you to tag one game's film. Here's how — no experience needed. You
@@ -478,8 +660,9 @@ file:
   or **Skip** closes it. The person building the report never sees any of this.
 
   **Collaborating on video tagging.** Split games among helpers. For each game,
-  use **Create tagging page** to hand a helper a single-game tagging file (it
-  has the video link baked in). They tag it, click **Export annotations JSON**,
+  use **Share for tagging** to hand a helper that game — a game file for the
+  shared tagging site, or a single-game tagging page (both carry the video
+  link). They tag it, click **Export annotations JSON**,
   and send just that small file back; you **Upload tags** on that game's row to
   merge it (per field on Statto's stable pass IDs, filtered to that game, so
   overlapping taggers don't clobber and a mis-sent file can't pollute other
@@ -995,8 +1178,9 @@ your downloads folder.
 
 ## Code layout
 
-`statto_to_html_report.py` is a thin CLI wrapper; the implementation lives in
-the `statto_report/` package:
+`statto_to_html_report.py` is a thin CLI wrapper and `statto_app.py` starts the
+app; the report itself lives in the `statto_report/` package and the app in
+`statto_app/`:
 
 | File | Responsibility |
 |---|---|
@@ -1008,6 +1192,19 @@ the `statto_report/` package:
 | `templates/report.html` | The page skeleton (nav/main/footer placeholders) |
 | `templates/report.css` | All styling |
 | `templates/report.js` | All client-side interactivity (tables, field diagrams, charts) |
+| `tagging_site.py` | Builds the shared, data-free tagging site (`python3 -m statto_report.tagging_site <folder>`) |
+
+| `statto_app/` file | Responsibility |
+|---|---|
+| `__main__.py` | Starts the app: picks a port, opens the browser, or reopens an already-running copy |
+| `server.py` | The local web server (127.0.0.1 only) and its API; serves each season's editor with its data injected |
+| `store.py` | Seasons on disk: folders, saves with revision checks, backups, newer exports, published files |
+| `settings.py` | App settings plus everything OS-specific (folders, Finder/Explorer, folder picker) |
+| `own_site.py` | "Publish to my site": write a tagging page into a folder, then git commit + push |
+| `static/home.html` | The home page |
+
+`packaging/statto_reports.spec` is the PyInstaller recipe for the Mac app, and
+`tests/` holds the unit tests.
 
 The generated report stays a single self-contained file — at build time,
 `render.py` reads `report.css`/`report.js` off disk and inlines them into
