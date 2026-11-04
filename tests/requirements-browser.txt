@@ -1,0 +1,4 @@
+# For tests/test_browser.py only (the app itself has no dependencies).
+#   pip install -r tests/requirements-browser.txt
+#   python3 -m playwright install chromium
+playwright==1.63.0
