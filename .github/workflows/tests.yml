@@ -23,3 +23,21 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: Command-line build still works
         run: python3 statto_to_html_report.py examples/example_season.statto -o /tmp/editor.html
+
+  # The browser tests (tests/test_browser.py): the editor, the app's autosave,
+  # tagging pages and the shared tagging site, in headless Chromium.
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      STATTO_REQUIRE_BROWSER_TESTS: "1"   # fail, don't skip, if the browser is missing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Playwright and Chromium
+        run: |
+          python3 -m pip install -r tests/requirements-browser.txt
+          python3 -m playwright install --with-deps chromium
+      - name: Browser tests
+        run: python3 -m unittest discover -s tests -p "test_browser.py" -v

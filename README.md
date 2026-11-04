@@ -168,8 +168,30 @@ own settings and log live in `~/Library/Application Support/Statto Reports/`.
   PyInstaller (`packaging/statto_reports.spec`), checks the built app starts,
   and attaches `Statto-Reports-mac.zip` to a new GitHub Release. You can also
   run it by hand from the Actions tab, which builds without making a release.
-- **Tests:** `python3 -m unittest discover -s tests` (standard library only;
-  also run by `.github/workflows/tests.yml` on every push and pull request).
+- **Tests** run with:
+
+  ```bash
+  python3 -m unittest discover -s tests
+  ```
+
+  `tests/test_app.py` (standard library only) covers the season store, the
+  app's server and building the pages. `tests/test_browser.py` drives the real
+  pages in a headless browser: the editor (old data staying on the right games,
+  tagging pages, the Team Report), the app (home page through publishing,
+  autosave, two windows) and the shared tagging site (including that text in a
+  game file can't break the page). It needs Playwright, and is skipped without
+  it:
+
+  ```bash
+  python3 -m pip install -r tests/requirements-browser.txt
+  ```
+
+  ```bash
+  python3 -m playwright install chromium
+  ```
+
+  `.github/workflows/tests.yml` runs both on every push to `main` and every
+  pull request.
 
 ## Requirements
 
