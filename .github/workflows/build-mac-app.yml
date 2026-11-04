@@ -2,9 +2,9 @@
 #
 # - Every run uploads the zipped app as a workflow artifact (Actions tab ->
 #   the run -> Artifacts), handy for trying a branch.
-# - Pushing a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`)
-#   also creates a GitHub Release with the zip attached -- that's the link to
-#   give people.
+# - Pushing a version tag (e.g. `git tag v0.1.1 && git push origin v0.1.1`),
+#   or publishing a release with a new tag on GitHub, also attaches the zip to
+#   that version's GitHub Release -- that's the link to give people.
 #
 # The app is ad-hoc signed only (PyInstaller does that), not notarized, so the
 # first launch needs System Settings -> Privacy & Security -> "Open Anyway".
@@ -49,4 +49,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" Statto-Reports-mac.zip --title "Statto Reports $GITHUB_REF_NAME" --generate-notes
+        # A release made on GitHub's "Draft a new release" page already exists
+        # when this runs: just attach the app to it. Otherwise create it, with
+        # the install steps from .github/release-notes.md above GitHub's list of
+        # the pull requests merged since the last release.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" Statto-Reports-mac.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" Statto-Reports-mac.zip \
+              --title "Statto Reports $GITHUB_REF_NAME" \
+              --notes-file .github/release-notes.md --generate-notes
+          fi
