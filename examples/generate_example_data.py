@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
 Generate a fake .statto file with made-up names and 3 games, for use as a
-repo example (see examples/example_season.statto / example_report.html).
+repo example (see examples/example_season.statto, and example_report.html: the
+Set up editor built from it).
 
 Usage:
     python3 examples/generate_example_data.py
-    python3 ../statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
+    python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
 """
 
 import json

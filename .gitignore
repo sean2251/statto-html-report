@@ -29,10 +29,6 @@ __pycache__/
 *.pyc
 .venv/
 
-# Quarto-generated README artifacts
-README.html
-README_files/
-
 # Editor/OS
 .DS_Store
 .Rhistory

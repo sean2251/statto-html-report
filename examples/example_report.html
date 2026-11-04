@@ -1926,9 +1926,9 @@ const REPORT = JSON.parse(document.getElementById('report-data').textContent);
 
 // Captured before init() builds anything into #topnav / #main, so this is the
 // pristine generated file (CSS, JS and report data all inlined, containers
-// still empty). The "Download shareable copy" button on Set up injects a
-// localStorage seed into this snapshot and hands back a standalone HTML with
-// the user's tournaments, curated lines, video links and player photos baked
+// still empty). Publishing (the Team Report, a per-game tagging page) injects
+// a localStorage seed into this snapshot and hands back a standalone HTML with
+// the user's tournaments, curated lines, video links, photos and tags baked
 // in -- so the file can be emailed or hosted and everyone who opens it sees
 // the same preloaded data, with no separate import step.
 const PRISTINE_DOC_HTML = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
@@ -1937,7 +1937,7 @@ const PRISTINE_DOC_HTML = '<!DOCTYPE html>\n' + document.documentElement.outerHT
 // strips the authoring UI down to a clean, read-only viewer: no Set up tab, the
 // Data Editor becomes a read-only "Film Clips" browser, and Line Analysis shows
 // comparisons without the line-curation controls. The underlying data is baked
-// in by the same seed the shareable copy uses -- see buildDistributableHtml.
+// in by that same seed -- see buildDistributableHtml.
 const VIEWER_MODE = !!(typeof window !== 'undefined' && window.__STATTO_VIEWER__);
 // A per-game "video tagging" page: a stripped build showing only the Data
 // Editor, locked to this one game, for handing to a helper to tag. Set by the
@@ -6237,7 +6237,8 @@ function pointKey(gameIndex, pointNumber) { return gameIndex + '|' + pointNumber
 function linesStorageKey() { return 'statto-report-lines::' + REPORT.teamName + appKeySuffix(); }
 
 // ---------- Data Editor: per-pass / per-block film annotations ----------
-// The Data Editor (a tab built in a later phase) lets you step through every
+// The Data Editor (the "Video annotation editor" tab in the Set up editor,
+// "Video Tagging" on a tagging page, "Film Clips" in the Team Report) lets you step through every
 // pass on a game's field diagram and tag it with descriptive attributes plus
 // a video timestamp, for querying later ("all inside-flick turnovers", "% of
 // turnovers that were around backhands", each deep-linking to the game video).

@@ -1,28 +1,34 @@
-# Statto HTML Season Report
+# Statto Reports
 
-![From field to Team Report — the workflow at a glance: take stats, export the .statto file, and run the script to build a desktop Set up editor. In the editor you set up tournaments and video links, annotate the film (optionally splitting tagging across helpers), and set up your lines — then publish the read-only, mobile Team Report, with every analysis tab and shareable view links, which is what your team opens.](docs/setup-flow.svg)
+Season stats reports for ultimate frisbee teams, built from Statto exports.
 
-> **New here?** The picture above is the whole workflow at a glance. On a Mac,
-> the easiest way in is the **[Statto Reports app](#the-statto-reports-app-mac)**
-> — no terminal needed. The command-line walkthrough starts at
-> [Recommended workflow](#recommended-workflow-from-a-statto-file-to-a-team-report).
-> **Tagging a game for someone?** Jump to
-> [For video-tagging helpers](#for-video-tagging-helpers-no-coding-needed).
+![From field to Team Report — the workflow at a glance: take stats in Statto and export the .statto file; bring it into the Statto Reports app, adding newer exports as you go; set up tournaments, video links and lines and tag the film in the season's Set up editor, optionally sharing games with helpers through the shared tagging site; then publish the read-only, mobile Team Report your team opens.](docs/setup-flow.svg)
 
-`statto_to_html_report.py` turns a single Statto (`.statto`) export into a
-**Set up editor** — a self-contained, desktop authoring page where you group
-tournaments, tag film, and name lines — from which you **publish** the
-**Team Report**: one self-contained, mobile-friendly, read-only HTML file
-covering your whole season (team performance, individual games, per-player
-breakdowns, field-position analysis, gender-equity analysis, and game-by-game
-time series). No server, no internet connection, and no dependencies beyond the
-Python standard library — open either file in a browser and everything runs
-client-side.
+You work in two pages:
 
-## The Statto Reports app (Mac)
+- **The Set up editor**, where you author: group games into tournaments, add
+  each game's video, tag the film (yourself or with helpers) and name your
+  lines. In the [Statto Reports app](#getting-started-the-statto-reports-app-mac)
+  it saves to a season folder on your computer.
+- **The Team Report**, which you publish from the editor and your team
+  opens: one self-contained, mobile-friendly, read-only page covering the whole
+  season — team performance, every game, players, lines, field position,
+  gender equity, time series, advanced stats and film clips.
 
-The app wraps everything below into a double-click: no terminal, no local
-server to start, and nothing to lose if your browser's data gets cleared.
+**Where to start:**
+
+| You are… | Go to |
+|---|---|
+| Taking stats for your team | [Getting started](#getting-started-the-statto-reports-app-mac) |
+| Tagging a game's film for someone | [For video-tagging helpers](#for-video-tagging-helpers-no-coding-needed) |
+| On the team, opening a Team Report | Just open the link you were sent; [What's in the two reports](#whats-in-the-two-reports) explains each tab |
+| Prefer the command line, or not on a Mac | [Using the command line instead](#using-the-command-line-instead) |
+| Changing the code | [For developers](#for-developers) |
+
+## Getting started: the Statto Reports app (Mac)
+
+The app is the easiest way to work: a double-click, no terminal, and nothing
+to lose if your browser's data gets cleared.
 
 - **Seasons are folders on your computer.** Create one from a `.statto`
   export; everything you add in its Set up editor — tournaments, video links,
@@ -54,31 +60,31 @@ server to start, and nothing to lose if your browser's data gets cleared.
    Use **Quit** (top right of the home page) to stop it; your work is already
    saved.
 
+**No admin access on that Mac?** **Open Anyway** asks for an administrator's
+password. Instead, put the app in the **Applications** folder inside your
+*home* folder (create it if it's missing; no admin rights needed), then run
+this once in **Terminal**, which clears the "downloaded from the internet"
+mark on your own copy so it opens normally:
+
+```bash
+xattr -dr com.apple.quarantine ~/Applications/"Statto Reports.app"
+```
+
+On a work or school Mac, check with IT first: their settings may block apps
+from outside the App Store whatever you do.
+
 The download is for Apple Silicon Macs (M1 and later). On an Intel Mac — or
 on Windows or Linux for now — run it from source instead (below); it's the
 same app.
-
-### Running the app from source (any computer)
-
-With [the code](#getting-the-code) downloaded and Python 3 installed:
-
-```bash
-python3 statto_app.py
-```
-
-It opens your browser at `http://127.0.0.1:8642/`. Stop it with **Quit** on
-the home page or Ctrl+C in the terminal. `python3 statto_app.py --help` lists
-the options.
 
 ### Working through a season
 
 1. **Create a season.** On the home page, under **New season**, name it
    (e.g. "RAMP 2026") and choose your `.statto` export, then **Create season**.
    Its Set up editor opens.
-2. **Set up, tag and curate**, exactly as described in
-   [Recommended workflow](#recommended-workflow-from-a-statto-file-to-a-team-report):
-   tournaments and video links on **Set up**, tagging on **Video annotation
-   editor**, lines on **Line set up**. A pill at the bottom right shows
+2. **Set up, tag and curate:** tournaments and video links on **Set up**,
+   tagging on **Video annotation editor**, lines on **Line set up** (each is
+   described in [What's in the two reports](#whats-in-the-two-reports)). A pill at the bottom right shows
    **Saved to the season folder** after each change.
 3. **More games?** Export from Statto again (the whole team, as usual), go back
    to the home page (**← Seasons**) and click **Add newer Statto export** on
@@ -142,226 +148,17 @@ that Mac's **Settings → Seasons folder** at it), or keep the seasons folder in
 iCloud Drive or Dropbox. Use only one computer at a time on a season. The app's
 own settings and log live in `~/Library/Application Support/Statto Reports/`.
 
-### For maintainers: the shared tagging site and app releases
+### Running the app from source (any computer)
 
-- **The shared tagging site** is one static page built from this repo
-  (`python3 -m statto_report.tagging_site <folder>` writes its
-  `index.html`). `.github/workflows/tagging-site.yml` deploys it to GitHub
-  Pages on every push to `main` that changes the report code, at
-  `https://sean2251.github.io/statto-html-report/`. One-time setup: repo
-  **Settings → Pages → Source: GitHub Actions**. To host your own copy instead
-  (anywhere static), use **download it** under the app's Settings, and put
-  your address in **Shared tagging site**. The site holds no data: game files
-  and tags stay in each helper's browser.
-- **A new app version:** bump `__version__` in `statto_app/__init__.py`,
-  then push a tag:
-
-  ```bash
-  git tag v0.1.0
-  ```
-
-  ```bash
-  git push origin v0.1.0
-  ```
-
-  `.github/workflows/build-mac-app.yml` runs the tests, builds the app with
-  PyInstaller (`packaging/statto_reports.spec`), checks the built app starts,
-  and attaches `Statto-Reports-mac.zip` to a new GitHub Release. You can also
-  run it by hand from the Actions tab, which builds without making a release.
-- **Tests** run with:
-
-  ```bash
-  python3 -m unittest discover -s tests
-  ```
-
-  `tests/test_app.py` (standard library only) covers the season store, the
-  app's server and building the pages. `tests/test_browser.py` drives the real
-  pages in a headless browser: the editor (old data staying on the right games,
-  tagging pages, the Team Report), the app (home page through publishing,
-  autosave, two windows) and the shared tagging site (including that text in a
-  game file can't break the page). It needs Playwright, and is skipped without
-  it:
-
-  ```bash
-  python3 -m pip install -r tests/requirements-browser.txt
-  ```
-
-  ```bash
-  python3 -m playwright install chromium
-  ```
-
-  `.github/workflows/tests.yml` runs both on every push to `main` and every
-  pull request.
-
-## Requirements
-
-- Python 3
-- No third-party packages (uses only `argparse`, `json`, `math`, `os`,
-  `zipfile`, `tempfile`, and `datetime` from the standard library)
-
-## Getting the code
-
-You don't need to be a programmer to run this — you just need the files on
-your computer and Python installed.
-
-**1. Download the files.** Two ways:
-
-- **Not comfortable with git?** On the GitHub page, click the green
-  **`< > Code`** button → **Download ZIP**, then unzip it. You'll get a
-  folder like `statto-html-report`.
-- **Comfortable with git?**
-
-  ```bash
-  git clone https://github.com/sean2251/statto-html-report.git
-  ```
-
-Then open a terminal and move into that folder (`cd path/to/statto-html-report`)
-— every command below is run from there.
-
-**2. Check you have Python.** Run:
+With [the code](#requirements-and-getting-the-code) downloaded and Python 3 installed:
 
 ```bash
-python3 --version
+python3 statto_app.py
 ```
 
-If it prints something like `Python 3.11.4`, you're set. If it says the
-command isn't found, install Python 3 from
-[python.org/downloads](https://www.python.org/downloads/) (on Windows, tick
-**"Add Python to PATH"** in the installer) and try again.
-
-**3. That's it — nothing to install.** There are no extra packages to set up
-(no `pip install` step); the script uses only what ships with Python. You're
-ready to run it.
-
-## Usage
-
-```bash
-python3 statto_to_html_report.py path/to/yourfile.statto -o report.html
-```
-
-This generates the **Set up editor** — the desktop authoring console you use to
-group tournaments, tag film, and define lines, and from which you publish the
-read-only **Team Report** that carries all the analysis (see the workflow
-below). If you skip `-o`, it's written to `<yourfile>_setup_editor.html` in the
-current directory. It's a single HTML file with everything (data, styling, and
-behavior) baked in.
-
-Add `-t/--title` to set the browser tab title (the `<title>` tag). This is
-handy when you deploy several otherwise-identical builds side by side — e.g. a
-separate video-tagging site per opponent — since without it every tab reads the
-same. It only changes the tab title; the on-page header still shows the team.
-
-```bash
-python3 statto_to_html_report.py season.statto -o spectre/index.html --title "RAMP 2026 · Spectre (tagging)"
-```
-
-When omitted, the title defaults to `<team> — Set up editor` (and a published
-Team Report is titled `<team> — Team Report`).
-
-The report remembers your light/dark theme choice in the browser it's
-opened in (via `localStorage`, since this is a file you own and open
-yourself, not something running inside a hosted app).
-
-## Example
-
-`examples/` has a fully made-up 3-game season (fake players, fake opponents,
-no real data) so you can see it in action without needing a `.statto` export of
-your own:
-
-- [`examples/example_report.html`](examples/example_report.html) — the **Set up
-  editor** for the fake season; download and open it in a browser (GitHub
-  doesn't render HTML files inline), then use **Set up → Preview Team Report**
-  to see the read-only Team Report with all the analysis
-- `examples/example_season.statto` — the fake data behind it
-- `examples/generate_example_data.py` — the script that generated it, if you
-  want to regenerate or tweak it
-
-```bash
-python3 examples/generate_example_data.py
-python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
-```
-
-## Recommended workflow: from a `.statto` file to a Team Report
-
-There are two artifacts. The script generates a **Set up editor** — a
-desktop authoring console where you group tournaments, tag film, and define
-lines. From it you **publish** the **Team Report** — a self-contained,
-mobile-friendly, read-only file that carries all the analysis (Season, Player,
-Line, Time Series, and the rest) and is the thing you hand to the team. The Set
-up editor's work all saves in *your* browser; publishing bakes it into the Team
-Report. (The separate helper instructions in the next section are what you send
-to anyone pitching in on video tagging.)
-
-**1. Generate the Set up editor.** Run the tool on your Statto export:
-
-```bash
-python3 statto_to_html_report.py path/to/season.statto -o setup_editor.html
-```
-
-Open it in a browser (it's desktop-oriented). If you want the film features
-(embedded video and "grab current time"), open it through a local web server
-rather than double-clicking it — see the note at the end of this section.
-
-Re-run this whenever you've stat'd more games — export the whole team from
-Statto again and regenerate. Everything you've set up is saved against each
-game's own Statto ID, not its position in the (date-sorted) list, so it's safe
-to work through film in any order: adding a game dated earlier than ones
-you've already set up won't shift video links, tournament assignments or lines
-onto the wrong game.
-
-> **Upgrading from an older build?** The first time a new Set up editor opens,
-> it converts your saved data to the ID-based format, matching it against that
-> build's games. Make that first open with a build whose games are the same
-> as last time, or only adds games dated *after* them (back up first with
-> **Export all custom data** if unsure); after that, order no longer matters.
-
-**2. Set up your season** — the **Set up** tab:
-
-- **Tournaments** — group your games and name them (e.g. "Regionals"). These
-  groups then appear in every games filter in the Team Report.
-- **Video links** — paste one YouTube link per game. This powers the **▶
-  Watch game** button and all the film-tagging tools.
-- **Player photos** — give each player a round avatar, either one at a time or
-  by tagging faces on a single team photo.
-
-**3. Curate your lines** — the **Line set up** tab. Confirm the recurring
-7-person lineups the tool auto-detects, name them, and check their rosters. (The
-side-by-side comparison of those lines lives in the Team Report.)
-
-**4. Tag the film** — the **Video annotation editor** tab (optional, but it's
-what unlocks clip queries like "show me all our inside-flick turnovers"). Either:
-
-- **Do it yourself**, stepping through each pass, block, and defensive
-  possession; or
-- **Split it across helpers** — on the **Set up** tab's Games table, click
-  **Share for tagging** for a game. Either download its small **game file**
-  and send it with the shared tagging site's link (the dialog has a
-  ready-to-copy message), or download a full single-game **tagging page** to
-  host yourself — see
-  [Sharing a game with a helper](#sharing-a-game-with-a-helper) and point
-  helpers at *For video-tagging helpers*, below. When they email back their
-  exported annotations JSON, click **Upload tags** next to that game to merge
-  it in.
-
-**5. Publish the Team Report** — the **Set up** tab. Hit **Preview Team Report**
-to open the read-only report in a new tab and check it looks right, then
-**Publish Team Report** to download one self-contained HTML file with all your
-tournaments, lines, photos, video links, and film tags baked in. It's the clean,
-mobile-friendly report with every analysis tab — and it's a point-in-time
-snapshot, so re-publish whenever you change anything in the editor. Email it,
-AirDrop it, or drop it on any static host (GitHub Pages, a Netlify drag-and-drop
-deploy, etc.) to share a link.
-
-> **A note on the video player.** The embedded YouTube player only works when
-> the file is opened from a web address (`http://…`), not straight off disk
-> (`file://`) — YouTube blocks the embed otherwise. The simplest fix is to
-> serve the folder locally: in a terminal, `cd` into the folder and run
-> `python3 -m http.server`, then open the `http://localhost:8000/…` URL it
-> prints. (Hosting online works too.) The same applies to a published **Team
-> Report**: its baked-in tags, video links and photos load from the browser's
-> storage, which is also blocked off `file://`, so serve it over `http(s)` too.
-> Your **Set up editor** — where you entered the data — works fine straight off
-> disk apart from the embedded player.
+It opens your browser at `http://127.0.0.1:8642/`. Stop it with **Quit** on
+the home page or Ctrl+C in the terminal. `python3 statto_app.py --help` lists
+the options.
 
 ## For video-tagging helpers (no coding needed)
 
@@ -597,7 +394,7 @@ running a tiny local server fixes it. Pick your operating system.
 
 ## What's in the two reports
 
-The tabs are split across the two artifacts (see [the workflow](#recommended-workflow-from-a-statto-file-to-a-team-report)):
+The tabs are split across the two artifacts (see [the workflow](#the-command-line-workflow)):
 
 - **Set up editor** (the desktop file the script generates) — **Set up**, the
   **Video annotation editor**, and **Line set up**. This is where you author;
@@ -611,16 +408,17 @@ The sections below walk through each tab; the heading notes which report it's in
 
 ### Set up  ·  *Set up editor*
 
-One-time (per browser) configuration that the Team Report reads from.
-Everything here is saved in `localStorage`, not baked into the `.statto`
-file:
+The configuration the Team Report reads from. None of it is in the
+`.statto` file: in the app it saves to the season's folder; in a Set up editor
+file built by the script it saves in that browser (`localStorage`).
 
 - **Export / Import all custom data** — two buttons at the top. Because
   everything you add on top of the report (tournament names, video links,
-  player photos, curated lines, and every video tag) lives only in this
-  browser, **Export all custom data** bundles all of it into one JSON file —
-  a backup, or a way to carry your work onto a freshly regenerated report when
-  new games are added. **Import all custom data** replaces the matching data in
+  player photos, curated lines, and every video tag) is kept apart from the
+  export, **Export all custom data** bundles all of it into one JSON file —
+  a backup, a way to move a season into the app, or (for a Set up editor file)
+  a way to carry your work onto a freshly regenerated editor when new games are
+  added. **Import all custom data** replaces the matching data in
   this browser from such a file and reloads. It maps each section onto the
   current report's storage, so an export made before a regenerate still lands.
 
@@ -731,14 +529,15 @@ richer, queryable film dataset on top of the raw Statto data.
   time**, or **Jump** back to a saved time. No link, or prefer to type it?
   Enter a timestamp as `mm:ss` manually. (The embedded player is the one part
   of the report that needs a network connection; everything else is offline.)
-  It also needs the report opened from a **web address** (http/https), not a
-  local `file://` — YouTube rejects the embed otherwise (its "error 153"). If
-  you're double-clicking the HTML off disk, either serve the folder locally
+  It also needs the page opened from a **web address** (http/https), not a
+  local `file://` — YouTube rejects the embed otherwise (its "error 153"). The
+  app takes care of this. If you're double-clicking an HTML file off disk,
+  either serve the folder locally
   (`python3 -m http.server` in that folder, then open the printed
   `http://localhost:…` URL) or host the report; the editor falls back to a
   "Watch on YouTube" link and manual timestamps when it can't embed.
-- Tags are saved in your browser per team, ride along when you **Publish the
-  Team Report**, and have their own **Export / Import annotations JSON** backup (this
+- Tags are saved with the season (in the app) or in your browser (a Set up
+  editor file), ride along when you **Publish the Team Report**, and have their own **Export / Import annotations JSON** backup (this
   is also how a helper's single-game tagging comes back — see the Set up tab's
   per-game **Upload tags**). They key to Statto's stable pass IDs, so they
   survive regenerating the report as you log more games.
@@ -771,7 +570,7 @@ richer, queryable film dataset on top of the raw Statto data.
 - A sortable **season leaderboard** covering every tracked stat (see
   [Stat glossary](#stat-glossary) below), with:
   - A **games filter** so you can scope the leaderboard to any subset of
-    games — or whole tournaments at once (see [Set up](#set-up)) — instead
+    games — or whole tournaments at once (see [Set up](#set-up----set-up-editor)) — instead
     of the whole season
   - **Download CSV** on every table
 
@@ -779,7 +578,7 @@ richer, queryable film dataset on top of the raw Statto data.
 
 - Score, opponent, and result
 - A **▶ Watch game** button, if you've added a video link for this game on
-  the [Set up](#set-up) tab
+  the [Set up](#set-up----set-up-editor) tab
 Top to bottom: **Summary Statistics → Scoring Efficiency → Point
 differential → the point log / field diagram / tagged events columns →
 Clutch Efficiency → Box score.**
@@ -899,7 +698,7 @@ Statto tracks directly, so setting one up walks you through building it:
 
 A toggle at the top switches between **Across Tournaments** (one pool of
 lines for the whole season) and **Within Tournament** (pick 1-to-all
-tournaments — the ones you defined on the [Set up](#set-up) tab, each with
+tournaments — the ones you defined on the [Set up](#set-up----set-up-editor) tab, each with
 its own independently detected/named lines). Tournament names and
 game assignments are managed on the Set up tab now, not here. This
 matters because rosters can differ a lot tournament to tournament: a
@@ -960,9 +759,9 @@ short:
    comparison, since teammates come here to read lines rather than curate them.
 
 A **"Clear all line data"** button (with a confirmation prompt first) wipes
-every saved line from this browser if you want to start over.
+every saved line if you want to start over.
 
-Your named lines are saved in the browser (`localStorage`), plus an
+Your named lines are saved with the rest of the season's data, plus an
 **Export/Import lines.json** button so your curation survives regenerating
 the report with new games, moving to another device, or sharing the file
 with a teammate.
@@ -1177,7 +976,7 @@ A few terms that come up throughout the report and aren't self-explanatory:
 | **Offensive utilization** | Of the points a player was on the field for that either started on offense or where their line got a block, the percentage where they recorded at least one touch |
 | **Scoring efficiency (Per Point / Per Possession / First Possession)** | Three ways of measuring conversion rate — by point, by individual possession (a point with a turnover-and-recovery has more than one), or restricted to clean, first-try conversions only |
 | **Plus/minus** | Goals + assists + blocks − turnovers |
-| **Leverage** | How much a single point's outcome could swing the game's eventual result, 0–10 (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = an already-decided blowout). Modeled as a fair (50/50) race to that game's actual final winning score, with a square-root reshape so mid-to-late-game situations don't read as more compressed than they feel — see [Games](#games-one-page-per-game-reached-via-the-games-dropdown) |
+| **Leverage** | How much a single point's outcome could swing the game's eventual result, 0–10 (10 = a double-game-point, where either team scoring next ends the game outright; near 0 = an already-decided blowout). Modeled as a fair (50/50) race to that game's actual final winning score, with a square-root reshape so mid-to-late-game situations don't read as more compressed than they feel — see [Games](#games-one-page-per-game-reached-via-the-games-dropdown----team-report) |
 | **High-leverage points played** | How many of a player's points had Leverage ≥ 7 — points close to a coin flip on the game's outcome, typically late and close — as opposed to raw points played, which counts every point regardless of how much it mattered |
 
 ## Notes on data quality
@@ -1192,13 +991,176 @@ A few terms that come up throughout the report and aren't self-explanatory:
   diagram itself) assume standard USAU dimensions: a 70×40 yd playing
   field with 20 yd endzones at each end.
 
-## Output
+## Using the command line instead
 
-A single `.html` file — no build step, no server, works fully offline once
-generated. Safe to email, upload to shared storage, or open straight from
-your downloads folder.
+The app is built on a plain script that turns an export into a Set up editor
+file. Use it directly if you'd rather not use the app, or aren't on a Mac. The
+difference: a Set up editor file saves your work **in your browser** rather than
+in a season folder, so use **Set up → Export all custom data** to back it up,
+and to carry it onto a freshly built editor when you add games.
 
-## Code layout
+### Requirements and getting the code
+
+You don't need to be a programmer to run this — you just need the files on
+your computer and Python installed.
+
+**1. Download the files.** Two ways:
+
+- **Not comfortable with git?** On the GitHub page, click the green
+  **`< > Code`** button → **Download ZIP**, then unzip it. You'll get a
+  folder like `statto-html-report`.
+- **Comfortable with git?**
+
+  ```bash
+  git clone https://github.com/sean2251/statto-html-report.git
+  ```
+
+Then open a terminal and move into that folder (`cd path/to/statto-html-report`)
+— every command below is run from there.
+
+**2. Check you have Python.** Run:
+
+```bash
+python3 --version
+```
+
+If it prints something like `Python 3.11.4`, you're set. If it says the
+command isn't found, install Python 3 from
+[python.org/downloads](https://www.python.org/downloads/) (on Windows, tick
+**"Add Python to PATH"** in the installer) and try again.
+
+**3. That's it — nothing to install.** Everything uses only what ships with
+Python 3 (no `pip install` step).
+
+### Building a Set up editor
+
+```bash
+python3 statto_to_html_report.py path/to/yourfile.statto -o report.html
+```
+
+This generates the **Set up editor** — the desktop authoring console you use to
+group tournaments, tag film, and define lines, and from which you publish the
+read-only **Team Report** that carries all the analysis (see the workflow
+below). If you skip `-o`, it's written to `<yourfile>_setup_editor.html` in the
+current directory. It's a single HTML file with everything (data, styling, and
+behavior) baked in.
+
+Add `-t/--title` to set the browser tab title (the `<title>` tag). This is
+handy when you deploy several otherwise-identical builds side by side — e.g. a
+separate video-tagging site per opponent — since without it every tab reads the
+same. It only changes the tab title; the on-page header still shows the team.
+
+```bash
+python3 statto_to_html_report.py season.statto -o spectre/index.html --title "RAMP 2026 · Spectre (tagging)"
+```
+
+When omitted, the title defaults to `<team> — Set up editor` (and a published
+Team Report is titled `<team> — Team Report`).
+
+### The command-line workflow
+
+There are two artifacts. The script generates a **Set up editor** — a
+desktop authoring console where you group tournaments, tag film, and define
+lines. From it you **publish** the **Team Report** — a self-contained,
+mobile-friendly, read-only file that carries all the analysis (Season, Player,
+Line, Time Series, and the rest) and is the thing you hand to the team. The Set
+up editor's work all saves in *your* browser; publishing bakes it into the Team
+Report. (The separate helper instructions in the next section are what you send
+to anyone pitching in on video tagging.)
+
+**1. Generate the Set up editor.** Run the tool on your Statto export:
+
+```bash
+python3 statto_to_html_report.py path/to/season.statto -o setup_editor.html
+```
+
+Open it in a browser (it's desktop-oriented). If you want the film features
+(embedded video and "grab current time"), open it through a local web server
+rather than double-clicking it — see the note at the end of this section.
+
+Re-run this whenever you've stat'd more games — export the whole team from
+Statto again and regenerate. Everything you've set up is saved against each
+game's own Statto ID, not its position in the (date-sorted) list, so it's safe
+to work through film in any order: adding a game dated earlier than ones
+you've already set up won't shift video links, tournament assignments or lines
+onto the wrong game.
+
+> **Upgrading from an older build?** The first time a new Set up editor opens,
+> it converts your saved data to the ID-based format, matching it against that
+> build's games. Make that first open with a build whose games are the same
+> as last time, or only adds games dated *after* them (back up first with
+> **Export all custom data** if unsure); after that, order no longer matters.
+
+**2. Set up your season** — the **Set up** tab:
+
+- **Tournaments** — group your games and name them (e.g. "Regionals"). These
+  groups then appear in every games filter in the Team Report.
+- **Video links** — paste one YouTube link per game. This powers the **▶
+  Watch game** button and all the film-tagging tools.
+- **Player photos** — give each player a round avatar, either one at a time or
+  by tagging faces on a single team photo.
+
+**3. Curate your lines** — the **Line set up** tab. Confirm the recurring
+7-person lineups the tool auto-detects, name them, and check their rosters. (The
+side-by-side comparison of those lines lives in the Team Report.)
+
+**4. Tag the film** — the **Video annotation editor** tab (optional, but it's
+what unlocks clip queries like "show me all our inside-flick turnovers"). Either:
+
+- **Do it yourself**, stepping through each pass, block, and defensive
+  possession; or
+- **Split it across helpers** — on the **Set up** tab's Games table, click
+  **Share for tagging** for a game. Either download its small **game file**
+  and send it with the shared tagging site's link (the dialog has a
+  ready-to-copy message), or download a full single-game **tagging page** to
+  host yourself — see
+  [Sharing a game with a helper](#sharing-a-game-with-a-helper) and point
+  helpers at *For video-tagging helpers*, below. When they email back their
+  exported annotations JSON, click **Upload tags** next to that game to merge
+  it in.
+
+**5. Publish the Team Report** — the **Set up** tab. Hit **Preview Team Report**
+to open the read-only report in a new tab and check it looks right, then
+**Publish Team Report** to download one self-contained HTML file with all your
+tournaments, lines, photos, video links, and film tags baked in. It's the clean,
+mobile-friendly report with every analysis tab — and it's a point-in-time
+snapshot, so re-publish whenever you change anything in the editor. Email it,
+AirDrop it, or drop it on any static host (GitHub Pages, a Netlify drag-and-drop
+deploy, etc.) to share a link.
+
+> **A note on the video player.** The embedded YouTube player only works when
+> the file is opened from a web address (`http://…`), not straight off disk
+> (`file://`) — YouTube blocks the embed otherwise. The simplest fix is to
+> serve the folder locally: in a terminal, `cd` into the folder and run
+> `python3 -m http.server`, then open the `http://localhost:8000/…` URL it
+> prints. (Hosting online works too.) The same applies to a published **Team
+> Report**: its baked-in tags, video links and photos load from the browser's
+> storage, which is also blocked off `file://`, so serve it over `http(s)` too.
+> Your **Set up editor** — where you entered the data — works fine straight off
+> disk apart from the embedded player.
+
+### Example season
+
+`examples/` has a fully made-up 3-game season (fake players, fake opponents,
+no real data) so you can see it in action without needing a `.statto` export of
+your own:
+
+- [`examples/example_report.html`](examples/example_report.html) — the **Set up
+  editor** for the fake season; download and open it in a browser (GitHub
+  doesn't render HTML files inline), then use **Set up → Preview Team Report**
+  to see the read-only Team Report with all the analysis
+- `examples/example_season.statto` — the fake data behind it
+- `examples/generate_example_data.py` — the script that generated it, if you
+  want to regenerate or tweak it
+
+```bash
+python3 examples/generate_example_data.py
+python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
+```
+
+## For developers
+
+### Code layout
 
 `statto_to_html_report.py` is a thin CLI wrapper and `statto_app.py` starts the
 app; the report itself lives in the `statto_report/` package and the app in
@@ -1225,8 +1187,8 @@ app; the report itself lives in the `statto_report/` package and the app in
 | `own_site.py` | "Publish to my site": write a tagging page into a folder, then git commit + push |
 | `static/home.html` | The home page |
 
-`packaging/statto_reports.spec` is the PyInstaller recipe for the Mac app, and
-`tests/` holds the unit tests.
+`packaging/statto_reports.spec` is the PyInstaller recipe for the Mac app,
+`tests/` holds the tests, and `.github/workflows/` the automated jobs.
 
 The generated report stays a single self-contained file — at build time,
 `render.py` reads `report.css`/`report.js` off disk and inlines them into
@@ -1238,3 +1200,91 @@ To add a new stat or report section: add the computation to `stats.py`
 `templates/report.js`. To change styling, edit `templates/report.css`
 directly — it's a real CSS file, so your editor's linting/autocomplete works
 normally.
+
+### Making a change
+
+1. Work on a branch. Stats go in `statto_report/stats.py`, what's shown in
+   `statto_report/templates/report.js`, styling in `report.css`.
+2. Try it with a real season by running the app from source against a test
+   folder, so your real seasons aren't touched:
+
+   ```bash
+   python3 statto_app.py --seasons-dir ~/Documents/"Statto Test Seasons"
+   ```
+
+   Restart the app after changing code.
+3. Open a pull request. The **Tests** workflow runs on it; merge when it's
+   green. Merging also redeploys the shared tagging site.
+4. Ship it: a new app version is a tag (below). A published Team Report is a
+   snapshot, so a change reaches your team only when you re-publish.
+
+If a change alters how saved data is **stored** (rather than only reading
+it), existing seasons need converting when they're opened, as the move from
+game positions to game IDs did (see `migrateLegacyStorage` in `report.js`).
+
+### Tests
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+- `tests/test_app.py` (standard library only) covers the season store, the
+  app's server and building the pages.
+- `tests/test_browser.py` drives the real pages in a headless browser: the
+  editor (old data staying on the right games, tagging pages, the Team Report),
+  the app (home page through publishing, autosave, two windows) and the shared
+  tagging site (including that text in a game file can't break the page). It
+  needs Playwright, and is skipped without it:
+
+  ```bash
+  python3 -m pip install -r tests/requirements-browser.txt
+  ```
+
+  ```bash
+  python3 -m playwright install chromium
+  ```
+
+`.github/workflows/tests.yml` runs both on every push to `main` and every pull
+request: the unit tests on Linux and macOS, the browser tests on Linux.
+
+### The shared tagging site
+
+One static page built from this repo, holding no data: game files and tags
+stay in each helper's browser.
+
+- Build it with `python3 -m statto_report.tagging_site <folder>`, which writes
+  `index.html`.
+- `.github/workflows/tagging-site.yml` deploys it to GitHub Pages at
+  `https://sean2251.github.io/statto-html-report/` on every push to `main`
+  that changes `statto_report/` (or by hand, from the Actions tab).
+  One-time setup: repo **Settings → Pages → Source: GitHub Actions**.
+- To host your own copy anywhere static, use **download it** under the app's
+  Settings, and put your address in **Shared tagging site**.
+
+### Releasing a new app version
+
+Each app version is a [GitHub Release](https://github.com/sean2251/statto-html-report/releases)
+with the Mac app attached.
+
+1. Change `__version__` in `statto_app/__init__.py` (e.g. `0.1.0` → `0.1.1`:
+   last number for fixes, middle for new features) and merge that to `main`.
+2. Tag that commit `v` + the version, either in a terminal:
+
+   ```bash
+   git tag v0.1.1
+   ```
+
+   ```bash
+   git push origin v0.1.1
+   ```
+
+   or on GitHub: **Releases → Draft a new release → Choose a tag**, type the
+   new tag, target `main`, **Publish release**.
+
+`.github/workflows/build-mac-app.yml` then runs the tests, builds the app with
+PyInstaller (`packaging/statto_reports.spec`), checks the built app starts,
+and attaches `Statto-Reports-mac.zip`. The release notes are
+`.github/release-notes.md` (install steps) followed by GitHub's list of the
+pull requests merged since the last release. Running the workflow by hand from
+the Actions tab builds the app as a downloadable artifact without making a
+release.
