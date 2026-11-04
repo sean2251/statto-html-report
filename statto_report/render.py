@@ -15,14 +15,8 @@ def _read_template(filename):
         return f.read()
 
 
-def generate_html(statto_path, title=None):
-    """Read a .statto export and return (html, team_name) for the season report.
-
-    ``title`` overrides the browser tab title (the ``<title>`` tag). This is what
-    distinguishes otherwise-identical builds -- e.g. one video-tagging site per
-    opponent, deployed side by side, whose tabs would all read the same without
-    it. When omitted, the title falls back to "<team> — Season Report".
-    """
+def build_report(statto_path):
+    """Read a .statto export and return (report_dict, team_name)."""
     data = load_statto(statto_path)
     teams = data.get("teams", [])
     if not teams:
@@ -31,17 +25,51 @@ def generate_html(statto_path, title=None):
     team_entry = teams[0]
     relations = team_entry.get("data", {}).get("relations", {})
     team_name = team_entry.get("data", {}).get("team", {}).get("name", "Team")
+    return compute_team_report(relations, team_name), team_name
 
-    report = compute_team_report(relations, team_name)
-    report_json = json.dumps(report)
 
-    page_title = title if (title and title.strip()) else f"{team_name} — Set up editor"
+def json_for_script(value):
+    """JSON that is safe to place inside a <script> element ("<" escaped)."""
+    return json.dumps(value).replace("<", "\\u003c")
 
-    html = (
+
+def page_template():
+    """The report page with CSS and JS inlined but the title and report data
+    still as the ``__PAGE_TITLE__`` / ``__REPORT_DATA_JSON__`` placeholders.
+    The shared tagging site fills these in the browser, from a game file."""
+    return (
         _read_template("report.html")
         .replace("__REPORT_CSS__", _read_template("report.css"))
         .replace("__REPORT_JS__", _read_template("report.js"))
-        .replace("__PAGE_TITLE__", _html.escape(page_title, quote=False))
-        .replace("__REPORT_DATA_JSON__", report_json)
     )
-    return html, team_name
+
+
+def render_html(report, title, head_inject=""):
+    """Render the Set up editor page for an already-computed report dict.
+
+    ``head_inject`` is raw HTML (normally one <script>) placed just before the
+    report-data script, i.e. before the report script runs. The local app uses
+    it to hand the editor its season's saved data.
+    """
+    html = (
+        page_template()
+        .replace("__PAGE_TITLE__", _html.escape(title, quote=False))
+        .replace("__REPORT_DATA_JSON__", json_for_script(report))
+    )
+    if head_inject:
+        marker = '<script id="report-data"'
+        html = html.replace(marker, head_inject + "\n" + marker, 1)
+    return html
+
+
+def generate_html(statto_path, title=None):
+    """Read a .statto export and return (html, team_name) for the Set up editor.
+
+    ``title`` overrides the browser tab title (the ``<title>`` tag). This is what
+    distinguishes otherwise-identical builds -- e.g. one video-tagging site per
+    opponent, deployed side by side, whose tabs would all read the same without
+    it. When omitted, the title falls back to "<team> — Set up editor".
+    """
+    report, team_name = build_report(statto_path)
+    page_title = title if (title and title.strip()) else f"{team_name} — Set up editor"
+    return render_html(report, page_title), team_name
