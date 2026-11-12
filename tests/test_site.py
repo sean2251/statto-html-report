@@ -58,15 +58,17 @@ def free_port():
 class LocalSite:
     """A fresh copy of the team site, with an empty database."""
 
-    def __init__(self):
+    def __init__(self, editor_password=EDITOR_PW):
         self.tmp = tempfile.TemporaryDirectory()
         self.port = free_port()
         self.base = "http://127.0.0.1:%d" % self.port
-        self.log = open(os.path.join(self.tmp.name, "wrangler.log"), "w")
+        self.log_path = os.path.join(self.tmp.name, "wrangler.log")
+        self.log = open(self.log_path, "w")
+        extra = ["--var", "EDITOR_PASSWORD:" + editor_password] if editor_password else []
         self.proc = subprocess.Popen(
             [WRANGLER, "dev", "--port", str(self.port), "--ip", "127.0.0.1",
              "--persist-to", os.path.join(self.tmp.name, "state"),
-             "--var", "EDITOR_PASSWORD:" + EDITOR_PW, "--show-interactive-dev-session=false"],
+             "--show-interactive-dev-session=false"] + extra,
             cwd=SITE, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.time() + 90
         while time.time() < deadline:
@@ -77,6 +79,15 @@ class LocalSite:
                 time.sleep(0.5)
         self.stop()
         raise RuntimeError("The local team site didn't start; see wrangler's log.")
+
+    def setup_code(self):
+        """The newest setup code the site wrote to its logs."""
+        import re
+        def find():
+            with open(self.log_path) as f:
+                codes = re.findall(r"setup code: ([A-Z0-9]{4}-[A-Z0-9]{4})", f.read())
+            return codes[-1] if codes else None
+        return wait_until(find, message="a setup code in the logs")
 
     def stop(self):
         if self.proc.poll() is None:
@@ -205,6 +216,68 @@ class ApiTests(unittest.TestCase):
         self.assertIn("season", backup["blobs"])
         status, restored = editor.call("POST", "/api/restore", backup)
         self.assertEqual(status, 200, restored)
+
+
+class FirstRunSetupTests(unittest.TestCase):
+    """A brand-new site with no EDITOR_PASSWORD secret is claimed with a
+    one-time code from its own logs."""
+
+    def test_setup_with_a_code_from_the_logs(self):
+        site = LocalSite(editor_password=None)
+        try:
+            anon = Api(site.base)
+            status = anon.call("GET", "/api/status")[1]
+            self.assertTrue(status["setupNeeded"])
+            self.assertFalse(status["editorReady"])
+            self.assertEqual(anon.call("POST", "/api/login", {"role": "editor", "password": "x" * 12})[0], 409)
+            # No code issued yet.
+            self.assertEqual(anon.call("POST", "/api/setup", {"code": "AAAA-AAAA", "password": "y" * 12})[0], 401)
+
+            self.assertEqual(anon.call("POST", "/api/setup/code", b"")[0], 200)
+            code = site.setup_code()
+            self.assertEqual(anon.call("POST", "/api/setup", {"code": "WRNG-CODE", "password": "y" * 12})[0], 401)
+            self.assertEqual(anon.call("POST", "/api/setup", {"code": code, "password": "short"})[0], 400)
+            # The code is case- and dash-insensitive, and signs the editor in.
+            editor = Api(site.base)
+            status_code, body = editor.call("POST", "/api/setup", {"code": code.lower().replace("-", ""), "password": "the-new-editor-pass"})
+            self.assertEqual(status_code, 200, body)
+            self.assertEqual(body["role"], "editor")
+            self.assertEqual(editor.call("GET", "/api/settings")[0], 200)
+
+            status = anon.call("GET", "/api/status")[1]
+            self.assertFalse(status["setupNeeded"])
+            self.assertTrue(status["editorReady"])
+            # Setup is closed for good; the password works for signing in.
+            self.assertEqual(anon.call("POST", "/api/setup/code", b"")[0], 409)
+            self.assertEqual(anon.call("POST", "/api/setup", {"code": code, "password": "z" * 12})[0], 409)
+            Api(site.base).login("editor", "the-new-editor-pass")
+        finally:
+            site.stop()
+
+    def test_setup_in_the_browser(self):
+        site = LocalSite(editor_password=None)
+        pw = sync_playwright().start()
+        try:
+            browser = pw.chromium.launch()
+            page = browser.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(site.base + "/")
+            page.wait_for_selector("body[data-ready]")
+            self.assertTrue(page.is_visible("#f-setup"))
+            self.assertFalse(page.is_visible("#f-editor"))
+            page.click("#setup-code")
+            page.wait_for_selector("text=Code sent to the logs")
+            page.fill("#f-setup [name=code]", site.setup_code())
+            page.fill("#f-setup [name=password]", "browser-editor-pass")
+            page.click("#f-setup button[type=submit]")
+            page.wait_for_url("**/editor")
+            page.wait_for_selector("#f-upload")  # signed in, ready for the first export
+            self.assertEqual(errors, [])
+            browser.close()
+        finally:
+            pw.stop()
+            site.stop()
 
 
 class RateLimitTests(unittest.TestCase):

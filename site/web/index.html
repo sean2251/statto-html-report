@@ -14,6 +14,19 @@
   <div id="flash" hidden></div>
   <div id="signed-in" class="msg" hidden></div>
 
+  <form class="card" id="f-setup" onsubmit="return false" hidden style="margin-top:20px">
+    <h3>Set up this site</h3>
+    <p>This is a new site: choose the Set up editor password. To prove it’s you, the site puts a one-time setup code in its logs, which only your Cloudflare account can see.</p>
+    <ol style="margin:0 0 4px;padding-left:20px">
+      <li><button type="button" id="setup-code">Show a setup code</button></li>
+      <li>In Cloudflare, open <strong>Workers &amp; Pages</strong> → this site → <strong>Observability</strong> (or <strong>Logs</strong>), and find the line “Statto team site setup code”. It can take a minute to appear; refresh the logs if it isn’t there yet.</li>
+      <li>Enter the code and choose the editor password (at least 10 characters).</li>
+    </ol>
+    <label>Setup code <input type="text" name="code" autocomplete="off" placeholder="ABCD-EFGH" maxlength="12"></label>
+    <label>Editor password <input type="password" name="password" autocomplete="new-password"></label>
+    <button class="primary" type="submit">Set up the site</button>
+  </form>
+
   <div class="grid" style="margin-top:20px">
     <form class="card" id="f-editor" onsubmit="return false">
       <h3>Set up editor</h3>
@@ -53,8 +66,29 @@
     document.getElementById('team').textContent = status.teamName;
     document.title = status.teamName;
   }
-  if (!status.editorReady) {
-    Site.flash('This site isn’t set up yet. Whoever deployed it needs to add an EDITOR_PASSWORD secret in Cloudflare (Workers → this site → Settings → Variables and Secrets), then sign in here as the editor.', true);
+  if (status.setupNeeded) {
+    // First run: claim the site with a setup code from its logs.
+    const setup = document.getElementById('f-setup');
+    setup.hidden = false;
+    document.querySelector('.grid').hidden = true;
+    document.getElementById('setup-code').addEventListener('click', async (ev) => {
+      try {
+        await Site.api('POST', '/api/setup/code', '');
+        ev.target.textContent = 'Code sent to the logs ✓ (click again to resend)';
+      } catch (e) { Site.flash(e.message, true); }
+    });
+    setup.addEventListener('submit', async () => {
+      const field = n => setup.querySelector('[name=' + n + ']');
+      const btn = setup.querySelector('button[type=submit]');
+      btn.disabled = true;
+      try {
+        await Site.api('POST', '/api/setup', JSON.stringify({ code: field('code').value, password: field('password').value }));
+        location.href = '/editor';
+      } catch (e) {
+        Site.flash(e.message, true);
+        btn.disabled = false;
+      }
+    });
   }
   if (status.session) {
     const s = status.session;

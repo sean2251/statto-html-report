@@ -19,48 +19,57 @@ how the hub shows who's on which game.
 
 You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up). About 10 minutes.
 
-1. Click **Deploy to Cloudflare**:
+The site is a Cloudflare **Worker** (it runs code, so it can check passwords and
+save tags) with a **D1** database. In the dashboard both live under **Workers &
+Pages**, next to Pages projects — don't create a Pages project.
 
-   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sean2251/statto-html-report/tree/main/site)
+### Option A: the Deploy to Cloudflare button (other teams)
 
-   Sign in to Cloudflare and GitHub when asked. Give the project a name — it
-   becomes part of your site's address (`<name>.<your-account>.workers.dev`).
-2. When it asks for **EDITOR_PASSWORD**, choose the Set up editor password (at
-   least 10 characters). The database is created for you.
-3. Open your site's address, sign in as the **Set up editor**, and upload your
-   team's `.statto` export. Coming from the Mac app or a Set up editor file?
-   Add its saved work on the same screen (see [Moving an existing season in](#moving-an-existing-season-in)).
-4. Open **Site settings** in the editor and set the **Video tagger** password,
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sean2251/statto-html-report/tree/main/site)
+
+Sign in to Cloudflare and GitHub when asked, give the project a name (it becomes
+part of your site's address, `<name>.<your-account>.workers.dev`) and deploy.
+Cloudflare copies this `site/` folder into a new repository in your GitHub
+account and creates the database. Then go to [First sign-in](#first-sign-in).
+
+### Option B: import this repository (whoever owns it)
+
+This deploys straight from the repository, so every merge to `main` redeploys
+the site.
+
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Workers** →
+   **Import a repository**. Connect GitHub if asked and pick the repository.
+2. **Project name:** your choice (e.g. `ramp2026-stats`).
+3. Under **Advanced settings**, set the **path** (root directory) to `site`.
+4. Leave **Build command** empty; **Deploy command** stays `npx wrangler deploy`.
+5. **Deploy**. The build log ends with your site's address. A warning that the
+   config's Worker name differs from your project name is fine: Cloudflare uses
+   your project name.
+
+### First sign-in
+
+1. Open your site's address. A new site shows **Set up this site**.
+2. Click **Show a setup code**. In the Cloudflare dashboard, open **Workers &
+   Pages** → your site → **Observability** (Logs), and find the line
+   “Statto team site setup code”. It can take a minute to appear — refresh the
+   logs. Only someone signed in to your Cloudflare account can see it, which is
+   what stops a stranger from claiming your site.
+3. Enter the code and choose the **Set up editor** password (at least 10
+   characters). You're signed in.
+4. Upload your team's `.statto` export. Coming from the Mac app or a Set up
+   editor file? Add its saved work on the same screen (see
+   [Moving an existing season in](#moving-an-existing-season-in)).
+5. Open **Site settings** in the editor and set the **Video tagger** password,
    and either a **Team Report** password or "anyone with the link".
-5. Send helpers the site address and the tagger password, and the team the
+6. Send helpers the site address and the tagger password, and the team the
    address (plus the viewer password, if you set one).
 
-**If the button doesn't work for you**, deploy from a terminal instead
-(needs [Node](https://nodejs.org/)):
-
-```bash
-git clone https://github.com/sean2251/statto-html-report.git
-```
-
-```bash
-cd statto-html-report/site && npm install
-```
-
-```bash
-npx wrangler login
-```
-
-```bash
-npx wrangler deploy
-```
-
-```bash
-npx wrangler secret put EDITOR_PASSWORD
-```
-
-`wrangler deploy` creates the database the first time. You can also add or
-change the `EDITOR_PASSWORD` secret in the Cloudflare dashboard: **Workers &
-Pages → your site → Settings → Variables and Secrets**.
+**From a terminal instead** (needs [Node](https://nodejs.org/)): clone this
+repository, then in `site/` run `npm install`, `npx wrangler login` and
+`npx wrangler deploy` (it creates the database the first time), and continue
+with First sign-in. Setting an `EDITOR_PASSWORD` secret on the Worker also works
+as the first editor password, but Cloudflare can drop dashboard secrets when a
+Worker deploys from GitHub, so the setup code is the reliable way.
 
 ## Using it
 
@@ -115,7 +124,8 @@ the site isn't used.
 
 ## How it works (for developers)
 
-- `src/worker.js` — the server: sign-in (salted PBKDF2 password hashes, session
+- `src/worker.js` — the server: first-run setup (a one-time code written to the
+  Worker's logs), sign-in (salted PBKDF2 password hashes, session
   cookies, rate-limited logins), the season export and set-up (stored in parts,
   with revision numbers so two editor windows can't silently overwrite each
   other), tags (one row per tagged event, with a change counter the pages poll),
@@ -129,7 +139,8 @@ the site isn't used.
   stats engine, generated by `node build.mjs` from `statto_report/templates/`.
   It's committed (so a deploy needs no build step); `tests/test_stats_parity.py`
   fails if it's out of date.
-- Run it locally with a local database: put `EDITOR_PASSWORD="…"` in
-  `site/.dev.vars`, then `npm install` and `npx wrangler dev`.
+- Run it locally with a local database: `npm install` then `npx wrangler dev`
+  (the setup code appears in its output); or put `EDITOR_PASSWORD="…"` in
+  `site/.dev.vars` to skip setup.
 - Tests: `tests/test_site.py` starts a local copy and checks the API rules and
   the whole flow in a browser (two taggers at once included).
