@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team Report</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<div class="center" id="loading"><p class="dim">Loading the Team Report…</p></div>
+<script src="/site.js"></script>
+<script>
+(async function () {
+  await Site.requireRole('viewer', '/view');
+  const r = await fetch('/api/report', { cache: 'no-store' });
+  if (r.status === 401) { location.replace('/?next=%2Fview&role=viewer'); return; }
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    document.getElementById('loading').innerHTML = '';
+    document.getElementById('loading').append(Site.el('p', {}, j.error || 'Couldn’t load the Team Report.'),
+      Site.el('p', { class: 'dim' }, Site.el('a', { href: '/' }, 'Back to the team site')));
+    return;
+  }
+  // The published Team Report is a complete page; show it in place of this one.
+  const html = await r.text();
+  document.open();
+  document.write(html);
+  document.close();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Site settings</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header class="bar">
+  <h1>Site settings</h1>
+  <a href="/editor">← Back to the editor</a>
+  <a href="#" id="logout">Sign out</a>
+</header>
+<main class="narrow">
+  <div id="flash" hidden></div>
+
+  <h2>Team</h2>
+  <form class="card" id="f-team">
+    <label>Team name <span class="dim">Shown on the sign-in page.</span><input type="text" name="teamName" maxlength="80"></label>
+    <div class="row"><button class="primary" type="submit">Save</button></div>
+  </form>
+
+  <h2>Passwords</h2>
+  <p class="dim">One password per kind of login. Share each only with the people who need it. Changing a password signs out everyone using it. Use at least 10 characters; a few random words is easy to share and hard to guess.</p>
+  <form class="card" id="f-passwords">
+    <label>Video tagger password <span class="dim" id="tagger-state"></span><input type="password" name="tagger" autocomplete="new-password"></label>
+    <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="viewerOpen"> Anyone with the link can open the Team Report (no viewer password)</label>
+    <label id="viewer-row">Team Report (viewer) password <span class="dim" id="viewer-state"></span><input type="password" name="viewer" autocomplete="new-password"></label>
+    <label>Set up editor password <span class="dim">Leave blank to keep the current one.</span><input type="password" name="editor" autocomplete="new-password"></label>
+    <div class="row"><button class="primary" type="submit">Save passwords</button>
+      <button type="button" id="suggest">Suggest a password</button> <span class="dim" id="suggestion"></span></div>
+  </form>
+
+  <h2>Backups</h2>
+  <div class="card">
+    <p>Download everything this site holds — the Statto export, set-up, lines, every tag and the published Team Report — as one file. Keep a copy now and then.</p>
+    <div class="row"><a class="btn primary" href="/api/backup" download="team-site-backup.json">Download a backup</a></div>
+    <p class="dim" style="margin-top:8px">Restoring a backup replaces the export, set-up and Team Report with the backup’s, and adds its tags.</p>
+    <div class="row"><input type="file" id="restore-file" accept=".json,application/json"><button type="button" id="restore">Restore backup</button></div>
+  </div>
+</main>
+<script src="/site.js"></script>
+<script>
+(async function () {
+  await Site.requireRole('editor', '/settings');
+  document.getElementById('logout').addEventListener('click', e => { e.preventDefault(); Site.logout(); });
+  const field = (form, n) => form.querySelector('[name=' + n + ']');
+  const team = document.getElementById('f-team');
+  const pw = document.getElementById('f-passwords');
+
+  function show(s) {
+    field(team, 'teamName').value = s.teamName || '';
+    field(pw, 'viewerOpen').checked = !!s.viewerOpen;
+    document.getElementById('viewer-row').hidden = !!s.viewerOpen;
+    document.getElementById('tagger-state').textContent = s.taggerReady ? 'Set. Enter a new one to change it.' : 'Not set yet — taggers can’t sign in until you set it.';
+    document.getElementById('viewer-state').textContent = s.viewerOpen ? '' : (s.viewerReady ? 'Set. Enter a new one to change it.' : 'Not set yet — nobody can open the Team Report until you set it, or allow anyone with the link.');
+  }
+  show(await Site.api('GET', '/api/settings'));
+  field(pw, 'viewerOpen').addEventListener('change', e => { document.getElementById('viewer-row').hidden = e.target.checked; });
+
+  team.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    try { show(await Site.api('POST', '/api/settings', JSON.stringify({ teamName: field(team, 'teamName').value }))); Site.flash('Saved.'); }
+    catch (e) { Site.flash(e.message, true); }
+  });
+  pw.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const passwords = {};
+    for (const r of ['tagger', 'viewer', 'editor']) { const v = field(pw, r).value; if (v) passwords[r] = v; }
+    try {
+      show(await Site.api('POST', '/api/settings', JSON.stringify({ passwords, viewerOpen: field(pw, 'viewerOpen').checked })));
+      for (const r of ['tagger', 'viewer', 'editor']) field(pw, r).value = '';
+      Site.flash(passwords.editor ? 'Saved. You changed the editor password, so sign in again with the new one.' : 'Saved.');
+      if (passwords.editor) setTimeout(() => location.href = '/?role=editor', 1500);
+    } catch (e) { Site.flash(e.message, true); }
+  });
+
+  const WORDS = ['huck', 'layout', 'stack', 'pull', 'flick', 'hammer', 'zone', 'cup', 'mark', 'stall', 'dump', 'swing', 'break', 'hold', 'upline', 'scoober',
+    'river', 'maple', 'comet', 'lantern', 'orbit', 'pepper', 'harbor', 'meadow', 'falcon', 'cobalt', 'ember', 'willow', 'summit', 'ripple', 'thunder', 'velvet'];
+  document.getElementById('suggest').addEventListener('click', () => {
+    const r = crypto.getRandomValues(new Uint32Array(4));
+    document.getElementById('suggestion').textContent = Array.from(r, n => WORDS[n % WORDS.length]).join('-') + '-' + (r[0] % 90 + 10);
+  });
+
+  document.getElementById('restore').addEventListener('click', async () => {
+    const file = document.getElementById('restore-file').files[0];
+    if (!file) { Site.flash('Choose a backup file first.', true); return; }
+    if (!confirm('Restore this backup? It replaces the current export, set-up and Team Report.')) return;
+    try {
+      const body = await Site.readFile(file, 'text');
+      const r = await Site.api('POST', '/api/restore', body);
+      Site.flash('Restored (' + r.tags + ' tags).');
+    } catch (e) { Site.flash(e.message, true); }
+  });
+})();
+</script>
+</body>
+</html>

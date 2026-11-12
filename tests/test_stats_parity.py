@@ -162,5 +162,22 @@ class StatsParityTests(unittest.TestCase):
         self.assertIn("isn’t a Statto export", json.loads(r.stdout)[bad]["error"])
 
 
+@unittest.skipUnless(NODE, "Node isn't installed")
+class SiteBuildTests(unittest.TestCase):
+    """site/public is generated (site/build.mjs) but committed, so a team's
+    deploy needs no build step. It must match what the build makes now."""
+
+    def test_site_public_is_up_to_date(self):
+        with tempfile.TemporaryDirectory() as out:
+            subprocess.run([NODE, os.path.join(ROOT, "site", "build.mjs"), out], check=True, capture_output=True)
+            public = os.path.join(ROOT, "site", "public")
+            built = sorted(os.path.relpath(os.path.join(d, f), out) for d, _, fs in os.walk(out) for f in fs)
+            committed = sorted(os.path.relpath(os.path.join(d, f), public) for d, _, fs in os.walk(public) for f in fs)
+            self.assertEqual(built, committed, "Run `node site/build.mjs` and commit site/public.")
+            for rel in built:
+                with open(os.path.join(out, rel), "rb") as a, open(os.path.join(public, rel), "rb") as b:
+                    self.assertTrue(a.read() == b.read(), "site/public/%s is out of date: run `node site/build.mjs`." % rel)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,13 @@
+{
+  "name": "statto-team-site",
+  "private": true,
+  "description": "A team's Statto Reports website: set up editor, tagging hub and Team Report, on Cloudflare Workers + D1.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.160.1"
+  }
+}

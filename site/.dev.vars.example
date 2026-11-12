@@ -1,0 +1,4 @@
+# The deploy button asks for each of these when a team sets up its site.
+# EDITOR_PASSWORD: the first password for the Set up editor (at least 10
+# characters). You can change it later from the site's Settings page.
+EDITOR_PASSWORD=""

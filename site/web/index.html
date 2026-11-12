@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team site</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<main>
+  <h1 id="team" style="margin:8px 0 4px">Team site</h1>
+  <p class="dim">Season stats, film tagging and the Team Report.</p>
+  <div id="flash" hidden></div>
+  <div id="signed-in" class="msg" hidden></div>
+
+  <div class="grid" style="margin-top:20px">
+    <form class="card" id="f-editor">
+      <h3>Set up editor</h3>
+      <p class="dim">Upload Statto exports, set up the season, publish the Team Report.</p>
+      <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+
+    <form class="card" id="f-tagger">
+      <h3>Video tagger</h3>
+      <p class="dim">Tag games’ film. Your tags save as you go.</p>
+      <label>Your name <input type="text" name="name" autocomplete="name" required maxlength="60"></label>
+      <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+
+    <form class="card" id="f-viewer">
+      <h3>Team Report</h3>
+      <p class="dim">Every stat for the season, on any device.</p>
+      <label id="viewer-pw">Password <input type="password" name="password" autocomplete="current-password"></label>
+      <button class="primary" type="submit" id="viewer-go">Sign in</button>
+    </form>
+  </div>
+</main>
+<script src="/site.js"></script>
+<script>
+(async function () {
+  const params = new URLSearchParams(location.search);
+  const next = params.get('next');
+  const DEST = { editor: '/editor', tagger: '/tag', viewer: '/view' };
+  const safeNext = next && /^\/[a-z]+(\?[^\s]*)?$/.test(next) ? next : null;
+  let status;
+  try { status = await Site.api('GET', '/api/status'); }
+  catch (e) { Site.flash('Can’t reach the site’s server: ' + e.message, true); return; }
+
+  if (status.teamName) {
+    document.getElementById('team').textContent = status.teamName;
+    document.title = status.teamName;
+  }
+  if (!status.editorReady) {
+    Site.flash('This site isn’t set up yet. Whoever deployed it needs to add an EDITOR_PASSWORD secret in Cloudflare (Workers → this site → Settings → Variables and Secrets), then sign in here as the editor.', true);
+  }
+  if (status.session) {
+    const s = status.session;
+    const box = document.getElementById('signed-in');
+    box.hidden = false;
+    box.append('Signed in as ' + (s.name ? s.name + ' (' + s.role + ')' : s.role) + '. ',
+      Site.el('a', { href: DEST[s.role] }, 'Continue'), ' · ',
+      Site.el('a', { href: '#', onclick: e => { e.preventDefault(); Site.logout(); } }, 'Sign out'));
+  }
+  if (status.viewerOpen) {
+    document.getElementById('viewer-pw').hidden = true;
+    document.getElementById('viewer-go').textContent = 'Open the Team Report';
+  }
+  const tagName = document.querySelector('#f-tagger [name=name]');
+  try { tagName.value = localStorage.getItem('statto-tagger-name') || ''; } catch (e) {}
+
+  function wire(role) {
+    const form = document.getElementById('f-' + role);
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (role === 'viewer' && status.viewerOpen) { location.href = DEST.viewer; return; }
+      const field = n => form.querySelector('[name=' + n + ']');
+      const body = { role, password: field('password').value };
+      if (role === 'tagger') {
+        body.name = field('name').value.trim();
+        try { localStorage.setItem('statto-tagger-name', body.name); } catch (e) {}
+      }
+      const btn = form.querySelector('button');
+      btn.disabled = true;
+      try {
+        await Site.api('POST', '/api/login', JSON.stringify(body));
+        location.href = (safeNext && params.get('role') === role) ? safeNext : DEST[role];
+      } catch (e) {
+        Site.flash(e.message, true);
+        btn.disabled = false;
+      }
+    });
+  }
+  ['editor', 'tagger', 'viewer'].forEach(wire);
+  const want = params.get('role');
+  if (want && document.getElementById('f-' + want)) document.querySelector('#f-' + want + ' input:not([type=hidden])').focus();
+})();
+</script>
+</body>
+</html>
