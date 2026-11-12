@@ -15,14 +15,14 @@
   <div id="signed-in" class="msg" hidden></div>
 
   <div class="grid" style="margin-top:20px">
-    <form class="card" id="f-editor">
+    <form class="card" id="f-editor" onsubmit="return false">
       <h3>Set up editor</h3>
       <p class="dim">Upload Statto exports, set up the season, publish the Team Report.</p>
       <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">Sign in</button>
     </form>
 
-    <form class="card" id="f-tagger">
+    <form class="card" id="f-tagger" onsubmit="return false">
       <h3>Video tagger</h3>
       <p class="dim">Tag games’ film. Your tags save as you go.</p>
       <label>Your name <input type="text" name="name" autocomplete="name" required maxlength="60"></label>
@@ -30,7 +30,7 @@
       <button class="primary" type="submit">Sign in</button>
     </form>
 
-    <form class="card" id="f-viewer">
+    <form class="card" id="f-viewer" onsubmit="return false">
       <h3>Team Report</h3>
       <p class="dim">Every stat for the season, on any device.</p>
       <label id="viewer-pw">Password <input type="password" name="password" autocomplete="current-password"></label>
@@ -94,6 +94,7 @@
     });
   }
   ['editor', 'tagger', 'viewer'].forEach(wire);
+  document.body.dataset.ready = '1';
   const want = params.get('role');
   if (want && document.getElementById('f-' + want)) document.querySelector('#f-' + want + ' input:not([type=hidden])').focus();
 })();

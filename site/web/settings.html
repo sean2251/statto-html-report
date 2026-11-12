@@ -17,14 +17,14 @@
   <div id="flash" hidden></div>
 
   <h2>Team</h2>
-  <form class="card" id="f-team">
+  <form class="card" id="f-team" onsubmit="return false">
     <label>Team name <span class="dim">Shown on the sign-in page.</span><input type="text" name="teamName" maxlength="80"></label>
     <div class="row"><button class="primary" type="submit">Save</button></div>
   </form>
 
   <h2>Passwords</h2>
   <p class="dim">One password per kind of login. Share each only with the people who need it. Changing a password signs out everyone using it. Use at least 10 characters; a few random words is easy to share and hard to guess.</p>
-  <form class="card" id="f-passwords">
+  <form class="card" id="f-passwords" onsubmit="return false">
     <label>Video tagger password <span class="dim" id="tagger-state"></span><input type="password" name="tagger" autocomplete="new-password"></label>
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="viewerOpen"> Anyone with the link can open the Team Report (no viewer password)</label>
     <label id="viewer-row">Team Report (viewer) password <span class="dim" id="viewer-state"></span><input type="password" name="viewer" autocomplete="new-password"></label>
@@ -84,6 +84,7 @@
     document.getElementById('suggestion').textContent = Array.from(r, n => WORDS[n % WORDS.length]).join('-') + '-' + (r[0] % 90 + 10);
   });
 
+  document.body.dataset.ready = '1';
   document.getElementById('restore').addEventListener('click', async () => {
     const file = document.getElementById('restore-file').files[0];
     if (!file) { Site.flash('Choose a backup file first.', true); return; }

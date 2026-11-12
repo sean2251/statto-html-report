@@ -269,6 +269,7 @@ class BrowserTests(unittest.TestCase):
     def sign_in(self, ctx, role, password, name=None):
         page = ctx.new_page()
         page.goto(self.base + "/")
+        page.wait_for_selector("body[data-ready]")  # sign-in handlers attached
         if name:
             page.fill("#f-tagger [name=name]", name)
         if password is not None:
@@ -383,6 +384,7 @@ class BrowserTests(unittest.TestCase):
         view = viewer_ctx.new_page()
         view.goto(self.base + "/view")
         view.wait_for_url("**/?next=*")  # viewer password needed
+        view.wait_for_selector("body[data-ready]")
         view.fill("#f-viewer [name=password]", VIEWER_PW)
         view.click("#f-viewer button")
         view.wait_for_selector("#topnav button.tab")
