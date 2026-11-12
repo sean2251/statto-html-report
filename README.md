@@ -19,11 +19,26 @@ You work in two pages:
 
 | You are… | Go to |
 |---|---|
-| Taking stats for your team | [Getting started](#getting-started-the-statto-reports-app-mac) |
-| Tagging a game's film for someone | [For video-tagging helpers](#for-video-tagging-helpers-no-coding-needed) |
+| Taking stats for your team | [Your team's website](#your-teams-website-new) — or, on a Mac without a site, [the app](#getting-started-the-statto-reports-app-mac) |
+| Tagging a game's film for someone | Your team's site, if it has one (sign in as **Video tagger**); otherwise [For video-tagging helpers](#for-video-tagging-helpers-no-coding-needed) |
 | On the team, opening a Team Report | Just open the link you were sent; [What's in the two reports](#whats-in-the-two-reports) explains each tab |
 | Prefer the command line, or not on a Mac | [Using the command line instead](#using-the-command-line-instead) |
 | Changing the code | [For developers](#for-developers) |
+
+## Your team's website (new)
+
+Everything in one place online: the Set up editor, a **live tagging hub** where
+several people can tag at once (even the same game) and see each other's
+progress, and the Team Report — stored on your team's own site, not in anyone's
+browser. Three logins (editor, tagger, viewer), each with one shared password;
+the viewer password is optional. Each team runs its own copy on Cloudflare's
+free plan, set up with a **Deploy to Cloudflare** button in about 10 minutes.
+
+**[Setting up and using a team site →](site/README.md)**
+
+It replaces the Mac app below, which will be retired once team sites are in
+use; an app season moves in with its `season_data.json` (see the team site
+guide).
 
 ## Getting started: the Statto Reports app (Mac)
 
@@ -1187,6 +1202,10 @@ app; the report itself lives in the `statto_report/` package and the app in
 | `own_site.py` | "Publish to my site": write a tagging page into a folder, then git commit + push |
 | `static/home.html` | The home page |
 
+`site/` is the team website (a Cloudflare Worker and its pages; see
+[site/README.md](site/README.md)), and `statto_report/templates/stats.js` is the
+stats engine in JavaScript, which the site uses to build reports in the browser
+— a port of `stats.py` that `tests/test_stats_parity.py` keeps identical to it.
 `packaging/statto_reports.spec` is the PyInstaller recipe for the Mac app,
 `tests/` holds the tests, and `.github/workflows/` the automated jobs.
 
@@ -1230,6 +1249,11 @@ python3 -m unittest discover -s tests
 
 - `tests/test_app.py` (standard library only) covers the season store, the
   app's server and building the pages.
+- `tests/test_stats_parity.py` (needs Node) checks the JavaScript stats engine
+  matches the Python one on several exports, and that `site/public` is up to date.
+- `tests/test_site.py` (needs Node, `site/node_modules` and Playwright) runs a
+  local copy of the team site and tests its rules and the whole flow in a
+  browser.
 - `tests/test_browser.py` drives the real pages in a headless browser: the
   editor (old data staying on the right games, tagging pages, the Team Report),
   the app (home page through publishing, autosave, two windows) and the shared
@@ -1244,8 +1268,9 @@ python3 -m unittest discover -s tests
   python3 -m playwright install chromium
   ```
 
-`.github/workflows/tests.yml` runs both on every push to `main` and every pull
-request: the unit tests on Linux and macOS, the browser tests on Linux.
+`.github/workflows/tests.yml` runs them all on every push to `main` and every
+pull request: the unit tests on Linux and macOS, the browser and team-site tests
+on Linux.
 
 ### The shared tagging site
 

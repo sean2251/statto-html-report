@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tagging hub</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<div class="center" id="loading"><p class="dim">Loading…</p></div>
+
+<div id="hub" hidden>
+  <header class="bar">
+    <h1 id="title">Tagging hub</h1>
+    <span class="who" id="who"></span>
+    <a href="#" id="logout">Sign out</a>
+  </header>
+  <main>
+    <div id="flash" hidden></div>
+    <p class="dim">Pick a game to tag. Your tags save as you go, and anyone can pick up where someone else left off — the list updates by itself.</p>
+    <div class="row" style="margin:14px 0">
+      <label style="flex-direction:row;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="hide-done"> Hide finished games</label>
+    </div>
+    <ul class="games" id="games"></ul>
+  </main>
+</div>
+
+<script src="/site.js"></script>
+<script src="/assets/stats.js"></script>
+<script src="/assets/report-template.js"></script>
+<script>
+(async function () {
+  const status = await Site.requireRole('tagger', location.pathname + location.search);
+  const me = (status.session && status.session.name) || 'Editor';
+  const isEditor = status.session && status.session.role === 'editor';
+  let loaded;
+  try { loaded = await Site.loadReport(); }
+  catch (e) { document.getElementById('loading').textContent = e.message; return; }
+  if (!loaded) {
+    document.getElementById('loading').textContent = 'The editor hasn’t uploaded the season yet. Check back soon.';
+    return;
+  }
+  const report = loaded.report;
+  const teamName = status.teamName || loaded.teamName;
+
+  // A game was chosen: open its tagging page right here.
+  const gameId = new URLSearchParams(location.search).get('game');
+  if (gameId) {
+    const gi = report.games.findIndex(g => g.uuid === gameId);
+    if (gi < 0) { location.replace('/tag'); return; }
+    const [season, tags] = await Promise.all([Site.loadSeason(), Site.loadTags()]);
+    const data = { setup: season.data && season.data.setup, annotations: tags.annotations };
+    // Make sure the game shows as being worked on.
+    Site.api('POST', '/api/claims', JSON.stringify({ game: gameId, action: 'touch' })).catch(() => {});
+    Site.writeReportPage(report, 'vs ' + report.games[gi].opponent + ' — ' + teamName + ' tagging', {
+      __STATTO_TAGONLY_GAME__: gi,
+      __STATTO_SYNC__: { since: tags.seq, name: me, data },
+      __STATTO_BACK__: { href: '/tag', label: '← Games', title: 'Back to the tagging hub' },
+    });
+    return;
+  }
+
+  document.getElementById('loading').hidden = true;
+  document.getElementById('hub').hidden = false;
+  document.getElementById('title').textContent = teamName + ' · Tagging hub';
+  document.getElementById('who').textContent = 'Signed in as ' + me + (isEditor ? ' (editor)' : '');
+  document.getElementById('logout').addEventListener('click', e => { e.preventDefault(); Site.logout(); });
+  const hideDone = document.getElementById('hide-done');
+  try { hideDone.checked = localStorage.getItem('statto-hub-hide-done') === '1'; } catch (e) {}
+  hideDone.addEventListener('change', () => { try { localStorage.setItem('statto-hub-hide-done', hideDone.checked ? '1' : '0'); } catch (e) {} render(); });
+
+  const totals = new Map(report.games.map(g => [g.uuid,
+    (g.points || []).reduce((n, pt) => n + (pt.passes || []).length + (pt.blocks || []).length, 0)]));
+  let hub = { now: 0, games: {} };
+
+  async function act(game, action) {
+    try { hub = await Site.api('POST', '/api/claims', JSON.stringify({ game, action })); render(); }
+    catch (e) { Site.flash(e.message, true); }
+  }
+
+  function render() {
+    const ul = document.getElementById('games');
+    ul.innerHTML = '';
+    const { el } = Site;
+    for (const g of report.games.slice().reverse()) {
+      const h = hub.games[g.uuid] || { claim: null, tagged: 0, active: [], recent: [] };
+      const claim = h.claim;
+      const done = claim && claim.status === 'done';
+      if (done && hideDone.checked) continue;
+      const total = totals.get(g.uuid) || 0;
+      const pct = total ? Math.min(100, Math.round(100 * h.tagged / total)) : 0;
+      const live = h.active.filter(a => a.name !== me);
+      const who = claim ? (done ? 'Finished by ' + claim.name : claim.name + ' is on it') : 'Nobody yet';
+      const name = el('div', { class: 'name' }, ['vs ' + g.opponent]);
+      if (done) name.append(el('span', { class: 'pill done' }, 'done'));
+      if (live.length) name.append(el('span', { class: 'pill live' }, live.map(a => a.name).join(', ') + ' tagging now'));
+      const meta = el('div', { class: 'meta' }, [g.dateDisplay + ' · ' + g.ourScore + '–' + g.oppScore + ' · ' + h.tagged + '/' + total + ' tagged · ' + who]);
+      const barRow = el('div', { class: 'bar-track' }, el('div', { class: 'bar-fill', style: 'width:' + pct + '%' }));
+      const actions = el('div', { class: 'actions' });
+      const tagBtn = el('a', { class: 'btn primary', href: '/tag?game=' + encodeURIComponent(g.uuid) }, h.tagged ? 'Continue' : 'Tag');
+      actions.append(tagBtn);
+      if (!claim || (claim.name !== me && !done)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, 'claim') }, claim ? 'Take over' : 'Claim'));
+      if (claim && !done && (claim.name === me || isEditor)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, 'done') }, 'Mark done'));
+      if (claim && (claim.name === me || isEditor)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, done ? 'reopen' : 'release') }, done ? 'Reopen' : 'Release'));
+      ul.append(el('li', { class: 'game' }, [el('div', {}, [name, meta]), actions, barRow]));
+    }
+    if (!ul.children.length) ul.append(el('li', { class: 'dim' }, 'Every game is done. Nice work!'));
+  }
+
+  async function refresh() {
+    try { hub = await Site.api('GET', '/api/hub'); render(); } catch (e) { /* keep the last view */ }
+  }
+  await refresh();
+  setInterval(() => { if (!document.hidden) refresh(); }, 8000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+})();
+</script>
+</body>
+</html>

@@ -40,6 +40,14 @@ const TAGGING_SITE = !!(typeof window !== 'undefined' && window.__STATTO_TAGGING
 // elsewhere (anyone can host a copy).
 const DEFAULT_TAGGING_SITE_URL = 'https://sean2251.github.io/statto-html-report/';
 function taggingSiteUrl() { return (APP && APP.taggingSiteUrl) || DEFAULT_TAGGING_SITE_URL; }
+// Live tag sync with a team site's server (site/): set on the Set up editor and
+// on tagging pages built by the team site. { since, name, data } -- see "Team
+// site: live tag sync" below. Never present in a published file.
+const SYNC = (!VIEWER_MODE && typeof window !== 'undefined' && window.__STATTO_SYNC__ && typeof window.__STATTO_SYNC__ === 'object') ? window.__STATTO_SYNC__ : null;
+// The team site's editor is APP mode backed by the site's server instead of the Mac app.
+const SITE = !!(APP && APP.server);
+// A "back" link for pages the team site builds (e.g. a tagging page -> the games list).
+const BACK_LINK = (typeof window !== 'undefined' && window.__STATTO_BACK__ && typeof window.__STATTO_BACK__ === 'object') ? window.__STATTO_BACK__ : null;
 
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player', full: 'Player', numeric: false },
@@ -243,7 +251,10 @@ function buildNav() {
     if (TAGGING_SITE) {
       // Back to the shared site's game list (the same page without #game=).
       nav.insertBefore(el('a', { class: 'tab app-home-link', href: location.pathname, title: 'Back to your games' }, [document.createTextNode('← Games')]), nav.firstChild);
+    } else if (BACK_LINK) {
+      nav.insertBefore(el('a', { class: 'tab app-home-link', href: BACK_LINK.href, title: BACK_LINK.title || '' }, [document.createTextNode(BACK_LINK.label)]), nav.firstChild);
     }
+    if (SYNC) buildAppStatus();
     const tagBtn = el('button', { class: 'tab active', 'data-target': 'data-editor' }, [document.createTextNode('Video Tagging')]);
     tagBtn.addEventListener('click', () => showView('data-editor'));
     nav.appendChild(tagBtn);
@@ -253,7 +264,9 @@ function buildNav() {
 
   if (SETUP_MODE) {
     if (APP) {
-      const home = el('a', { class: 'tab app-home-link', href: APP.home || '/', title: 'Back to all your seasons' }, [document.createTextNode('← Seasons')]);
+      const home = SITE
+        ? el('a', { class: 'tab app-home-link', href: APP.home || '/', title: 'Back to the team site’s start page' }, [document.createTextNode('← Team site')])
+        : el('a', { class: 'tab app-home-link', href: APP.home || '/', title: 'Back to all your seasons' }, [document.createTextNode('← Seasons')]);
       nav.insertBefore(home, nav.firstChild);
       const brand = nav.querySelector('.brand');
       if (brand && APP.seasonName) brand.textContent = APP.seasonName;
@@ -263,6 +276,11 @@ function buildNav() {
     nav.appendChild(el('button', { class: 'tab active', 'data-target': 'setup' }, [document.createTextNode('Set up')]));
     nav.appendChild(el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Video annotation editor')]));
     nav.appendChild(el('button', { class: 'tab', 'data-target': 'line-setup' }, [document.createTextNode('Line set up')]));
+    if (SITE) {
+      nav.appendChild(el('a', { class: 'tab', href: '/tag' }, [document.createTextNode('Tagging hub')]));
+      nav.appendChild(el('a', { class: 'tab', href: '/view', target: '_blank', rel: 'noopener' }, [document.createTextNode('Team Report ↗')]));
+      nav.appendChild(el('a', { class: 'tab', href: '/settings' }, [document.createTextNode('Site settings')]));
+    }
   } else {
     // The published Team Report: all the analysis, read-only.
     nav.appendChild(el('button', { class: 'tab active', 'data-target': 'season' }, [document.createTextNode('Season')]));
@@ -3544,7 +3562,19 @@ function buildSetupSection() {
   const section = el('section', { class: 'view active', id: 'setup' }, []);
   section.appendChild(text('p', 'eyebrow', 'Set up'));
   section.appendChild(text('p', 'hero-sub', 'Group games into tournaments, add a video link per game, and set player photos. ' +
-    (APP ? 'Everything here saves automatically to this season’s folder on your computer.' : 'Everything here is saved in this browser.')));
+    (SITE ? 'Everything here saves automatically to your team site.'
+      : APP ? 'Everything here saves automatically to this season’s folder on your computer.' : 'Everything here is saved in this browser.')));
+  if (SITE) {
+    // Newer Statto export: the season's games are rebuilt from it; everything
+    // added here stays attached to the right games.
+    const stattoInput = el('input', { type: 'file', accept: '.statto' }, []);
+    stattoInput.style.display = 'none';
+    stattoInput.addEventListener('change', () => { const f = stattoInput.files && stattoInput.files[0]; stattoInput.value = ''; siteReplaceStatto(f); });
+    const stattoBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Add newer Statto export')]);
+    stattoBtn.addEventListener('click', () => stattoInput.click());
+    section.appendChild(el('div', { class: 'controls-row' }, [stattoBtn, stattoInput]));
+    section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Stat’d more games? Export the whole team from Statto again and add it here — in any order. Video links, tags and lines stay with the right games.')]));
+  }
 
   // ---- Back up / restore everything you've added on top of the report ----
   const exportAllBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Export all custom data')]);
@@ -4423,7 +4453,7 @@ function saveAnnotations(data) {
       blocks: data.blocks || {},
       points: data.points || {},
     }));
-    appNoteChange();
+    if (SYNC) syncNoteChange(); else appNoteChange();
   } catch (e) {}
 }
 
@@ -4565,6 +4595,7 @@ function teamReportHtml() {
 }
 function publishForTeam() {
   const filename = slug(REPORT.teamName) + '_team_report.html';
+  if (SITE) { sitePublishReport(); return; }
   if (APP) { appPublishFile(filename, teamReportHtml(), 'Team Report'); return; }
   downloadFile(teamReportHtml(), filename, 'text/html;charset=utf-8;');
 }
@@ -4612,9 +4643,9 @@ const APP_SAVE_DELAY_MS = 1200;
 // Storage.prototype -- assigning to localStorage.getItem itself would just
 // store an item called "getItem".
 function appInstallMemoryStorage() {
-  const sfx = appKeySuffix();
+  const ours = new Set(customDataSections().map(s => s.key));
   const mem = new Map();
-  const isOurs = (store, k) => store === window.localStorage && typeof k === 'string' && k.endsWith(sfx);
+  const isOurs = (store, k) => store === window.localStorage && ours.has(k);
   const P = Storage.prototype, get = P.getItem, set = P.setItem, rem = P.removeItem;
   P.getItem = function (k) { return isOurs(this, k) ? (mem.has(k) ? mem.get(k) : null) : get.call(this, k); };
   P.setItem = function (k, v) { if (isOurs(this, k)) mem.set(k, String(v)); else set.call(this, k, v); };
@@ -4623,7 +4654,7 @@ function appInstallMemoryStorage() {
 
 function appSeedStorage() {
   appInstallMemoryStorage();
-  const data = (APP && APP.data) || {};
+  const data = (APP && APP.data) || (SYNC && SYNC.data) || {};
   customDataSections().forEach(({ name, key }) => {
     if (data[name] && typeof data[name] === 'object') localStorage.setItem(key, JSON.stringify(data[name]));
   });
@@ -4653,9 +4684,14 @@ function appSaveOnce(opts) {
   appDirty = false;
   appSaving = true;
   appSetStatus('saving');
-  const body = JSON.stringify(buildCustomDataBundle());
+  const bundle = buildCustomDataBundle();
+  if (SYNC) delete bundle.annotations; // synced event by event instead (syncPush)
+  const body = JSON.stringify(bundle);
   const q = '?rev=' + appRevision + (opts.force ? '&force=1' : '') + (opts.backupReason ? '&import=1' : '');
-  return fetch(APP.api + '/data' + q, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+  const req = SITE
+    ? fetch('/api/season' + q, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+    : fetch(APP.api + '/data' + q, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  return req
     .then(r => r.json().catch(() => ({})).then(j => ({ r, j })))
     .then(({ r, j }) => {
       appSaving = false;
@@ -4663,7 +4699,7 @@ function appSaveOnce(opts) {
       if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
       appRevision = Number(j.revision) || appRevision + 1;
       appConflict = false;
-      appSetStatus(appDirty ? 'pending' : 'saved');
+      if (SYNC) syncShowStatus(); else appSetStatus(appDirty ? 'pending' : 'saved');
       return true;
     })
     .catch(() => {
@@ -4684,10 +4720,10 @@ function appSetStatus(state) {
   appStatusState = state;
   if (!appStatusEl) return;
   const msgs = {
-    saved: 'Saved to the season folder',
+    saved: (SITE || SYNC) ? 'All changes saved' : 'Saved to the season folder',
     pending: 'Saving soon…',
     saving: 'Saving…',
-    error: 'Not saved — is the Statto Reports app still running? Retrying…',
+    error: (SITE || SYNC) ? 'Not saved — can’t reach the team site. Retrying…' : 'Not saved — is the Statto Reports app still running? Retrying…',
     conflict: 'This season was saved from another window',
   };
   appStatusEl.className = 'app-status app-status-' + state;
@@ -4708,8 +4744,9 @@ function buildAppStatus() {
   document.body.appendChild(appStatusEl);
   appSetStatus(appStatusState);
   window.addEventListener('beforeunload', (e) => {
-    if (appDirty || appSaving) {
-      appSaveNow();
+    if (appDirty || appSaving || syncDirty || syncSaving) {
+      if (appDirty) appSaveNow();
+      if (syncDirty) syncPushNow();
       e.preventDefault();
       e.returnValue = '';
     }
@@ -4764,6 +4801,216 @@ function appPublishFile(filename, content, what) {
       alert('Couldn’t save to the season folder (' + err.message + '), so it will download instead.');
       downloadFile(content, filename, 'text/html;charset=utf-8;');
     });
+}
+
+// ---------- Team site: live tag sync ----------
+// On a team site (site/), video tags live on the server one event at a time,
+// so several people can tag at once -- even the same game -- without sending
+// files around. Here, every saveAnnotations() is diffed against the last
+// state known to be on the server (syncShadow) and only the events that
+// changed are sent; every few seconds the server is asked for events others
+// changed since (syncSince) and those are merged in. A local edit that hasn't
+// reached the server yet always wins over an incoming one for that event (it
+// is sent next), and the Data Editor reloads its copy whenever tags arrive,
+// so a save never writes back a stale copy of someone else's work.
+const SYNC_KINDS = ['passes', 'blocks', 'points'];
+const SYNC_PUSH_DELAY_MS = 700;
+const SYNC_POLL_MS = 5000;
+let syncShadow = null, syncSince = 0, syncGameOfKey = null;
+let syncDirty = false, syncSaving = false, syncError = false, syncApplying = false;
+let syncTimer = null, syncChain = Promise.resolve(true);
+
+function syncBuildGameIndex() {
+  syncGameOfKey = new Map();
+  REPORT.games.forEach(g => {
+    (g.points || []).forEach(pt => {
+      if (pt.uuid) syncGameOfKey.set('pt:' + pt.uuid, g.uuid);
+      (pt.passes || []).forEach(p => { if (p.uuid) syncGameOfKey.set('passes:' + p.uuid, g.uuid); });
+      (pt.blocks || []).forEach(b => { if (b.uuid) syncGameOfKey.set('blocks:' + b.uuid, g.uuid); });
+    });
+  });
+}
+// Which game an annotation belongs to (point-level keys are "<pointUUID>#...").
+function syncGameFor(kind, key) {
+  if (kind === 'points') return syncGameOfKey.get('pt:' + String(key).split('#')[0]) || null;
+  return syncGameOfKey.get(kind + ':' + key) || null;
+}
+
+function syncStart() {
+  syncBuildGameIndex();
+  syncSince = Number(SYNC.since) || 0;
+  const a = loadAnnotations();
+  syncShadow = {};
+  SYNC_KINDS.forEach(k => {
+    syncShadow[k] = {};
+    Object.keys(a[k] || {}).forEach(key => { syncShadow[k][key] = JSON.stringify(a[k][key]); });
+  });
+  setInterval(syncPoll, SYNC_POLL_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPoll(); });
+}
+
+function syncDiff() {
+  const a = loadAnnotations();
+  const changes = [];
+  SYNC_KINDS.forEach(kind => {
+    const cur = a[kind] || {}, shadow = syncShadow[kind];
+    const keys = new Set([...Object.keys(cur), ...Object.keys(shadow)]);
+    keys.forEach(key => {
+      const now = cur[key] ? JSON.stringify(cur[key]) : null;
+      if (now !== (shadow[key] === undefined ? null : shadow[key])) {
+        changes.push({ kind, key, game: syncGameFor(kind, key), data: now ? JSON.parse(now) : null });
+      }
+    });
+  });
+  return changes;
+}
+
+function syncNoteChange() {
+  if (!syncShadow || syncApplying) return;
+  syncDirty = true;
+  syncShowStatus();
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncPushNow, SYNC_PUSH_DELAY_MS);
+}
+
+function syncPushNow() {
+  clearTimeout(syncTimer);
+  syncChain = syncChain.then(syncPushOnce);
+  return syncChain;
+}
+
+function syncPushOnce() {
+  const changes = syncDiff();
+  syncDirty = false;
+  if (!changes.length) { syncShowStatus(); return Promise.resolve(true); }
+  syncSaving = true;
+  syncShowStatus();
+  const batch = changes.slice(0, 400);
+  return fetch('/api/tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: batch }) })
+    .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }))
+    .then(() => {
+      batch.forEach(c => {
+        if (c.data) syncShadow[c.kind][c.key] = JSON.stringify(c.data); else delete syncShadow[c.kind][c.key];
+      });
+      syncSaving = false;
+      syncError = false;
+      if (changes.length > batch.length) { syncDirty = true; return syncPushOnce(); }
+      syncShowStatus();
+      return true;
+    })
+    .catch(() => {
+      syncSaving = false;
+      syncError = true;
+      syncDirty = true;
+      syncShowStatus();
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(syncPushNow, 5000);
+      return false;
+    });
+}
+
+let syncPolling = false;
+function syncPoll() {
+  if (syncPolling || syncSaving || !syncShadow) return;
+  syncPolling = true;
+  fetch('/api/tags?since=' + syncSince, { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      if (!j) return;
+      const a = loadAnnotations();
+      const pending = new Set(syncDiff().map(c => c.kind + ':' + c.key));
+      const touched = [];
+      (j.changes || []).forEach(c => {
+        if (!SYNC_KINDS.includes(c.kind)) return;
+        const val = c.data ? JSON.stringify(c.data) : null;
+        if (val) syncShadow[c.kind][c.key] = val; else delete syncShadow[c.kind][c.key];
+        if (pending.has(c.kind + ':' + c.key)) return; // our unsent edit wins; it goes next
+        if (c.data) a[c.kind][c.key] = c.data; else delete a[c.kind][c.key];
+        touched.push(c);
+      });
+      syncSince = Math.max(syncSince, Number(j.seq) || 0);
+      if (touched.length) {
+        syncApplying = true;
+        saveAnnotations(a);
+        syncApplying = false;
+        window.dispatchEvent(new CustomEvent('statto:remote-tags', { detail: { changes: touched } }));
+      }
+    })
+    .catch(() => {})
+    .then(() => { syncPolling = false; });
+}
+
+// The status pill covers both the season bundle (APP) and tags (SYNC).
+function syncShowStatus() {
+  if (appConflict) return appSetStatus('conflict');
+  if (syncError) return appSetStatus('error');
+  if (syncSaving || appSaving) return appSetStatus('saving');
+  if (syncDirty || appDirty) return appSetStatus('pending');
+  appSetStatus('saved');
+}
+
+// Publishing on a team site: the Team Report goes to the server, and the team
+// opens it at /view.html.
+function sitePublishReport() {
+  const html = teamReportHtml();
+  fetch('/api/report', { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: html })
+    .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }))
+    .then(() => {
+      const link = location.origin + '/view';
+      const box = el('input', { type: 'text', readonly: 'readonly', value: link, class: 'setup-video-input', 'aria-label': 'Team Report link' }, []);
+      openDialog('Team Report published', [
+        el('p', {}, [document.createTextNode('Your team can open it now at:')]),
+        box,
+        el('p', { class: 'app-dialog-note' }, [document.createTextNode('It’s a snapshot: publish again after you change anything.')]),
+      ], [
+        { label: 'Copy link', onClick: () => { box.select(); try { navigator.clipboard.writeText(link); } catch (e) { document.execCommand('copy'); } return false; } },
+        { label: 'Open it', onClick: () => { window.open(link, '_blank', 'noopener'); return false; } },
+        { label: 'Done', primary: true },
+      ]);
+    })
+    .catch(err => alert('Couldn’t publish: ' + err.message));
+}
+
+// The stats engine (stats.js), loaded from the team site only when needed, so
+// files published from here never reference it.
+function siteStatsEngine() {
+  if (window.StattoStats) return Promise.resolve(window.StattoStats);
+  return new Promise((resolve, reject) => {
+    const tag = document.createElement('script');
+    tag.src = '/assets/stats.js';
+    tag.onload = () => resolve(window.StattoStats);
+    tag.onerror = () => reject(new Error('couldn’t load the stats engine'));
+    document.head.appendChild(tag);
+  });
+}
+
+// Replace the season's Statto export with a newer one (the page then reloads,
+// rebuilding everything from it). Setup, lines and tags are kept: they're
+// keyed by game and pass IDs, not positions.
+function siteReplaceStatto(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const buf = reader.result;
+    siteStatsEngine().then(S => S.reportFromStatto(buf))
+      .then(({ report, teamName }) => {
+        if (teamName !== REPORT.teamName && !confirm('This export is for “' + teamName + '”, but this season is “' + REPORT.teamName + '”. Use it anyway?')) return null;
+        const known = new Set(REPORT.games.map(g => g.uuid));
+        const now = new Set(report.games.map(g => g.uuid));
+        const added = report.games.filter(g => !known.has(g.uuid)).map(g => 'vs ' + g.opponent);
+        const missing = REPORT.games.filter(g => !now.has(g.uuid)).map(g => 'vs ' + g.opponent);
+        if (missing.length && !confirm(missing.length + ' game(s) in the current export aren’t in this one (' + missing.join(', ') + '). Their video links, tags and lines are kept, but won’t show until an export includes them again. Use this export?')) return null;
+        return Promise.all([appSaveNow(), SYNC ? syncPushNow() : null]).then(() =>
+          fetch('/api/statto?team=' + encodeURIComponent(teamName), { method: 'PUT', body: buf })
+            .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); }))
+            .then(() => {
+              alert('Updated: ' + report.games.length + ' games.' + (added.length ? ' New: ' + added.join(', ') + '.' : ' No new games.'));
+              location.reload();
+            }));
+      })
+      .catch(err => alert('Couldn’t use that file: ' + err.message));
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 // ---------- Export / import ALL custom data (Set up tab) ----------
@@ -4827,7 +5074,11 @@ function importAllCustomData(file) {
     });
     // In the app, the season folder is what the page reloads from, so the
     // import has to reach it first (with a backup of what it replaces).
-    if (APP) { appSaveNow({ backupReason: 'import' }).then(ok => { if (ok) location.reload(); }); return; }
+    if (APP) {
+      Promise.all([appSaveNow({ backupReason: 'import', force: SITE }), SYNC ? syncPushNow() : true])
+        .then(([ok]) => { if (ok) location.reload(); });
+      return;
+    }
     location.reload();
   };
   reader.readAsText(file);
@@ -4890,6 +5141,7 @@ function helperMessage(gameIndex) {
 
 // "Share for tagging": the two ways to hand a game to a helper.
 function openShareForTaggingDialog(gameIndex) {
+  if (SITE) { openSiteAssignDialog(gameIndex); return; }
   const g = REPORT.games[gameIndex];
   const hasVideo = !!parseYouTubeId(loadSetupData().videoLinks[gameIndex]);
   const body = [];
@@ -4939,6 +5191,30 @@ function openShareForTaggingDialog(gameIndex) {
   }
   body.push(row, result);
   openDialog('Share vs ' + g.opponent + ' for tagging', body, [{ label: 'Done', primary: true }]);
+}
+
+// On a team site, helpers sign in with the tagger password and pick games from
+// the tagging hub, so "sharing" is just saying who's on it.
+function openSiteAssignDialog(gameIndex) {
+  const g = REPORT.games[gameIndex];
+  const hasVideo = !!parseYouTubeId(loadSetupData().videoLinks[gameIndex]);
+  const name = el('input', { type: 'text', class: 'setup-video-input', placeholder: 'Their name', 'aria-label': 'Who will tag it' }, []);
+  const note = el('p', { class: 'app-dialog-note' }, []);
+  const body = [];
+  if (!hasVideo) body.push(el('p', { class: 'app-dialog-note' }, [document.createTextNode('⚠ This game has no YouTube link yet. Add it in the Games table so taggers get the video.')]));
+  body.push(el('p', {}, [document.createTextNode('Helpers sign in at ' + location.origin + ' with the tagger password, then pick a game in the tagging hub. Optionally, put someone’s name on this one:')]));
+  body.push(name, note);
+  openDialog('Tagging vs ' + g.opponent, body, [
+    { label: 'Open tagging hub', onClick: () => { window.open('/tag', '_blank', 'noopener'); return false; } },
+    { label: 'Assign', primary: true, onClick: () => {
+      const who = name.value.trim();
+      if (!who) { note.textContent = 'Enter a name first.'; return false; }
+      fetch('/api/claims', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: g.uuid, action: 'claim', name: who }) })
+        .then(r => { note.textContent = r.ok ? 'Assigned to ' + who + '.' : 'Couldn’t assign it.'; });
+      return false;
+    } },
+    { label: 'Done' },
+  ]);
 }
 
 // The pass/block UUIDs that belong to one game -- used to (a) count how much of
@@ -8803,6 +9079,18 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   // Refresh on every visit: pick up a video link added on Set up, or
   // annotations changed by an import elsewhere, without a reload.
   gameViewRefreshers.set('data-editor', () => { annotations = loadAnnotations(); refreshPlayer(); updateTaggedCount(); render(); });
+  // Tags saved by someone else (team site): always take the fresh copy, so a
+  // later save here can't write back a stale one; redraw unless the person is
+  // mid-way through typing in the tag panel.
+  if (SYNC) {
+    window.addEventListener('statto:remote-tags', () => {
+      annotations = loadAnnotations();
+      updateTaggedCount();
+      const active = document.activeElement;
+      const typing = active && section.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+      if (!typing) render();
+    });
+  }
 
   loadGame();
   return section;
@@ -10071,8 +10359,9 @@ function currentViewId() {
 
 // ---------- Bootstrap: build nav + all sections on load ----------
 function init() {
-  if (APP) appSeedStorage();
+  if (APP || SYNC) appSeedStorage();
   if (SETUP_MODE) migrateLegacyStorage();
+  if (SYNC) syncStart();
   buildNav();
   const main = document.getElementById('main');
   // Per-game tagging page: just the Data Editor, locked to one game.

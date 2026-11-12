@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set up editor</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<div class="center" id="loading"><p class="dim">Loading the season…</p></div>
+
+<main class="narrow" id="first-upload" hidden>
+  <h1 style="margin:8px 0 4px">Start your season</h1>
+  <p class="dim">Upload your team’s Statto export to get started. You’ll add newer exports from the editor as you stat more games.</p>
+  <div id="flash" hidden></div>
+  <form class="card" id="f-upload" onsubmit="return false">
+    <label>Statto export <span class="dim">The <code>.statto</code> file you exported from Statto</span>
+      <input type="file" name="statto" accept=".statto" required></label>
+    <label>Bring in existing work (optional)
+      <span class="dim">Coming from the Mac app? Choose the season folder’s <code>season_data.json</code>. From a Set up editor file? Use its Set up → “Export all custom data” file. Use the same <code>.statto</code> it was built from; add newer exports afterwards.</span>
+      <input type="file" name="data" accept=".json,application/json"></label>
+    <div class="row"><button class="primary" type="submit">Start the season</button></div>
+  </form>
+</main>
+
+<script src="/site.js"></script>
+<script src="/assets/stats.js"></script>
+<script src="/assets/report-template.js"></script>
+<script>
+(async function () {
+  const status = await Site.requireRole('editor', '/editor');
+  let loaded;
+  try { loaded = await Site.loadReport(); }
+  catch (e) { document.getElementById('loading').textContent = e.message; return; }
+
+  if (!loaded) {
+    // First run: no export yet.
+    document.getElementById('loading').hidden = true;
+    document.getElementById('first-upload').hidden = false;
+    document.getElementById('f-upload').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const form = ev.target;
+      const btn = form.querySelector('button');
+      btn.disabled = true;
+      try {
+        const file = form.querySelector('[name=statto]').files[0];
+        const buf = await Site.readFile(file);
+        const { report, teamName } = await StattoStats.reportFromStatto(buf);
+        let bundle = null;
+        const dataFile = form.querySelector('[name=data]').files[0];
+        if (dataFile) {
+          bundle = JSON.parse(await Site.readFile(dataFile, 'text'));
+          if (!bundle || bundle.statto !== 'custom-data') throw new Error('The existing-work file isn’t a season data or “custom data” file.');
+        }
+        await Site.api('PUT', '/api/statto?team=' + encodeURIComponent(teamName), buf, 'application/octet-stream');
+        if (bundle) {
+          await Site.api('PUT', '/api/season?force=1', JSON.stringify(bundle));
+          await Site.uploadAnnotations(report, bundle.annotations);
+        }
+        location.reload();
+      } catch (e) {
+        Site.flash(e.message, true);
+        btn.disabled = false;
+      }
+    });
+    return;
+  }
+
+  const [season, tags] = await Promise.all([Site.loadSeason(), Site.loadTags()]);
+  const data = Object.assign({ statto: 'custom-data', version: 1 }, season.data || {}, { annotations: tags.annotations });
+  const teamName = status.teamName || loaded.teamName;
+  Site.writeReportPage(loaded.report, teamName + ' — Set up editor', {
+    __STATTO_APP__: {
+      server: true, seasonId: 'site', seasonName: teamName, home: '/',
+      revision: season.revision, data,
+    },
+    __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Editor' },
+  });
+})();
+</script>
+</body>
+</html>
