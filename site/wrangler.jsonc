@@ -10,11 +10,29 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
+  // The live site's database: everything your team has created.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "statto-team-site"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Preview builds (a temporary copy of the site for each branch, made by
+  // Cloudflare's Workers Builds). Previews inherit nothing from above, so they
+  // get their own, separate database here and never touch the live site's
+  // data. All previews share it; a new preview starts by claiming it with a
+  // setup code. This database ID belongs to the RAMP 2026 site's Cloudflare
+  // account: if you deploy your own copy, create a D1 database for previews
+  // and put its ID here, or remove this block (and turn off non-production
+  // branch builds in Cloudflare).
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "statto-team-site-preview",
+        "database_id": "9d629afa-17f3-46e0-b877-042a3121f7be"
+      }
+    ]
+  }
 }

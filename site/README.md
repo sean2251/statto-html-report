@@ -126,6 +126,23 @@ The site doesn't update itself. When there's a new version:
 - **From a terminal:** pull the latest code and run `npx wrangler deploy` in
   `site/` again.
 
+## Preview builds (optional)
+
+When Cloudflare is connected to the repository, it can also build a temporary
+**preview** copy of the site for each branch or pull request, with its own
+address, so you can try changes before merging them. Previews inherit nothing
+from the live site: `site/wrangler.jsonc` gives them their own D1 database
+(the `previews` block), so testing a preview never touches your real season.
+All previews share that one database; the first time, claim it with **Set up
+this site** and a setup code (its logs are under the same Worker in
+Cloudflare), then upload a copy of your Statto export to test with.
+
+The database ID in that block belongs to the RAMP 2026 site's Cloudflare
+account. If you run your own copy: create a D1 database for previews
+(**Storage & Databases → D1 → Create**), put its ID in the `previews` block,
+or delete the block and turn off non-production branch builds in your Worker's
+**Settings → Builds**. Either way, your live site deploys from `main` as usual.
+
 ## Costs and limits
 
 Cloudflare's free plan comfortably covers a team: the database holds a few
