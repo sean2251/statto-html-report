@@ -15,6 +15,7 @@
 // offers "Set up this site": the site writes a one-time setup code to its own
 // logs (Cloudflare dashboard -> the Worker -> Logs, which only the account
 // owner can read), and whoever enters that code chooses the editor password.
+// A forgotten editor password is reset the same way, with its own code.
 // (An EDITOR_PASSWORD secret, if one is set on the Worker, also works.)
 // Passwords are stored only as salted PBKDF2 hashes and changed from the site.
 
@@ -130,55 +131,92 @@ async function siteStatus(env) {
   };
 }
 
-// ---------- first-run setup ----------
-const SETUP_CODE_SECS = 60 * 60;
-const SETUP_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
+// ---------- one-time codes in the Worker's logs: first-run setup & password reset ----------
+// Both prove "this is the person who runs the site": the code is written only to
+// the Worker's own logs (Cloudflare dashboard -> the Worker -> Observability),
+// which only the Cloudflare account can read; it never goes back to a browser.
+// Codes last an hour, wrong ones count toward the login rate limits, and
+// setup and reset use separate codes.
+const LOG_CODE_SECS = 60 * 60;
+const LOG_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
+const LOG_CODES = {
+  setup: { key: 'setup_code', label: 'setup code', button: 'Show a setup code' },
+  reset: { key: 'reset_code', label: 'password reset code', button: 'Show a reset code' },
+};
 
 async function setupNeeded(env) {
   return !((await passwordFor(env, 'editor')) || env.EDITOR_PASSWORD);
 }
 
-// Writes the setup code to the Worker's logs (making one if there's no live
-// one). The code itself never goes back to the browser.
-async function logSetupCode(env) {
-  if (!(await setupNeeded(env))) throw new HttpError('This site is already set up.', 409);
+// Writes the code to the logs, reusing a live one so repeated clicks don't
+// invalidate a code someone is already copying.
+async function logCode(env, kind) {
+  const { key, label } = LOG_CODES[kind];
   const db = env.DB;
   let code = null;
-  const stored = await getSetting(db, 'setup_code');
+  const stored = await getSetting(db, key);
   if (stored) {
     const [c, expires] = stored.split('|');
     if (Number(expires) > now()) code = c;
   }
   if (!code) {
     const bytes = crypto.getRandomValues(new Uint8Array(8));
-    code = Array.from(bytes, b => SETUP_ALPHABET[b % SETUP_ALPHABET.length]).join('');
+    code = Array.from(bytes, b => LOG_CODE_ALPHABET[b % LOG_CODE_ALPHABET.length]).join('');
     code = code.slice(0, 4) + '-' + code.slice(4);
-    await setSetting(db, 'setup_code', code + '|' + (now() + SETUP_CODE_SECS));
+    await setSetting(db, key, code + '|' + (now() + LOG_CODE_SECS));
   }
-  console.log('Statto team site setup code: ' + code + ' (valid for an hour; enter it on the site’s sign-in page)');
+  console.log('Statto team site ' + label + ': ' + code + ' (valid for an hour; enter it on the site’s sign-in page)');
   return { ok: true };
 }
 
-// Checks the code, sets the editor password, and signs the editor in.
-async function completeSetup(request, env) {
-  if (!(await setupNeeded(env))) throw new HttpError('This site is already set up. Sign in as the editor.', 409);
-  const body = await request.json().catch(() => ({}));
+// Checks a code (case- and dash-insensitive) and uses it up. Throws if wrong.
+async function redeemCode(request, env, kind, body) {
+  const { key, label, button } = LOG_CODES[kind];
   const db = env.DB;
   const ip = clientIp(request);
   await checkLoginRate(db, ip);
-  const stored = await getSetting(db, 'setup_code');
+  const stored = await getSetting(db, key);
   const [code, expires] = stored ? stored.split('|') : [null, 0];
   const given = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const want = code ? code.replace(/-/g, '') : '';
   if (!code || Number(expires) <= now() || !timingSafeEqual(given, want)) {
     await db.prepare('INSERT INTO login_failures (ip, at) VALUES (?, ?)').bind(ip, now()).run();
     throw new HttpError(code && Number(expires) > now()
-      ? 'That setup code isn’t right. Copy it exactly from the Logs.'
-      : 'That setup code has expired. Click “Show a setup code” again.', 401);
+      ? 'That ' + label + ' isn’t right. Copy it exactly from the logs.'
+      : 'That ' + label + ' has expired or hasn’t been made yet. Click “' + button + '” first.', 401);
   }
   checkNewPassword(body.password);
+  await db.prepare('DELETE FROM settings WHERE key = ?').bind(key).run();
+}
+
+async function logSetupCode(env) {
+  if (!(await setupNeeded(env))) throw new HttpError('This site is already set up.', 409);
+  return logCode(env, 'setup');
+}
+
+// First run: the code sets the first editor password and signs them in.
+async function completeSetup(request, env) {
+  if (!(await setupNeeded(env))) throw new HttpError('This site is already set up. Sign in instead.', 409);
+  const body = await request.json().catch(() => ({}));
+  await redeemCode(request, env, 'setup', body);
+  await setSetting(env.DB, 'password_editor', await hashPassword(body.password));
+  return startSession(request, env, 'editor', null);
+}
+
+async function logResetCode(env) {
+  if (await setupNeeded(env)) throw new HttpError('This site isn’t set up yet: use “Set up this site” instead.', 409);
+  return logCode(env, 'reset');
+}
+
+// Forgotten editor password: the code sets a new one, signs out everyone using
+// the old one, and signs this person in.
+async function completeReset(request, env) {
+  if (await setupNeeded(env)) throw new HttpError('This site isn’t set up yet: use “Set up this site” instead.', 409);
+  const body = await request.json().catch(() => ({}));
+  await redeemCode(request, env, 'reset', body);
+  const db = env.DB;
   await setSetting(db, 'password_editor', await hashPassword(body.password));
-  await db.prepare("DELETE FROM settings WHERE key = 'setup_code'").run();
+  await db.prepare("DELETE FROM sessions WHERE role = 'editor'").run();
   return startSession(request, env, 'editor', null);
 }
 
@@ -492,6 +530,8 @@ async function handleApi(request, env, url) {
   if (path === '/api/login' && method === 'POST') return login(request, env);
   if (path === '/api/setup/code' && method === 'POST') return json(await logSetupCode(env));
   if (path === '/api/setup' && method === 'POST') return completeSetup(request, env);
+  if (path === '/api/reset/code' && method === 'POST') return json(await logResetCode(env));
+  if (path === '/api/reset' && method === 'POST') return completeReset(request, env);
   if (path === '/api/logout' && method === 'POST') return logout(request, env);
 
   // The Statto export: the editor replaces it; taggers read it to build the tagging pages.

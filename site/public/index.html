@@ -27,12 +27,26 @@
     <button class="primary" type="submit">Set up the site</button>
   </form>
 
+  <form class="card" id="f-reset" onsubmit="return false" hidden style="margin-top:20px">
+    <h3>Reset the editor password</h3>
+    <p>Choose a new Set up editor password. To prove it’s you, the site puts a one-time reset code in its logs, which only your Cloudflare account can see. Everyone signed in with the old password is signed out.</p>
+    <ol style="margin:0 0 4px;padding-left:20px">
+      <li><button type="button" id="reset-code">Show a reset code</button></li>
+      <li>In Cloudflare, open <strong>Workers &amp; Pages</strong> → this site → <strong>Observability</strong> (or <strong>Logs</strong>), and find the line “Statto team site password reset code”. It can take a minute to appear; refresh the logs if it isn’t there yet.</li>
+      <li>Enter the code and choose the new password (at least 10 characters).</li>
+    </ol>
+    <label>Reset code <input type="text" name="code" autocomplete="off" placeholder="ABCD-EFGH" maxlength="12"></label>
+    <label>New editor password <input type="password" name="password" autocomplete="new-password"></label>
+    <div class="row"><button class="primary" type="submit">Reset the password</button> <a href="/" id="reset-cancel">Back to sign in</a></div>
+  </form>
+
   <div class="grid" style="margin-top:20px">
     <form class="card" id="f-editor" onsubmit="return false">
       <h3>Set up editor</h3>
       <p class="dim">Upload Statto exports, set up the season, publish the Team Report.</p>
       <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">Sign in</button>
+      <a href="#reset" id="forgot" class="dim">Forgot the password?</a>
     </form>
 
     <form class="card" id="f-tagger" onsubmit="return false">
@@ -66,23 +80,24 @@
     document.getElementById('team').textContent = status.teamName;
     document.title = status.teamName;
   }
-  if (status.setupNeeded) {
-    // First run: claim the site with a setup code from its logs.
-    const setup = document.getElementById('f-setup');
-    setup.hidden = false;
+  // A card that proves "I run this site" with a one-time code from the
+  // site's logs: first-run setup, or a forgotten editor password.
+  function showCodeCard(kind) {
+    const form = document.getElementById('f-' + kind);
+    form.hidden = false;
     document.querySelector('.grid').hidden = true;
-    document.getElementById('setup-code').addEventListener('click', async (ev) => {
+    document.getElementById(kind + '-code').addEventListener('click', async (ev) => {
       try {
-        await Site.api('POST', '/api/setup/code', '');
+        await Site.api('POST', '/api/' + kind + '/code', '');
         ev.target.textContent = 'Code sent to the logs ✓ (click again to resend)';
       } catch (e) { Site.flash(e.message, true); }
     });
-    setup.addEventListener('submit', async () => {
-      const field = n => setup.querySelector('[name=' + n + ']');
-      const btn = setup.querySelector('button[type=submit]');
+    form.addEventListener('submit', async () => {
+      const field = n => form.querySelector('[name=' + n + ']');
+      const btn = form.querySelector('button[type=submit]');
       btn.disabled = true;
       try {
-        await Site.api('POST', '/api/setup', JSON.stringify({ code: field('code').value, password: field('password').value }));
+        await Site.api('POST', '/api/' + kind, JSON.stringify({ code: field('code').value, password: field('password').value }));
         location.href = '/editor';
       } catch (e) {
         Site.flash(e.message, true);
@@ -90,6 +105,13 @@
       }
     });
   }
+  if (status.setupNeeded) showCodeCard('setup');
+  else if (location.hash === '#reset') showCodeCard('reset');
+  document.getElementById('forgot').addEventListener('click', (e) => {
+    e.preventDefault();
+    history.replaceState(null, '', '#reset');
+    showCodeCard('reset');
+  });
   if (status.session) {
     const s = status.session;
     const box = document.getElementById('signed-in');

@@ -87,6 +87,10 @@ Worker deploys from GitHub, so the setup code is the reliable way.
   report at `<your site>/view`. It's a snapshot: publish again after changes.
 - **Passwords:** change any of them in **Site settings**. Changing one signs
   out everyone using it, which is how you remove someone's access.
+- **Forgot the editor password?** Click **Forgot the password?** under the Set
+  up editor sign-in. Like the first sign-in, it puts a one-time code in your
+  site's logs (Cloudflare → your site → **Observability**); enter it and choose
+  a new password. Anyone still signed in with the old one is signed out.
 - **Backups:** **Site settings → Download a backup** saves everything (export,
   set-up, lines, tags, the Team Report) as one file. Keep one now and then;
   **Restore backup** puts it back.

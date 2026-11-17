@@ -80,14 +80,14 @@ class LocalSite:
         self.stop()
         raise RuntimeError("The local team site didn't start; see wrangler's log.")
 
-    def setup_code(self):
-        """The newest setup code the site wrote to its logs."""
+    def setup_code(self, label="setup code"):
+        """The newest code of this kind the site wrote to its logs."""
         import re
         def find():
             with open(self.log_path) as f:
-                codes = re.findall(r"setup code: ([A-Z0-9]{4}-[A-Z0-9]{4})", f.read())
+                codes = re.findall(re.escape(label) + r": ([A-Z0-9]{4}-[A-Z0-9]{4})", f.read())
             return codes[-1] if codes else None
-        return wait_until(find, message="a setup code in the logs")
+        return wait_until(find, message="a %s in the logs" % label)
 
     def stop(self):
         if self.proc.poll() is None:
@@ -278,6 +278,65 @@ class FirstRunSetupTests(unittest.TestCase):
         finally:
             pw.stop()
             site.stop()
+
+
+class PasswordResetTests(unittest.TestCase):
+    """A forgotten editor password is reset with a one-time code from the logs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.site = LocalSite()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.site.stop()
+
+    def test_1_reset_rules(self):
+        base = self.site.base
+        old_session = Api(base).login("editor", EDITOR_PW)
+        anon = Api(base)
+        # Setup is closed on a site that has an editor password; reset is open.
+        self.assertEqual(anon.call("POST", "/api/setup/code", b"")[0], 409)
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": "AAAA-AAAA", "password": "x" * 12})[0], 401,
+                         "no reset code issued yet")
+        self.assertEqual(anon.call("POST", "/api/reset/code", b"")[0], 200)
+        code = self.site.setup_code("password reset code")
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": "WRNG-CODE", "password": "x" * 12})[0], 401)
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": code, "password": "short"})[0], 400)
+        status, body = anon.call("POST", "/api/reset", {"code": code, "password": "the-reset-password"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(anon.call("GET", "/api/settings")[0], 200, "signed in by the reset")
+        # Everyone on the old password is signed out; the old password no longer works.
+        self.assertEqual(old_session.call("GET", "/api/settings")[0], 401)
+        self.assertEqual(Api(base).call("POST", "/api/login", {"role": "editor", "password": EDITOR_PW})[0], 401)
+        Api(base).login("editor", "the-reset-password")
+        # The code is used up.
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": code, "password": "another-password"})[0], 401)
+
+    def test_2_reset_in_the_browser(self):
+        pw = sync_playwright().start()
+        try:
+            browser = pw.chromium.launch()
+            page = browser.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(self.site.base + "/")
+            page.wait_for_selector("body[data-ready]")
+            self.assertFalse(page.is_visible("#f-setup"))
+            page.click("#forgot")
+            self.assertTrue(page.is_visible("#f-reset"))
+            self.assertFalse(page.is_visible("#f-editor"))
+            page.click("#reset-code")
+            page.wait_for_selector("text=Code sent to the logs")
+            page.fill("#f-reset [name=code]", self.site.setup_code("password reset code"))
+            page.fill("#f-reset [name=password]", "browser-reset-pass")
+            page.click("#f-reset button[type=submit]")
+            page.wait_for_url("**/editor")
+            self.assertEqual(errors, [])
+            browser.close()
+        finally:
+            pw.stop()
+        Api(self.site.base).login("editor", "browser-reset-pass")
 
 
 class RateLimitTests(unittest.TestCase):
