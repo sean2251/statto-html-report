@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upload new team</title>
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<main class="narrow">
+  <h1 style="margin:8px 0 4px">Upload new team</h1>
+  <p class="dim">Each Statto export you upload becomes its own team — another season, or another team altogether — with its own address, set-up, tagging, Team Report and passwords. Nothing is shared between teams. Switch between them from the team name at the top left.</p>
+  <div id="flash" hidden></div>
+  <form class="card" id="f-new" onsubmit="return false">
+    <label>Statto export <span class="dim">The <code>.statto</code> file you exported from Statto</span>
+      <input type="file" name="statto" accept=".statto" required></label>
+    <label>Team name <span class="dim">How it shows in the team list, e.g. “RAMP 2026”. It also makes the team’s address.</span>
+      <input type="text" name="name" maxlength="80" required></label>
+    <label>Bring in existing work (optional)
+      <span class="dim">Coming from the Mac app? Choose the season folder’s <code>season_data.json</code>. From a Set up editor file? Use its Set up → “Export all custom data” file. Use the same <code>.statto</code> it was built from; add newer exports afterwards.</span>
+      <input type="file" name="data" accept=".json,application/json"></label>
+    <div class="row"><button class="primary" type="submit">Create the team</button></div>
+  </form>
+</main>
+<script src="/site.js"></script>
+<script src="/assets/stats.js"></script>
+<script>
+(async function () {
+  const status = await Site.requireRole('editor');
+  Site.renderBar(status, null);
+  const form = document.getElementById('f-new');
+  const field = n => form.querySelector('[name=' + n + ']');
+  let parsed = null; // { buf, report, teamName } of the chosen export
+
+  field('statto').addEventListener('change', async () => {
+    parsed = null;
+    const file = field('statto').files[0];
+    if (!file) return;
+    try {
+      const buf = await Site.readFile(file);
+      const { report, teamName } = await StattoStats.reportFromStatto(buf);
+      parsed = { buf, report, teamName };
+      // Suggest "<team> <year of its latest game>", unless they've typed a name.
+      if (!field('name').value.trim() || field('name').dataset.suggested === '1') {
+        const years = report.games.map(g => (String(g.date || '').match(/\d{4}/) || [])[0]).filter(Boolean).sort();
+        field('name').value = teamName + (years.length ? ' ' + years[years.length - 1] : '');
+        field('name').dataset.suggested = '1';
+      }
+    } catch (e) { Site.flash('That file isn’t a Statto export this site can read: ' + e.message, true); }
+  });
+  field('name').addEventListener('input', () => { field('name').dataset.suggested = '0'; });
+
+  form.addEventListener('submit', async () => {
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      if (!parsed) throw new Error('Choose the team’s Statto export first.');
+      const name = field('name').value.trim();
+      if (!name) throw new Error('Give the team a name.');
+      let bundle = null;
+      const dataFile = field('data').files[0];
+      if (dataFile) {
+        bundle = JSON.parse(await Site.readFile(dataFile, 'text'));
+        if (!bundle || bundle.statto !== 'custom-data') throw new Error('The existing-work file isn’t a season data or “custom data” file.');
+      }
+      const team = await Site.siteApi('POST', '/api/teams?name=' + encodeURIComponent(name) + '&games=' + parsed.report.games.length,
+        parsed.buf, 'application/octet-stream');
+      const base = '/t/' + team.slug;
+      if (bundle) {
+        await Site.siteApi('PUT', base + '/api/season?force=1', JSON.stringify(bundle));
+        await Site.uploadAnnotations(parsed.report, bundle.annotations, base);
+      }
+      location.href = base + '/';
+    } catch (e) {
+      Site.flash(e.message, true);
+      btn.disabled = false;
+    }
+  });
+  document.body.dataset.ready = '1';
+})();
+</script>
+</body>
+</html>

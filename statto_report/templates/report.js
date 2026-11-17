@@ -50,6 +50,9 @@ const SITE = !!(APP && APP.server);
 // name, roleLabel, links: [[key, href, label]], current }. Set on pages the
 // team site builds -- Season setup, tagging pages, the Team Report it shows.
 const SITE_BAR = (typeof window !== 'undefined' && window.__STATTO_SITE_BAR__ && typeof window.__STATTO_SITE_BAR__ === 'object') ? window.__STATTO_SITE_BAR__ : null;
+// On a team site every team has its own address, /t/<slug>/, and its API
+// under it; this page's team prefix ('' anywhere else).
+const SITE_BASE = (typeof location !== 'undefined' && (location.pathname.match(/^\/t\/[a-z0-9-]+/) || [''])[0]) || '';
 
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player', full: 'Player', numeric: false },
@@ -248,28 +251,50 @@ function buildNavMenu(nav) {
 // the site's other pages (site/web/site.js renderBar; styles .site-bar).
 function buildSiteBar() {
   const cfg = SITE_BAR;
+  const home = cfg.home || (SITE_BASE + '/');
+  const text = t => document.createTextNode(t);
+  // A dropdown: <details> with a menu; closes on any click outside.
+  const dropdown = (cls, summary, title, menu) => {
+    const d = el('details', { class: cls }, [el('summary', { title }, summary), el('div', { class: 'site-menu' }, menu)]);
+    document.addEventListener('click', e => { if (!d.contains(e.target)) d.open = false; });
+    return d;
+  };
   const links = (cfg.links || []).map(([key, href, label]) =>
     el('a', Object.assign({ href, class: 'site-link' + (key === cfg.current ? ' active' : '') }, key === cfg.current ? { 'aria-current': 'page' } : {}),
-      [document.createTextNode(label)]));
+      [text(label)]));
   let account;
   if (cfg.role) {
     const who = cfg.name === cfg.roleLabel ? cfg.roleLabel : cfg.name + ' · ' + cfg.roleLabel;
-    const signOut = el('button', { type: 'button', class: 'pill-btn' }, [document.createTextNode('Sign out')]);
+    const signOut = el('button', { type: 'button', class: 'pill-btn' }, [text('Sign out')]);
     signOut.addEventListener('click', () => {
-      fetch('/api/logout', { method: 'POST' }).catch(() => {}).then(() => { location.href = '/'; });
+      fetch(SITE_BASE + '/api/logout', { method: 'POST' }).catch(() => {}).then(() => { location.href = home; });
     });
-    account = el('details', { class: 'site-account' }, [
-      el('summary', { title: 'Signed in as ' + who }, [document.createTextNode(cfg.name)]
-        .concat(cfg.name === cfg.roleLabel ? [] : [el('span', { class: 'role' }, [document.createTextNode('· ' + cfg.roleLabel)])])
-        .concat([el('span', { class: 'caret', 'aria-hidden': 'true' }, [document.createTextNode('▾')])])),
-      el('div', { class: 'site-menu' }, [el('div', { class: 'site-menu-who' }, [document.createTextNode('Signed in as ' + who)]), signOut]),
-    ]);
-    document.addEventListener('click', e => { if (!account.contains(e.target)) account.open = false; });
+    const menu = [el('div', { class: 'site-menu-who' }, [text('Signed in as ' + who)])];
+    if (cfg.others && cfg.others.length) {
+      menu.push(el('div', { class: 'site-menu-who' }, [text('Also signed in to:')]),
+        el('div', { class: 'site-menu-list' }, cfg.others.map(t => el('a', { href: t.href, class: 'site-menu-item' }, [text(t.name)]))));
+    }
+    menu.push(signOut);
+    account = dropdown('site-account', [text(cfg.name)]
+      .concat(cfg.name === cfg.roleLabel ? [] : [el('span', { class: 'role' }, [text('· ' + cfg.roleLabel)])])
+      .concat([el('span', { class: 'caret', 'aria-hidden': 'true' }, [text('▾')])]), 'Signed in as ' + who, menu);
   } else {
-    account = el('a', { href: '/', class: 'site-link' }, [document.createTextNode('Sign in')]);
+    account = el('a', { href: home, class: 'site-link' }, [text('Sign in')]);
+  }
+  let brand;
+  if (cfg.teams) {
+    // The admin's team switcher.
+    brand = dropdown('site-teams', [el('span', { class: 'site-brand' }, [text(cfg.team || REPORT.teamName)]),
+      el('span', { class: 'caret', 'aria-hidden': 'true' }, [text('▾')])], 'Switch team', [
+      el('div', { class: 'site-menu-list' }, cfg.teams.map(t => el('a', Object.assign({ href: t.href, class: 'site-menu-item' + (t.current ? ' current' : '') },
+        t.current ? { 'aria-current': 'true' } : {}), [text((t.current ? '✓ ' : '') + t.name)]))),
+      el('a', { href: cfg.newTeam || '/new', class: 'pill-btn site-new-team' }, [text('+ Upload new team')]),
+    ]);
+  } else {
+    brand = el('a', { href: home, class: 'site-brand' }, [text(cfg.team || REPORT.teamName)]);
   }
   const bar = el('header', { class: 'site-bar' }, [
-    el('a', { href: '/', class: 'site-brand' }, [document.createTextNode(cfg.team || REPORT.teamName)]),
+    brand,
     el('nav', { class: 'site-links', 'aria-label': 'Site' }, links),
     account,
   ]);
@@ -4721,7 +4746,7 @@ function appSaveOnce(opts) {
   const body = JSON.stringify(bundle);
   const q = '?rev=' + appRevision + (opts.force ? '&force=1' : '') + (opts.backupReason ? '&import=1' : '');
   const req = SITE
-    ? fetch('/api/season' + q, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+    ? fetch(SITE_BASE + '/api/season' + q, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
     : fetch(APP.api + '/data' + q, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   return req
     .then(r => r.json().catch(() => ({})).then(j => ({ r, j })))
@@ -4918,7 +4943,7 @@ function syncPushOnce() {
   syncSaving = true;
   syncShowStatus();
   const batch = changes.slice(0, 400);
-  return fetch('/api/tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: batch }) })
+  return fetch(SITE_BASE + '/api/tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ changes: batch }) })
     .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }))
     .then(() => {
       batch.forEach(c => {
@@ -4945,7 +4970,7 @@ let syncPolling = false;
 function syncPoll() {
   if (syncPolling || syncSaving || !syncShadow) return;
   syncPolling = true;
-  fetch('/api/tags?since=' + syncSince, { cache: 'no-store' })
+  fetch(SITE_BASE + '/api/tags?since=' + syncSince, { cache: 'no-store' })
     .then(r => r.ok ? r.json() : null)
     .then(j => {
       if (!j) return;
@@ -4982,13 +5007,13 @@ function syncShowStatus() {
 }
 
 // Publishing on a team site: the Team Report goes to the server, and the team
-// opens it at /view.html.
+// opens it at <team address>/view.
 function sitePublishReport() {
   const html = teamReportHtml();
-  fetch('/api/report', { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: html })
+  fetch(SITE_BASE + '/api/report', { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: html })
     .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }))
     .then(() => {
-      const link = location.origin + '/view';
+      const link = location.origin + SITE_BASE + '/view';
       const box = el('input', { type: 'text', readonly: 'readonly', value: link, class: 'setup-video-input', 'aria-label': 'Team Report link' }, []);
       openDialog('Team Report published', [
         el('p', {}, [document.createTextNode('Your team can open it now at:')]),
@@ -5033,7 +5058,7 @@ function siteReplaceStatto(file) {
         const missing = REPORT.games.filter(g => !now.has(g.uuid)).map(g => 'vs ' + g.opponent);
         if (missing.length && !confirm(missing.length + ' game(s) in the current export aren’t in this one (' + missing.join(', ') + '). Their video links, tags and lines are kept, but won’t show until an export includes them again. Use this export?')) return null;
         return Promise.all([appSaveNow(), SYNC ? syncPushNow() : null]).then(() =>
-          fetch('/api/statto?team=' + encodeURIComponent(teamName) + '&games=' + report.games.length, { method: 'PUT', body: buf })
+          fetch(SITE_BASE + '/api/statto?games=' + report.games.length, { method: 'PUT', body: buf })
             .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); }))
             .then(() => {
               alert('Updated: ' + report.games.length + ' games.' + (added.length ? ' New: ' + added.join(', ') + '.' : ' No new games.'));
@@ -5234,14 +5259,14 @@ function openSiteAssignDialog(gameIndex) {
   const note = el('p', { class: 'app-dialog-note' }, []);
   const body = [];
   if (!hasVideo) body.push(el('p', { class: 'app-dialog-note' }, [document.createTextNode('⚠ This game has no YouTube link yet. Add it in the Games table so taggers get the video.')]));
-  body.push(el('p', {}, [document.createTextNode('Helpers sign in at ' + location.origin + ' with the tagger password, then pick a game in the tagging hub. Optionally, put someone’s name on this one:')]));
+  body.push(el('p', {}, [document.createTextNode('Helpers sign in at ' + location.origin + SITE_BASE + '/ with the tagger password, then pick a game in the tagging hub. Optionally, put someone’s name on this one:')]));
   body.push(name, note);
   openDialog('Tagging vs ' + g.opponent, body, [
-    { label: 'Open tagging hub', onClick: () => { window.open('/tag', '_blank', 'noopener'); return false; } },
+    { label: 'Open tagging hub', onClick: () => { window.open(SITE_BASE + '/tag', '_blank', 'noopener'); return false; } },
     { label: 'Assign', primary: true, onClick: () => {
       const who = name.value.trim();
       if (!who) { note.textContent = 'Enter a name first.'; return false; }
-      fetch('/api/claims', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: g.uuid, action: 'claim', name: who }) })
+      fetch(SITE_BASE + '/api/claims', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game: g.uuid, action: 'claim', name: who }) })
         .then(r => { note.textContent = r.ok ? 'Assigned to ' + who + '.' : 'Couldn’t assign it.'; });
       return false;
     } },

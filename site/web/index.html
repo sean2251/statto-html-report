@@ -12,13 +12,14 @@
 <main id="home" hidden>
   <h1 class="team-name" style="margin:8px 0 4px">Team site</h1>
   <p class="dim" id="home-who"></p>
+  <div id="home-notes"></div>
   <div id="home-cards" class="home-cards" style="margin-top:20px"></div>
 </main>
 
 <!-- Signed out: sign in (or set up a brand-new site). -->
 <main id="signin" hidden>
   <h1 class="team-name" style="margin:8px 0 4px">Team site</h1>
-  <p class="dim">Season stats, film tagging and the Team Report.</p>
+  <p class="dim" id="signin-blurb">Season stats, film tagging and the Team Report.</p>
   <div id="flash" hidden></div>
   <div id="need-role" class="msg warn" hidden></div>
 
@@ -57,7 +58,7 @@
       <a href="#reset" id="forgot" class="dim">Forgot the password?</a>
     </form>
 
-    <form class="card" id="f-tagger" onsubmit="return false">
+    <form class="card team-only" id="f-tagger" onsubmit="return false">
       <h3>Video tagger</h3>
       <p class="dim">Tag games’ film. Your tags save as you go.</p>
       <label>Your name <input type="text" name="name" autocomplete="name" required maxlength="60"></label>
@@ -65,7 +66,7 @@
       <button class="primary" type="submit">Sign in</button>
     </form>
 
-    <form class="card" id="f-viewer" onsubmit="return false">
+    <form class="card team-only" id="f-viewer" onsubmit="return false">
       <h3>Team Report</h3>
       <p class="dim">Every stat for the season, on any device.</p>
       <label id="viewer-pw">Password <input type="password" name="password" autocomplete="current-password"></label>
@@ -76,14 +77,19 @@
 <script src="/site.js"></script>
 <script>
 (async function () {
+  // The same page serves a team's address (/t/<slug>/: that team's sign-in and
+  // home page) and the site's own (/: only while there are no teams yet --
+  // otherwise the server sends / to the main team).
+  const BASE = Site.base;
   const params = new URLSearchParams(location.search);
   const next = params.get('next');
   const wantRole = params.get('role');
   // Where each login lands: the admin on this home page, taggers in the hub,
-  // viewers in the Team Report.
-  const DEST = { editor: '/', tagger: '/tag', viewer: '/view' };
+  // viewers in the Team Report. (On the site's own page, the admin goes on to
+  // upload the first team.)
+  const DEST = { editor: BASE ? BASE + '/' : '/new', tagger: BASE + '/tag', viewer: BASE + '/view' };
   const ALLOWED = { editor: ['editor'], tagger: ['editor', 'tagger'], viewer: ['editor', 'tagger', 'viewer'] };
-  const safeNext = next && /^\/[a-z]+(\?[^\s]*)?$/.test(next) ? next : null;
+  const safeNext = next && /^(\/t\/[a-z0-9-]+)?\/[a-z]*(\?[^\s]*)?$/.test(next) ? next : null;
   let status;
   try { status = await Site.api('GET', '/api/status'); }
   catch (e) {
@@ -96,9 +102,18 @@
   document.querySelectorAll('.team-name').forEach(h => { h.textContent = team; });
   const session = status.session;
 
+  if (!BASE) {
+    // The site's own page: there are no teams yet (or someone opened an old
+    // link before the first one). The admin signs in here and uploads one.
+    if (session) { location.replace(safeNext || '/new'); return; } // (only the admin signs in here)
+    if (status.hasTeams) { location.replace('/'); return; } // the server sends / to the main team
+    document.querySelectorAll('.team-only').forEach(f => { f.hidden = true; });
+    if (!status.setupNeeded) document.getElementById('signin-blurb').textContent = 'No teams yet. Sign in as the admin to upload your first Statto export.';
+  }
+
   // Signed in, and not sent here for a page this login can't open: home page.
   const sentForOtherRole = session && wantRole && !ALLOWED[wantRole].includes(session.role);
-  if (session && !sentForOtherRole) {
+  if (BASE && session && !sentForOtherRole) {
     Site.renderBar(status, 'home');
     showHome(session, status.season || {});
     document.body.dataset.ready = '1';
@@ -107,22 +122,23 @@
 
   // ---- signed out (or signed in as the wrong login for where they were going) ----
   document.getElementById('signin').hidden = false;
-  if (session) {
+  if (session && BASE) {
     Site.renderBar(status, null);
     const box = document.getElementById('need-role');
     box.hidden = false;
-    box.textContent = 'That page needs the ' + Site.ROLE_LABEL[wantRole] + ' login. Sign in with it below (this signs you out of ' + Site.ROLE_LABEL[session.role] + ').';
+    box.textContent = 'That page needs the ' + Site.ROLE_LABEL[wantRole] + ' login. Sign in with it below.';
   }
 
   // A card that proves "I run this site" with a one-time code from the
-  // site's logs: first-run setup, or a forgotten admin password.
+  // site's logs: first-run setup, or a forgotten admin password. (Both are
+  // the site's, not a team's: there's one admin password.)
   function showCodeCard(kind) {
     const form = document.getElementById('f-' + kind);
     form.hidden = false;
     document.getElementById('signin-cards').hidden = true;
     document.getElementById(kind + '-code').addEventListener('click', async (ev) => {
       try {
-        await Site.api('POST', '/api/' + kind + '/code', '');
+        await Site.siteApi('POST', '/api/' + kind + '/code', '');
         ev.target.textContent = 'Code sent to the logs ✓ (click again to resend)';
       } catch (e) { Site.flash(e.message, true); }
     });
@@ -131,9 +147,9 @@
       const btn = form.querySelector('button[type=submit]');
       btn.disabled = true;
       try {
-        await Site.api('POST', '/api/' + kind, JSON.stringify({ code: field('code').value, password: field('password').value }));
-        // A new site goes straight to uploading its first export.
-        location.href = kind === 'setup' ? '/editor' : '/';
+        await Site.siteApi('POST', '/api/' + kind, JSON.stringify({ code: field('code').value, password: field('password').value }));
+        // A new site goes straight to uploading its first team.
+        location.href = kind === 'setup' ? '/new' : BASE + '/';
       } catch (e) {
         Site.flash(e.message, true);
         btn.disabled = false;
@@ -142,6 +158,7 @@
   }
   if (status.setupNeeded) showCodeCard('setup');
   else if (location.hash === '#reset') showCodeCard('reset');
+  document.getElementById('reset-cancel').setAttribute('href', BASE + '/');
   document.getElementById('forgot').addEventListener('click', (e) => {
     e.preventDefault();
     history.replaceState(null, '', '#reset');
@@ -185,8 +202,14 @@
     document.getElementById('home').hidden = false;
     document.getElementById('home-who').textContent = 'Signed in as ' +
       (s.name ? s.name + ' (' + Site.ROLE_LABEL[s.role] + ')' : Site.ROLE_LABEL[s.role]) + '.';
+    if (s.role === 'editor' && (!status.taggerReady || !status.viewerReady)) {
+      const missing = [!status.taggerReady && 'video tagger', !status.viewerReady && 'Team Report'].filter(Boolean).join(' and ');
+      document.getElementById('home-notes').append(Site.el('div', { class: 'msg warn', style: 'margin-top:16px' }, [
+        'This team has no ' + missing + ' password yet, so nobody else can sign in to it. Set ',
+        missing.includes(' and ') ? 'them' : 'it', ' in ', Site.el('a', { href: BASE + '/settings' }, 'Site settings'), '.']));
+    }
     const date = t => new Date(t * 1000).toLocaleDateString(undefined, { dateStyle: 'medium' });
-    const card = (href, title, stat, blurb) => Site.el('a', { class: 'card home-card', href }, [
+    const card = (href, title, stat, blurb) => Site.el('a', { class: 'card home-card', href: BASE + href }, [
       Site.el('h3', {}, title), Site.el('div', { class: 'stat' }, stat), Site.el('p', { class: 'dim' }, blurb)]);
     const cards = [];
     if (s.role === 'editor') {
@@ -205,8 +228,8 @@
       season.reportPublishedAt ? 'Published ' + date(season.reportPublishedAt) : 'Not published yet',
       s.role === 'editor' ? 'What your team sees. Publish a new one from Season setup.' : 'Every stat for the season, on any device.'));
     if (s.role === 'editor') {
-      cards.push(card('/settings', 'Site settings', 'Passwords and backups',
-        'Change the three passwords, download or restore a backup.'));
+      cards.push(card('/settings', 'Site settings', 'Passwords, backups and teams',
+        'This team’s passwords and backups; the admin password and every team.'));
     }
     document.getElementById('home-cards').append(...cards);
   }

@@ -12,39 +12,57 @@
   <h1 style="margin:8px 0 4px">Site settings</h1>
   <div id="flash" hidden></div>
 
-  <h2>Team</h2>
+  <h2>This team</h2>
   <form class="card" id="f-team" onsubmit="return false">
-    <label>Team name <span class="dim">Shown on the sign-in page.</span><input type="text" name="teamName" maxlength="80"></label>
+    <label>Team name <span class="dim">Shown on this team’s pages. Its address stays <code id="team-address"></code>.</span><input type="text" name="teamName" maxlength="80"></label>
     <div class="row"><button class="primary" type="submit">Save</button></div>
   </form>
 
-  <h2>Passwords</h2>
-  <p class="dim">One password per kind of login. Share each only with the people who need it. Changing a password signs out everyone using it. Use at least 10 characters; a few random words is easy to share and hard to guess.</p>
+  <h2>This team’s passwords</h2>
+  <p class="dim">Each team has its own passwords: these only open this team. Share each only with the people who need it. Changing a password signs out everyone using it. Use at least 10 characters; a few random words is easy to share and hard to guess.</p>
   <form class="card" id="f-passwords" onsubmit="return false">
     <label>Video tagger password <span class="dim" id="tagger-state"></span><input type="password" name="tagger" autocomplete="new-password"></label>
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="viewerOpen"> Anyone with the link can open the Team Report (no viewer password)</label>
     <label id="viewer-row">Team Report (viewer) password <span class="dim" id="viewer-state"></span><input type="password" name="viewer" autocomplete="new-password"></label>
-    <label>Admin password <span class="dim">Leave blank to keep the current one.</span><input type="password" name="editor" autocomplete="new-password"></label>
     <div class="row"><button class="primary" type="submit">Save passwords</button>
-      <button type="button" id="suggest">Suggest a password</button> <span class="dim" id="suggestion"></span></div>
+      <button type="button" class="suggest">Suggest a password</button> <span class="dim suggestion"></span></div>
   </form>
 
-  <h2>Backups</h2>
+  <h2>This team’s backups</h2>
   <div class="card">
-    <p>Download everything this site holds — the Statto export, set-up, lines, every tag and the published Team Report — as one file. Keep a copy now and then.</p>
-    <div class="row"><a class="btn primary" href="/api/backup" download="team-site-backup.json">Download a backup</a></div>
-    <p class="dim" style="margin-top:8px">Restoring a backup replaces the export, set-up and Team Report with the backup’s, and adds its tags.</p>
+    <p>Download everything this team has on the site — the Statto export, set-up, lines, every tag and the published Team Report — as one file. Keep a copy now and then.</p>
+    <div class="row"><a class="btn primary" id="backup" href="#" download>Download a backup</a></div>
+    <p class="dim" style="margin-top:8px">Restoring a backup replaces this team’s export, set-up and Team Report with the backup’s, and adds its tags.</p>
     <div class="row"><input type="file" id="restore-file" accept=".json,application/json"><button type="button" id="restore">Restore backup</button></div>
   </div>
+
+  <h2>All teams</h2>
+  <p class="dim">Every team on this site, each completely separate. Switch between them from the team name at the top left. The site’s plain address opens the <strong>main</strong> team.</p>
+  <div class="card">
+    <ul class="games" id="teams"></ul>
+    <div class="row"><a class="btn" href="/new">+ Upload new team</a></div>
+  </div>
+
+  <h2>Admin password</h2>
+  <form class="card" id="f-admin" onsubmit="return false">
+    <p class="dim">One admin password for the whole site: it opens every team. Changing it signs out everyone using it, you included.</p>
+    <label>New admin password <input type="password" name="password" autocomplete="new-password"></label>
+    <div class="row"><button class="primary" type="submit">Change the admin password</button>
+      <button type="button" class="suggest">Suggest a password</button> <span class="dim suggestion"></span></div>
+  </form>
 </main>
 <script src="/site.js"></script>
 <script>
 (async function () {
-  const status = await Site.requireRole('editor', '/settings');
+  const status = await Site.requireRole('editor');
   Site.renderBar(status, 'settings');
   const field = (form, n) => form.querySelector('[name=' + n + ']');
   const team = document.getElementById('f-team');
   const pw = document.getElementById('f-passwords');
+  document.getElementById('team-address').textContent = location.origin + Site.base + '/';
+  const backup = document.getElementById('backup');
+  backup.href = Site.base + '/api/backup';
+  backup.setAttribute('download', status.team.slug + '-backup.json');
 
   function show(s) {
     field(team, 'teamName').value = s.teamName || '';
@@ -58,33 +76,77 @@
 
   team.addEventListener('submit', async ev => {
     ev.preventDefault();
-    try { show(await Site.api('POST', '/api/settings', JSON.stringify({ teamName: field(team, 'teamName').value }))); Site.flash('Saved.'); }
-    catch (e) { Site.flash(e.message, true); }
+    try {
+      show(await Site.api('POST', '/api/settings', JSON.stringify({ teamName: field(team, 'teamName').value })));
+      Site.flash('Saved.');
+      setTimeout(() => location.reload(), 600); // the new name in the top bar
+    } catch (e) { Site.flash(e.message, true); }
   });
   pw.addEventListener('submit', async ev => {
     ev.preventDefault();
     const passwords = {};
-    for (const r of ['tagger', 'viewer', 'editor']) { const v = field(pw, r).value; if (v) passwords[r] = v; }
+    for (const r of ['tagger', 'viewer']) { const v = field(pw, r).value; if (v) passwords[r] = v; }
     try {
       show(await Site.api('POST', '/api/settings', JSON.stringify({ passwords, viewerOpen: field(pw, 'viewerOpen').checked })));
-      for (const r of ['tagger', 'viewer', 'editor']) field(pw, r).value = '';
-      Site.flash(passwords.editor ? 'Saved. You changed the admin password, so sign in again with the new one.' : 'Saved.');
-      if (passwords.editor) setTimeout(() => location.href = '/?role=editor', 1500);
+      for (const r of ['tagger', 'viewer']) field(pw, r).value = '';
+      Site.flash('Saved.');
+    } catch (e) { Site.flash(e.message, true); }
+  });
+
+  const admin = document.getElementById('f-admin');
+  admin.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    try {
+      await Site.siteApi('POST', '/api/admin/password', JSON.stringify({ password: field(admin, 'password').value }));
+      field(admin, 'password').value = '';
+      Site.flash('Saved. You changed the admin password, so sign in again with the new one.');
+      setTimeout(() => location.href = Site.base + '/?role=editor', 1500);
     } catch (e) { Site.flash(e.message, true); }
   });
 
   const WORDS = ['huck', 'layout', 'stack', 'pull', 'flick', 'hammer', 'zone', 'cup', 'mark', 'stall', 'dump', 'swing', 'break', 'hold', 'upline', 'scoober',
     'river', 'maple', 'comet', 'lantern', 'orbit', 'pepper', 'harbor', 'meadow', 'falcon', 'cobalt', 'ember', 'willow', 'summit', 'ripple', 'thunder', 'velvet'];
-  document.getElementById('suggest').addEventListener('click', () => {
+  document.querySelectorAll('.suggest').forEach(b => b.addEventListener('click', () => {
     const r = crypto.getRandomValues(new Uint32Array(4));
-    document.getElementById('suggestion').textContent = Array.from(r, n => WORDS[n % WORDS.length]).join('-') + '-' + (r[0] % 90 + 10);
-  });
+    b.parentNode.querySelector('.suggestion').textContent = Array.from(r, n => WORDS[n % WORDS.length]).join('-') + '-' + (r[0] % 90 + 10);
+  }));
+
+  // ---- every team ----
+  function showTeams(teams) {
+    const ul = document.getElementById('teams');
+    ul.innerHTML = '';
+    const { el } = Site;
+    for (const t of teams) {
+      const here = t.slug === status.team.slug;
+      const name = el('div', { class: 'name' }, [el('a', { href: '/t/' + t.slug + '/' }, t.name)]);
+      if (t.main) name.append(el('span', { class: 'pill done' }, 'main'));
+      if (here) name.append(el('span', { class: 'pill' }, 'this team'));
+      const meta = el('div', { class: 'meta' }, location.origin + '/t/' + t.slug + '/');
+      const actions = el('div', { class: 'actions' });
+      if (!t.main) actions.append(el('button', { type: 'button', onclick: () => change(t, { action: 'main' }) }, 'Make main'));
+      actions.append(el('button', { type: 'button', onclick: () => {
+        const typed = prompt('Delete ' + t.name + ' and everything in it — its Statto export, set-up, tags, Team Report and passwords? This can’t be undone (download a backup first).\n\nType the team’s name to confirm:');
+        if (typed == null) return;
+        change(t, { action: 'delete', confirm: typed }).then(ok => { if (ok && here) location.href = '/'; });
+      } }, 'Delete…'));
+      ul.append(el('li', { class: 'game' }, [el('div', {}, [name, meta]), actions]));
+    }
+  }
+  async function change(t, body) {
+    try {
+      const r = await Site.siteApi('POST', '/api/teams/' + t.slug, JSON.stringify(body));
+      showTeams(r.teams);
+      Site.flash(body.action === 'delete' ? 'Deleted ' + t.name + '.' : t.name + ' is now the main team.');
+      return true;
+    } catch (e) { Site.flash(e.message, true); return false; }
+  }
+  showTeams(status.teams || []);
 
   document.body.dataset.ready = '1';
   document.getElementById('restore').addEventListener('click', async () => {
     const file = document.getElementById('restore-file').files[0];
     if (!file) { Site.flash('Choose a backup file first.', true); return; }
-    if (!confirm('Restore this backup? It replaces the current export, set-up and Team Report.')) return;
+    if (!confirm('Restore this backup into ' + status.teamName + '? It replaces this team’s export, set-up and Team Report.')) return;
     try {
       const body = await Site.readFile(file, 'text');
       const r = await Site.api('POST', '/api/restore', body);

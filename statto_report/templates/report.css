@@ -1929,8 +1929,24 @@
 }
 .site-menu-who { font-size: 13px; color: var(--chalk-dim); }
 .site-menu .pill-btn { width: 100%; }
+/* The admin's team switcher, in place of the team name. */
+.site-teams { position: relative; margin-right: 6px; }
+.site-teams summary {
+    list-style: none; cursor: pointer; display: flex; gap: 6px; align-items: center;
+    padding: 4px 8px; margin-left: -8px; border-radius: 10px;
+}
+.site-teams summary::-webkit-details-marker { display: none; }
+.site-teams summary:hover { background: rgba(var(--chalk-rgb), 0.08); }
+.site-teams .site-brand { margin: 0; }
+.site-teams .caret { font-size: 11px; color: var(--chalk-dim); }
+.site-teams .site-menu { left: 0; right: auto; min-width: 260px; }
+.site-menu-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
+.site-menu-item { color: var(--chalk); text-decoration: none; padding: 6px 8px; border-radius: 8px; font-size: 14px; }
+.site-menu-item:hover { background: rgba(var(--chalk-rgb), 0.08); }
+.site-menu-item.current { font-weight: 600; }
+.site-new-team { display: block; text-align: center; text-decoration: none; }
 @media (max-width: 560px) {
     .site-bar { padding: 10px 16px; }
-    .site-brand { flex: 1; min-width: 0; }
+    .site-brand, .site-teams { flex: 1; min-width: 0; }
     .site-links { order: 3; flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
 }

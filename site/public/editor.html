@@ -29,7 +29,7 @@
 <script src="/assets/report-template.js"></script>
 <script>
 (async function () {
-  const status = await Site.requireRole('editor', '/editor');
+  const status = await Site.requireRole('editor');
   Site.renderBar(status, 'editor'); // shown while loading and on the first-upload screen
   let loaded;
   try { loaded = await Site.loadReport(); }
@@ -47,14 +47,14 @@
       try {
         const file = form.querySelector('[name=statto]').files[0];
         const buf = await Site.readFile(file);
-        const { report, teamName } = await StattoStats.reportFromStatto(buf);
+        const { report } = await StattoStats.reportFromStatto(buf);
         let bundle = null;
         const dataFile = form.querySelector('[name=data]').files[0];
         if (dataFile) {
           bundle = JSON.parse(await Site.readFile(dataFile, 'text'));
           if (!bundle || bundle.statto !== 'custom-data') throw new Error('The existing-work file isn’t a season data or “custom data” file.');
         }
-        await Site.api('PUT', '/api/statto?team=' + encodeURIComponent(teamName) + '&games=' + report.games.length, buf, 'application/octet-stream');
+        await Site.api('PUT', '/api/statto?games=' + report.games.length, buf, 'application/octet-stream');
         if (bundle) {
           await Site.api('PUT', '/api/season?force=1', JSON.stringify(bundle));
           await Site.uploadAnnotations(report, bundle.annotations);
@@ -77,7 +77,7 @@
   const teamName = status.teamName || loaded.teamName;
   Site.writeReportPage(loaded.report, teamName + ' — Season setup', {
     __STATTO_APP__: {
-      server: true, seasonId: 'site', seasonName: teamName, home: '/',
+      server: true, seasonId: 'site', seasonName: teamName, home: Site.base + '/',
       revision: season.revision, data,
     },
     __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Admin' },
