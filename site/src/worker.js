@@ -29,6 +29,10 @@ const LOGIN_WINDOW_SECS = 15 * 60;
 const MAX_FAILS_PER_IP = 10;
 const MAX_FAILS_GLOBAL = 100;
 const ROLES = ['editor', 'tagger', 'viewer'];
+// What people see for each role. ("editor" is the admin login's internal name:
+// it's stored in sessions and as password_editor, so it stays.)
+const ROLE_LABEL = { editor: 'Admin', tagger: 'Tagger', viewer: 'Viewer' };
+const whoIs = session => session.name || ROLE_LABEL[session.role] || session.role;
 const ACTIVE_SECS = 5 * 60;          // "tagging now" if they saved within this long
 
 const SCHEMA = [
@@ -385,7 +389,7 @@ async function putTags(env, session, changes) {
   if (changes.length > 500) throw new HttpError('Too many changes at once.');
   const db = env.DB;
   const t = now();
-  const by = session.name || session.role;
+  const by = whoIs(session);
   const stmts = [];
   const games = new Set();
   for (const c of changes) {
@@ -435,7 +439,7 @@ async function setClaim(env, session, body) {
   const game = typeof body.game === 'string' ? body.game.slice(0, 100) : '';
   if (!game) throw new HttpError('Which game?');
   const db = env.DB;
-  const by = session.name || session.role;
+  const by = whoIs(session);
   const action = body.action;
   if (action === 'touch') {
     // Opened the game: show them as working on it (doesn't claim it).
@@ -545,7 +549,7 @@ async function handleApi(request, env, url) {
       const s = await requireRole(request, env, 'editor');
       const bytes = await readBody(request);
       if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new HttpError('That file isn’t a Statto export (.statto).');
-      const revision = await putBlob(env.DB, 'statto', bytes, 'application/octet-stream', s.name || s.role, null);
+      const revision = await putBlob(env.DB, 'statto', bytes, 'application/octet-stream', whoIs(s), null);
       const teamName = url.searchParams.get('team');
       if (teamName && !(await getSetting(env.DB, 'team_name'))) await setSetting(env.DB, 'team_name', teamName.slice(0, 80));
       return json({ revision });
@@ -570,7 +574,7 @@ async function handleApi(request, env, url) {
       if (!parsed || parsed.statto !== 'custom-data') throw new HttpError('That isn’t a season data bundle.');
       delete parsed.annotations; // tags live in their own table
       const rev = url.searchParams.get('force') === '1' ? null : url.searchParams.get('rev');
-      const revision = await putBlob(env.DB, 'season', enc.encode(JSON.stringify(parsed)), 'application/json', s.name || s.role, rev);
+      const revision = await putBlob(env.DB, 'season', enc.encode(JSON.stringify(parsed)), 'application/json', whoIs(s), rev);
       return json({ revision });
     }
   }
@@ -602,7 +606,7 @@ async function handleApi(request, env, url) {
     }
     if (method === 'PUT') {
       const s = await requireRole(request, env, 'editor');
-      const revision = await putBlob(env.DB, 'report', await readBody(request), 'text/plain; charset=utf-8', s.name || s.role, null);
+      const revision = await putBlob(env.DB, 'report', await readBody(request), 'text/plain; charset=utf-8', whoIs(s), null);
       return json({ revision, publishedAt: now() });
     }
   }

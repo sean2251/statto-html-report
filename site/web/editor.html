@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Set up editor</title>
+<title>Season setup</title>
 <meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/site.css">
 </head>
@@ -12,7 +12,7 @@
 
 <main class="narrow" id="first-upload" hidden>
   <h1 style="margin:8px 0 4px">Start your season</h1>
-  <p class="dim">Upload your team’s Statto export to get started. You’ll add newer exports from the editor as you stat more games.</p>
+  <p class="dim">Upload your team’s Statto export to get started. You’ll add newer exports from Season setup as you stat more games.</p>
   <div id="flash" hidden></div>
   <form class="card" id="f-upload" onsubmit="return false">
     <label>Statto export <span class="dim">The <code>.statto</code> file you exported from Statto</span>
@@ -70,12 +70,12 @@
   const [season, tags] = await Promise.all([Site.loadSeason(), Site.loadTags()]);
   const data = Object.assign({ statto: 'custom-data', version: 1 }, season.data || {}, { annotations: tags.annotations });
   const teamName = status.teamName || loaded.teamName;
-  Site.writeReportPage(loaded.report, teamName + ' — Set up editor', {
+  Site.writeReportPage(loaded.report, teamName + ' — Season setup', {
     __STATTO_APP__: {
       server: true, seasonId: 'site', seasonName: teamName, home: '/',
       revision: season.revision, data,
     },
-    __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Editor' },
+    __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Admin' },
   });
 })();
 </script>

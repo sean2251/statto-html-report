@@ -32,13 +32,13 @@
 <script>
 (async function () {
   const status = await Site.requireRole('tagger', location.pathname + location.search);
-  const me = (status.session && status.session.name) || 'Editor';
+  const me = (status.session && status.session.name) || 'Admin';
   const isEditor = status.session && status.session.role === 'editor';
   let loaded;
   try { loaded = await Site.loadReport(); }
   catch (e) { document.getElementById('loading').textContent = e.message; return; }
   if (!loaded) {
-    document.getElementById('loading').textContent = 'The editor hasn’t uploaded the season yet. Check back soon.';
+    document.getElementById('loading').textContent = 'The season hasn’t been uploaded yet. Check back soon.';
     return;
   }
   const report = loaded.report;
@@ -64,7 +64,7 @@
   document.getElementById('loading').hidden = true;
   document.getElementById('hub').hidden = false;
   document.getElementById('title').textContent = teamName + ' · Tagging hub';
-  document.getElementById('who').textContent = 'Signed in as ' + me + (isEditor ? ' (editor)' : '');
+  document.getElementById('who').textContent = 'Signed in as ' + me + (isEditor ? ' (admin)' : '');
   document.getElementById('logout').addEventListener('click', e => { e.preventDefault(); Site.logout(); });
   const hideDone = document.getElementById('hide-done');
   try { hideDone.checked = localStorage.getItem('statto-hub-hide-done') === '1'; } catch (e) {}

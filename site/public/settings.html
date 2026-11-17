@@ -10,7 +10,7 @@
 <body>
 <header class="bar">
   <h1>Site settings</h1>
-  <a href="/editor">← Back to the editor</a>
+  <a href="/editor">← Back to season setup</a>
   <a href="#" id="logout">Sign out</a>
 </header>
 <main class="narrow">
@@ -28,7 +28,7 @@
     <label>Video tagger password <span class="dim" id="tagger-state"></span><input type="password" name="tagger" autocomplete="new-password"></label>
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="viewerOpen"> Anyone with the link can open the Team Report (no viewer password)</label>
     <label id="viewer-row">Team Report (viewer) password <span class="dim" id="viewer-state"></span><input type="password" name="viewer" autocomplete="new-password"></label>
-    <label>Set up editor password <span class="dim">Leave blank to keep the current one.</span><input type="password" name="editor" autocomplete="new-password"></label>
+    <label>Admin password <span class="dim">Leave blank to keep the current one.</span><input type="password" name="editor" autocomplete="new-password"></label>
     <div class="row"><button class="primary" type="submit">Save passwords</button>
       <button type="button" id="suggest">Suggest a password</button> <span class="dim" id="suggestion"></span></div>
   </form>
@@ -72,7 +72,7 @@
     try {
       show(await Site.api('POST', '/api/settings', JSON.stringify({ passwords, viewerOpen: field(pw, 'viewerOpen').checked })));
       for (const r of ['tagger', 'viewer', 'editor']) field(pw, r).value = '';
-      Site.flash(passwords.editor ? 'Saved. You changed the editor password, so sign in again with the new one.' : 'Saved.');
+      Site.flash(passwords.editor ? 'Saved. You changed the admin password, so sign in again with the new one.' : 'Saved.');
       if (passwords.editor) setTimeout(() => location.href = '/?role=editor', 1500);
     } catch (e) { Site.flash(e.message, true); }
   });

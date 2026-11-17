@@ -16,34 +16,34 @@
 
   <form class="card" id="f-setup" onsubmit="return false" hidden style="margin-top:20px">
     <h3>Set up this site</h3>
-    <p>This is a new site: choose the Set up editor password. To prove it’s you, the site puts a one-time setup code in its logs, which only your Cloudflare account can see.</p>
+    <p>This is a new site: choose the admin password. To prove it’s you, the site puts a one-time setup code in its logs, which only your Cloudflare account can see.</p>
     <ol style="margin:0 0 4px;padding-left:20px">
       <li><button type="button" id="setup-code">Show a setup code</button></li>
       <li>In Cloudflare, open <strong>Workers &amp; Pages</strong> → this site → <strong>Observability</strong> (or <strong>Logs</strong>), and find the line “Statto team site setup code”. It can take a minute to appear; refresh the logs if it isn’t there yet.</li>
-      <li>Enter the code and choose the editor password (at least 10 characters).</li>
+      <li>Enter the code and choose the admin password (at least 10 characters).</li>
     </ol>
     <label>Setup code <input type="text" name="code" autocomplete="off" placeholder="ABCD-EFGH" maxlength="12"></label>
-    <label>Editor password <input type="password" name="password" autocomplete="new-password"></label>
+    <label>Admin password <input type="password" name="password" autocomplete="new-password"></label>
     <button class="primary" type="submit">Set up the site</button>
   </form>
 
   <form class="card" id="f-reset" onsubmit="return false" hidden style="margin-top:20px">
-    <h3>Reset the editor password</h3>
-    <p>Choose a new Set up editor password. To prove it’s you, the site puts a one-time reset code in its logs, which only your Cloudflare account can see. Everyone signed in with the old password is signed out.</p>
+    <h3>Reset the admin password</h3>
+    <p>Choose a new admin password. To prove it’s you, the site puts a one-time reset code in its logs, which only your Cloudflare account can see. Everyone signed in with the old password is signed out.</p>
     <ol style="margin:0 0 4px;padding-left:20px">
       <li><button type="button" id="reset-code">Show a reset code</button></li>
       <li>In Cloudflare, open <strong>Workers &amp; Pages</strong> → this site → <strong>Observability</strong> (or <strong>Logs</strong>), and find the line “Statto team site password reset code”. It can take a minute to appear; refresh the logs if it isn’t there yet.</li>
       <li>Enter the code and choose the new password (at least 10 characters).</li>
     </ol>
     <label>Reset code <input type="text" name="code" autocomplete="off" placeholder="ABCD-EFGH" maxlength="12"></label>
-    <label>New editor password <input type="password" name="password" autocomplete="new-password"></label>
+    <label>New admin password <input type="password" name="password" autocomplete="new-password"></label>
     <div class="row"><button class="primary" type="submit">Reset the password</button> <a href="/" id="reset-cancel">Back to sign in</a></div>
   </form>
 
   <div class="grid" style="margin-top:20px">
     <form class="card" id="f-editor" onsubmit="return false">
-      <h3>Set up editor</h3>
-      <p class="dim">Upload Statto exports, set up the season, publish the Team Report.</p>
+      <h3>Admin</h3>
+      <p class="dim">Set up the season, manage the site, publish the Team Report.</p>
       <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">Sign in</button>
       <a href="#reset" id="forgot" class="dim">Forgot the password?</a>
@@ -81,7 +81,7 @@
     document.title = status.teamName;
   }
   // A card that proves "I run this site" with a one-time code from the
-  // site's logs: first-run setup, or a forgotten editor password.
+  // site's logs: first-run setup, or a forgotten admin password.
   function showCodeCard(kind) {
     const form = document.getElementById('f-' + kind);
     form.hidden = false;
@@ -116,7 +116,8 @@
     const s = status.session;
     const box = document.getElementById('signed-in');
     box.hidden = false;
-    box.append('Signed in as ' + (s.name ? s.name + ' (' + s.role + ')' : s.role) + '. ',
+    const role = { editor: 'admin', tagger: 'video tagger', viewer: 'Team Report viewer' }[s.role] || s.role;
+    box.append('Signed in as ' + (s.name ? s.name + ' (' + role + ')' : role) + '. ',
       Site.el('a', { href: DEST[s.role] }, 'Continue'), ' · ',
       Site.el('a', { href: '#', onclick: e => { e.preventDefault(); Site.logout(); } }, 'Sign out'));
   }

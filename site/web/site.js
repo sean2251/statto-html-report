@@ -1,4 +1,4 @@
-// Shared code for the team site's pages (login, editor, tagging hub, viewer,
+// Shared code for the team site's pages (sign-in, season setup, tagging hub, viewer,
 // settings). Defines window.Site. No dependencies; the stats engine
 // (assets/stats.js) and the report page template (assets/report-template.js)
 // are loaded by the pages that need them.
