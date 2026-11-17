@@ -460,6 +460,25 @@ async function setClaim(env, session, body) {
   return hub(env);
 }
 
+// ---------- the home page's summary (signed-in only) ----------
+async function seasonSummary(env) {
+  const db = env.DB;
+  const [statto, report, games, tagged, done] = await Promise.all([
+    db.prepare("SELECT updated_at FROM blobs WHERE name = 'statto'").first(),
+    db.prepare("SELECT updated_at FROM blobs WHERE name = 'report'").first(),
+    getSetting(db, 'game_count'),
+    db.prepare("SELECT COUNT(*) AS n FROM tags WHERE data IS NOT NULL AND kind IN ('passes', 'blocks')").first(),
+    db.prepare("SELECT COUNT(*) AS n FROM claims WHERE status = 'done'").first(),
+  ]);
+  return {
+    games: games ? Number(games) : null,
+    stattoUpdatedAt: statto ? statto.updated_at : null,
+    reportPublishedAt: report ? report.updated_at : null,
+    taggedEvents: tagged.n,
+    gamesDone: done.n,
+  };
+}
+
 // ---------- settings (editor) ----------
 async function updateSettings(env, body) {
   const db = env.DB;
@@ -468,6 +487,7 @@ async function updateSettings(env, body) {
     if (n) await setSetting(db, 'team_name', n);
   }
   if (body.viewerOpen !== undefined) await setSetting(db, 'viewer_open', body.viewerOpen ? '1' : '0');
+  if (Number.isInteger(body.gameCount) && body.gameCount >= 0) await setSetting(db, 'game_count', body.gameCount);
   if (body.passwords && typeof body.passwords === 'object') {
     for (const role of ROLES) {
       const pw = body.passwords[role];
@@ -529,7 +549,8 @@ async function handleApi(request, env, url) {
   if (path === '/api/status' && method === 'GET') {
     const status = await siteStatus(env);
     const session = await currentSession(request, env);
-    return json({ ...status, session });
+    const season = session ? await seasonSummary(env) : null;
+    return json({ ...status, session, season });
   }
   if (path === '/api/login' && method === 'POST') return login(request, env);
   if (path === '/api/setup/code' && method === 'POST') return json(await logSetupCode(env));
@@ -552,6 +573,8 @@ async function handleApi(request, env, url) {
       const revision = await putBlob(env.DB, 'statto', bytes, 'application/octet-stream', whoIs(s), null);
       const teamName = url.searchParams.get('team');
       if (teamName && !(await getSetting(env.DB, 'team_name'))) await setSetting(env.DB, 'team_name', teamName.slice(0, 80));
+      const games = Number(url.searchParams.get('games'));
+      if (Number.isInteger(games) && games >= 0) await setSetting(env.DB, 'game_count', games);
       return json({ revision });
     }
   }

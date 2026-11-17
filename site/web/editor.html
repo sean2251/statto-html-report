@@ -53,7 +53,7 @@
           bundle = JSON.parse(await Site.readFile(dataFile, 'text'));
           if (!bundle || bundle.statto !== 'custom-data') throw new Error('The existing-work file isn’t a season data or “custom data” file.');
         }
-        await Site.api('PUT', '/api/statto?team=' + encodeURIComponent(teamName), buf, 'application/octet-stream');
+        await Site.api('PUT', '/api/statto?team=' + encodeURIComponent(teamName) + '&games=' + report.games.length, buf, 'application/octet-stream');
         if (bundle) {
           await Site.api('PUT', '/api/season?force=1', JSON.stringify(bundle));
           await Site.uploadAnnotations(report, bundle.annotations);
@@ -68,6 +68,10 @@
   }
 
   const [season, tags] = await Promise.all([Site.loadSeason(), Site.loadTags()]);
+  // Keep the home page's game count current (older sites didn't record it).
+  if (!status.season || status.season.games !== loaded.report.games.length) {
+    Site.api('POST', '/api/settings', JSON.stringify({ gameCount: loaded.report.games.length })).catch(() => {});
+  }
   const data = Object.assign({ statto: 'custom-data', version: 1 }, season.data || {}, { annotations: tags.annotations });
   const teamName = status.teamName || loaded.teamName;
   Site.writeReportPage(loaded.report, teamName + ' — Season setup', {
@@ -76,6 +80,7 @@
       revision: season.revision, data,
     },
     __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Admin' },
+    __STATTO_SITE_BAR__: Site.barConfig(status, 'editor'),
   });
 })();
 </script>

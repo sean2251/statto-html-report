@@ -141,5 +141,55 @@
     return Math.round(secs / 86400) + ' d ago';
   }
 
-  window.Site = { api, requireRole, logout, loadReport, loadSeason, loadTags, uploadAnnotations, writeReportPage, readFile, el, flash, ago };
+  // ---- the top bar every signed-in page shares ----
+  // The same bar is drawn inside report pages (Season setup, tagging pages,
+  // the Team Report) by report.js, from barConfig() handed over as
+  // window.__STATTO_SITE_BAR__ -- keep the two in step.
+  const ROLE_LABEL = { editor: 'Admin', tagger: 'Tagger', viewer: 'Team Report viewer' };
+  const BAR_LINKS = {
+    editor: [['home', '/', 'Home'], ['editor', '/editor', 'Season setup'], ['tag', '/tag', 'Tagging hub'],
+      ['view', '/view', 'Team Report'], ['settings', '/settings', 'Site settings']],
+    tagger: [['tag', '/tag', 'Tagging hub'], ['view', '/view', 'Team Report']],
+    viewer: [['view', '/view', 'Team Report']],
+  };
+  function barConfig(status, current) {
+    const s = status.session;
+    return {
+      team: status.teamName || 'Team site',
+      role: s ? s.role : null,
+      name: s ? (s.name || ROLE_LABEL[s.role]) : null,
+      roleLabel: s ? ROLE_LABEL[s.role] : null,
+      links: s ? BAR_LINKS[s.role] : (status.viewerOpen ? BAR_LINKS.viewer : []),
+      current,
+    };
+  }
+  function renderBar(status, current) {
+    const cfg = barConfig(status, current);
+    const links = cfg.links.map(([key, href, label]) =>
+      el('a', { href, class: 'site-link' + (key === current ? ' active' : ''), 'aria-current': key === current ? 'page' : false }, label));
+    let account;
+    if (cfg.role) {
+      const who = cfg.name === cfg.roleLabel ? cfg.roleLabel : cfg.name + ' · ' + cfg.roleLabel;
+      account = el('details', { class: 'site-account' }, [
+        el('summary', {}, [cfg.name, el('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')]),
+        el('div', { class: 'site-menu' }, [
+          el('div', { class: 'dim' }, 'Signed in as ' + who),
+          el('button', { type: 'button', onclick: logout }, 'Sign out'),
+        ]),
+      ]);
+      // Close the menu on any click outside it, like a normal dropdown.
+      document.addEventListener('click', e => { if (!account.contains(e.target)) account.open = false; });
+    } else {
+      account = el('a', { href: '/', class: 'site-link' }, 'Sign in');
+    }
+    const bar = el('header', { class: 'site-bar' }, [
+      el('a', { href: '/', class: 'site-brand' }, cfg.team),
+      el('nav', { class: 'site-links', 'aria-label': 'Site' }, links),
+      account,
+    ]);
+    document.body.insertBefore(bar, document.body.firstChild);
+    return bar;
+  }
+
+  window.Site = { api, requireRole, logout, loadReport, loadSeason, loadTags, uploadAnnotations, writeReportPage, readFile, el, flash, ago, barConfig, renderBar, ROLE_LABEL };
 })();

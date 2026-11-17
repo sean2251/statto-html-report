@@ -73,6 +73,13 @@ Worker deploys from GitHub, so the setup code is the reliable way.
 
 ## Using it
 
+Once signed in, every page shares one top bar: the team name (back to your home
+page), the pages your login can use, and an account menu on the right with
+**Sign out**. The admin's home page shows the season at a glance — games, the
+latest export, tagging progress and when the Team Report was last published —
+with a card for each area. Taggers land in the tagging hub, viewers in the
+Team Report. To switch logins, sign out from the account menu.
+
 - **Stat'd more games?** Export the whole team from Statto again and use
   **Add newer Statto export** on Season setup's Set up tab — in any order.
   Video links, tags and lines stay with the right games.

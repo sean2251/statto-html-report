@@ -11,12 +11,8 @@
 <div class="center" id="loading"><p class="dim">Loading…</p></div>
 
 <div id="hub" hidden>
-  <header class="bar">
-    <h1 id="title">Tagging hub</h1>
-    <span class="who" id="who"></span>
-    <a href="#" id="logout">Sign out</a>
-  </header>
   <main>
+    <h1 style="margin:8px 0 4px">Tagging hub</h1>
     <div id="flash" hidden></div>
     <p class="dim">Pick a game to tag. Your tags save as you go, and anyone can pick up where someone else left off — the list updates by itself.</p>
     <div class="row" style="margin:14px 0">
@@ -56,16 +52,14 @@
     Site.writeReportPage(report, 'vs ' + report.games[gi].opponent + ' — ' + teamName + ' tagging', {
       __STATTO_TAGONLY_GAME__: gi,
       __STATTO_SYNC__: { since: tags.seq, name: me, data },
-      __STATTO_BACK__: { href: '/tag', label: '← Games', title: 'Back to the tagging hub' },
+      __STATTO_SITE_BAR__: Site.barConfig(status, 'tag'),
     });
     return;
   }
 
   document.getElementById('loading').hidden = true;
   document.getElementById('hub').hidden = false;
-  document.getElementById('title').textContent = teamName + ' · Tagging hub';
-  document.getElementById('who').textContent = 'Signed in as ' + me + (isEditor ? ' (admin)' : '');
-  document.getElementById('logout').addEventListener('click', e => { e.preventDefault(); Site.logout(); });
+  Site.renderBar(status, 'tag');
   const hideDone = document.getElementById('hide-done');
   try { hideDone.checked = localStorage.getItem('statto-hub-hide-done') === '1'; } catch (e) {}
   hideDone.addEventListener('change', () => { try { localStorage.setItem('statto-hub-hide-done', hideDone.checked ? '1' : '0'); } catch (e) {} render(); });
