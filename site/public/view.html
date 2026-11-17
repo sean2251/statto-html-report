@@ -13,6 +13,7 @@
 <script>
 (async function () {
   const status = await Site.requireRole('viewer', '/view');
+  Site.renderBar(status, 'view'); // shown while loading and if nothing's published yet
   const r = await fetch('/api/report', { cache: 'no-store' });
   if (r.status === 401) { location.replace('/?next=%2Fview&role=viewer'); return; }
   if (!r.ok) {

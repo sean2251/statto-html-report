@@ -259,7 +259,9 @@ function buildSiteBar() {
       fetch('/api/logout', { method: 'POST' }).catch(() => {}).then(() => { location.href = '/'; });
     });
     account = el('details', { class: 'site-account' }, [
-      el('summary', {}, [document.createTextNode(cfg.name), el('span', { class: 'caret', 'aria-hidden': 'true' }, [document.createTextNode('▾')])]),
+      el('summary', { title: 'Signed in as ' + who }, [document.createTextNode(cfg.name)]
+        .concat(cfg.name === cfg.roleLabel ? [] : [el('span', { class: 'role' }, [document.createTextNode('· ' + cfg.roleLabel)])])
+        .concat([el('span', { class: 'caret', 'aria-hidden': 'true' }, [document.createTextNode('▾')])])),
       el('div', { class: 'site-menu' }, [el('div', { class: 'site-menu-who' }, [document.createTextNode('Signed in as ' + who)]), signOut]),
     ]);
     document.addEventListener('click', e => { if (!account.contains(e.target)) account.open = false; });

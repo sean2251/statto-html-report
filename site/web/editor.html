@@ -30,6 +30,7 @@
 <script>
 (async function () {
   const status = await Site.requireRole('editor', '/editor');
+  Site.renderBar(status, 'editor'); // shown while loading and on the first-upload screen
   let loaded;
   try { loaded = await Site.loadReport(); }
   catch (e) { document.getElementById('loading').textContent = e.message; return; }

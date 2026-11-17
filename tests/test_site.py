@@ -429,6 +429,8 @@ class BrowserTests(unittest.TestCase):
         ctx = self.context()
         page = self.sign_in(ctx, "editor", EDITOR_PW, go="/editor")
         page.wait_for_selector("#f-upload")
+        # Who's signed in shows even on the first-upload screen.
+        self.assertEqual(page.text_content(".site-account summary").replace("▾", "").strip(), "Admin")
         page.set_input_files("#f-upload [name=statto]", self.files["partial.statto"])
         page.set_input_files("#f-upload [name=data]", self.files["season_data.json"])
         page.click("#f-upload button")
@@ -586,10 +588,12 @@ class BrowserTests(unittest.TestCase):
         hub = self.sign_in(tctx, "tagger", TAGGER_PW, "Casey")
         hub.wait_for_selector(".game")
         self.assertEqual(bar_links(hub), ["Tagging hub", "Team Report"])
-        self.assertIn("Casey", hub.text_content(".site-account summary"))
+        self.assertEqual(hub.get_attribute(".site-account summary", "title"), "Signed in as Casey · Tagger")
         hub.click(".game >> nth=0 >> .actions a.btn")  # "Tag" or "Continue"
         hub.wait_for_selector("#topnav .tab.active")
         self.assertEqual(bar_links(hub), ["Tagging hub", "Team Report"])
+        # ...and on the tagging page itself, top right.
+        self.assertEqual(hub.get_attribute(".site-account summary", "title"), "Signed in as Casey · Tagger")
         text = hub.text_content("#data-editor")
         self.assertIn("saves to the team site as you go", text)
         self.assertNotIn("Export annotations JSON", text)

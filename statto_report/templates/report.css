@@ -1920,6 +1920,7 @@
 }
 .site-account summary::-webkit-details-marker { display: none; }
 .site-account .caret { font-size: 11px; color: var(--chalk-dim); }
+.site-account .role { color: var(--chalk-dim); }
 .site-menu {
     position: absolute; right: 0; top: calc(100% + 6px); z-index: 1000; min-width: 220px;
     background: var(--ink-soft); border: 1px solid rgba(var(--chalk-rgb), 0.15); border-radius: 12px;

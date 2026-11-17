@@ -171,7 +171,9 @@
     if (cfg.role) {
       const who = cfg.name === cfg.roleLabel ? cfg.roleLabel : cfg.name + ' · ' + cfg.roleLabel;
       account = el('details', { class: 'site-account' }, [
-        el('summary', {}, [cfg.name, el('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')]),
+        el('summary', { title: 'Signed in as ' + who }, [cfg.name,
+          cfg.name === cfg.roleLabel ? null : el('span', { class: 'role' }, '· ' + cfg.roleLabel),
+          el('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')]),
         el('div', { class: 'site-menu' }, [
           el('div', { class: 'dim' }, 'Signed in as ' + who),
           el('button', { type: 'button', onclick: logout }, 'Sign out'),

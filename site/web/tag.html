@@ -28,6 +28,7 @@
 <script>
 (async function () {
   const status = await Site.requireRole('tagger', location.pathname + location.search);
+  Site.renderBar(status, 'tag'); // shown while loading, in the hub, and on any message
   const me = (status.session && status.session.name) || 'Admin';
   const isEditor = status.session && status.session.role === 'editor';
   let loaded;
@@ -59,7 +60,6 @@
 
   document.getElementById('loading').hidden = true;
   document.getElementById('hub').hidden = false;
-  Site.renderBar(status, 'tag');
   const hideDone = document.getElementById('hide-done');
   try { hideDone.checked = localStorage.getItem('statto-hub-hide-done') === '1'; } catch (e) {}
   hideDone.addEventListener('change', () => { try { localStorage.setItem('statto-hub-hide-done', hideDone.checked ? '1' : '0'); } catch (e) {} render(); });
