@@ -46,8 +46,10 @@ function taggingSiteUrl() { return (APP && APP.taggingSiteUrl) || DEFAULT_TAGGIN
 const SYNC = (!VIEWER_MODE && typeof window !== 'undefined' && window.__STATTO_SYNC__ && typeof window.__STATTO_SYNC__ === 'object') ? window.__STATTO_SYNC__ : null;
 // The team site's editor is APP mode backed by the site's server instead of the Mac app.
 const SITE = !!(APP && APP.server);
-// A "back" link for pages the team site builds (e.g. a tagging page -> the games list).
-const BACK_LINK = (typeof window !== 'undefined' && window.__STATTO_BACK__ && typeof window.__STATTO_BACK__ === 'object') ? window.__STATTO_BACK__ : null;
+// The team site's shared top bar (site/web/site.js barConfig): { team, role,
+// name, roleLabel, links: [[key, href, label]], current }. Set on pages the
+// team site builds -- Season setup, tagging pages, the Team Report it shows.
+const SITE_BAR = (typeof window !== 'undefined' && window.__STATTO_SITE_BAR__ && typeof window.__STATTO_SITE_BAR__ === 'object') ? window.__STATTO_SITE_BAR__ : null;
 
 const STAT_COLUMNS = [
   { key: 'player', label: 'Player', full: 'Player', numeric: false },
@@ -242,17 +244,50 @@ function buildNavMenu(nav) {
   return wrap;
 }
 
+// The team site's top bar, above the report's own tabs -- the same bar as on
+// the site's other pages (site/web/site.js renderBar; styles .site-bar).
+function buildSiteBar() {
+  const cfg = SITE_BAR;
+  const links = (cfg.links || []).map(([key, href, label]) =>
+    el('a', Object.assign({ href, class: 'site-link' + (key === cfg.current ? ' active' : '') }, key === cfg.current ? { 'aria-current': 'page' } : {}),
+      [document.createTextNode(label)]));
+  let account;
+  if (cfg.role) {
+    const who = cfg.name === cfg.roleLabel ? cfg.roleLabel : cfg.name + ' · ' + cfg.roleLabel;
+    const signOut = el('button', { type: 'button', class: 'pill-btn' }, [document.createTextNode('Sign out')]);
+    signOut.addEventListener('click', () => {
+      fetch('/api/logout', { method: 'POST' }).catch(() => {}).then(() => { location.href = '/'; });
+    });
+    account = el('details', { class: 'site-account' }, [
+      el('summary', { title: 'Signed in as ' + who }, [document.createTextNode(cfg.name)]
+        .concat(cfg.name === cfg.roleLabel ? [] : [el('span', { class: 'role' }, [document.createTextNode('· ' + cfg.roleLabel)])])
+        .concat([el('span', { class: 'caret', 'aria-hidden': 'true' }, [document.createTextNode('▾')])])),
+      el('div', { class: 'site-menu' }, [el('div', { class: 'site-menu-who' }, [document.createTextNode('Signed in as ' + who)]), signOut]),
+    ]);
+    document.addEventListener('click', e => { if (!account.contains(e.target)) account.open = false; });
+  } else {
+    account = el('a', { href: '/', class: 'site-link' }, [document.createTextNode('Sign in')]);
+  }
+  const bar = el('header', { class: 'site-bar' }, [
+    el('a', { href: '/', class: 'site-brand' }, [document.createTextNode(cfg.team || REPORT.teamName)]),
+    el('nav', { class: 'site-links', 'aria-label': 'Site' }, links),
+    account,
+  ]);
+  const nav = document.getElementById('topnav');
+  nav.parentNode.insertBefore(bar, nav);
+}
+
 function buildNav() {
   const nav = document.getElementById('topnav');
-  nav.appendChild(el('div', { class: 'brand' }, [document.createTextNode(REPORT.teamName)]));
+  // On the team site the bar above carries the team name.
+  if (SITE_BAR) buildSiteBar();
+  else nav.appendChild(el('div', { class: 'brand' }, [document.createTextNode(REPORT.teamName)]));
 
   // Per-game tagging page: a single "Video Tagging" tab, nothing else.
   if (TAGONLY_GAME != null) {
     if (TAGGING_SITE) {
       // Back to the shared site's game list (the same page without #game=).
       nav.insertBefore(el('a', { class: 'tab app-home-link', href: location.pathname, title: 'Back to your games' }, [document.createTextNode('← Games')]), nav.firstChild);
-    } else if (BACK_LINK) {
-      nav.insertBefore(el('a', { class: 'tab app-home-link', href: BACK_LINK.href, title: BACK_LINK.title || '' }, [document.createTextNode(BACK_LINK.label)]), nav.firstChild);
     }
     if (SYNC) buildAppStatus();
     const tagBtn = el('button', { class: 'tab active', 'data-target': 'data-editor' }, [document.createTextNode('Video Tagging')]);
@@ -264,23 +299,18 @@ function buildNav() {
 
   if (SETUP_MODE) {
     if (APP) {
-      const home = SITE
-        ? el('a', { class: 'tab app-home-link', href: APP.home || '/', title: 'Back to the team site’s start page' }, [document.createTextNode('← Team site')])
-        : el('a', { class: 'tab app-home-link', href: APP.home || '/', title: 'Back to all your seasons' }, [document.createTextNode('← Seasons')]);
-      nav.insertBefore(home, nav.firstChild);
-      const brand = nav.querySelector('.brand');
-      if (brand && APP.seasonName) brand.textContent = APP.seasonName;
+      // The Mac app: back to its seasons list. (The team site has its bar.)
+      if (!SITE) {
+        nav.insertBefore(el('a', { class: 'tab app-home-link', href: APP.home || '/', title: 'Back to all your seasons' }, [document.createTextNode('← Seasons')]), nav.firstChild);
+        const brand = nav.querySelector('.brand');
+        if (brand && APP.seasonName) brand.textContent = APP.seasonName;
+      }
       buildAppStatus();
     }
     // The Set up editor: a desktop authoring console, nothing else.
     nav.appendChild(el('button', { class: 'tab active', 'data-target': 'setup' }, [document.createTextNode('Set up')]));
     nav.appendChild(el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Video annotation editor')]));
     nav.appendChild(el('button', { class: 'tab', 'data-target': 'line-setup' }, [document.createTextNode('Line set up')]));
-    if (SITE) {
-      nav.appendChild(el('a', { class: 'tab', href: '/tag' }, [document.createTextNode('Tagging hub')]));
-      nav.appendChild(el('a', { class: 'tab', href: '/view', target: '_blank', rel: 'noopener' }, [document.createTextNode('Team Report ↗')]));
-      nav.appendChild(el('a', { class: 'tab', href: '/settings' }, [document.createTextNode('Site settings')]));
-    }
   } else {
     // The published Team Report: all the analysis, read-only.
     nav.appendChild(el('button', { class: 'tab active', 'data-target': 'season' }, [document.createTextNode('Season')]));
@@ -3589,7 +3619,9 @@ function buildSetupSection() {
     if (file) importAllCustomData(file);
   });
   section.appendChild(el('div', { class: 'controls-row de-io-row' }, [exportAllBtn, importAllBtn, importAllInput]));
-  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(APP
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode(SITE
+    ? 'Everything you add on top of the report — tournament names, video links, player photos, curated lines and video tags — saves automatically to your team site. Export it to one file as an extra backup or to move it elsewhere; importing replaces the matching data here and reloads. (Site settings → Download a backup saves everything, including the Statto export.)'
+    : APP
     ? 'Everything you add on top of the report — tournament names, video links, player photos, curated lines and video tags — saves automatically to this season’s folder, with backups. Export it to one file to share it or move it elsewhere; importing replaces the matching data here (after backing up what it replaces) and reloads.'
     : 'Everything you add on top of the report — tournament names, video links, player photos, curated lines and video tags — is saved only in this browser. Export it to one file to back it up or move it onto a freshly regenerated report; importing replaces the matching data here and reloads.')]));
 
@@ -5001,7 +5033,7 @@ function siteReplaceStatto(file) {
         const missing = REPORT.games.filter(g => !now.has(g.uuid)).map(g => 'vs ' + g.opponent);
         if (missing.length && !confirm(missing.length + ' game(s) in the current export aren’t in this one (' + missing.join(', ') + '). Their video links, tags and lines are kept, but won’t show until an export includes them again. Use this export?')) return null;
         return Promise.all([appSaveNow(), SYNC ? syncPushNow() : null]).then(() =>
-          fetch('/api/statto?team=' + encodeURIComponent(teamName), { method: 'PUT', body: buf })
+          fetch('/api/statto?team=' + encodeURIComponent(teamName) + '&games=' + report.games.length, { method: 'PUT', body: buf })
             .then(r => r.json().catch(() => ({})).then(j => { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); }))
             .then(() => {
               alert('Updated: ' + report.games.length + ' games.' + (added.length ? ' New: ' + added.join(', ') + '.' : ' No new games.'));
@@ -8352,7 +8384,9 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   }
 
   section.appendChild(el('p', { class: 'eyebrow' }, [document.createTextNode(tagOnly ? 'Video Tagging' : 'Data Editor')]));
-  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode(tagOnly
+  section.appendChild(el('p', { class: 'hero-sub' }, [document.createTextNode(tagOnly && SYNC
+    ? 'Tag this game’s events — passes, blocks, pulls, defensive possessions and opponent turnovers — with throw type, release, outcome detail, and a video timestamp. Every tag saves to the team site as you go, and anyone can carry on where you stop. When the game’s finished, mark it done in the Tagging hub.'
+    : tagOnly
     ? 'Tag this game’s events — passes, blocks, pulls, defensive possessions and opponent turnovers — with throw type, release, outcome detail, and a video timestamp. When you’re done, click “Export annotations JSON” at the bottom and send the file back.'
     : 'Step through a game’s events — passes, blocks, pulls, defensive possessions and opponent turnovers — and tag each one, to build a richer, queryable film dataset.')]));
 
@@ -9074,7 +9108,8 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     };
     reader.readAsText(file);
   });
-  tagPane.appendChild(el('div', { class: 'controls-row de-io-row' }, [exportBtn, importBtn, taggedCount, importInput]));
+  // On a team site's tagging page, tags save to the site: no files to swap.
+  tagPane.appendChild(el('div', { class: 'controls-row de-io-row' }, (tagOnly && SYNC) ? [taggedCount] : [exportBtn, importBtn, taggedCount, importInput]));
 
   // Refresh on every visit: pick up a video link added on Set up, or
   // annotations changed by an import elsewhere, without a reload.

@@ -1894,3 +1894,43 @@
     white-space: pre-wrap;
 }
 .app-dialog-note { color: var(--chalk-dim); font-size: 13px; }
+
+/* ---------- Team site: the shared top bar above the report's tabs ----------
+   Mirrors .site-bar in site/web/site.css, with the report's colour tokens. */
+.site-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    padding: 10px 24px;
+    background: var(--ink-soft);
+    border-bottom: 1px solid rgba(var(--chalk-rgb), 0.12);
+    font-family: var(--sans);
+}
+.site-brand { font-weight: 700; font-size: 16px; color: var(--chalk); text-decoration: none; margin-right: 6px; }
+.site-links { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.site-link { color: var(--chalk-dim); text-decoration: none; font-size: 14px; padding: 6px 10px; border-radius: 999px; white-space: nowrap; }
+.site-link:hover { color: var(--chalk); background: rgba(var(--chalk-rgb), 0.08); }
+.site-link.active { color: var(--chalk); background: rgba(var(--chalk-rgb), 0.1); font-weight: 600; }
+.site-account { position: relative; }
+.site-account summary {
+    list-style: none; cursor: pointer; font-size: 14px; color: var(--chalk);
+    padding: 6px 12px; border: 1px solid rgba(var(--chalk-rgb), 0.15); border-radius: 999px;
+    display: flex; gap: 6px; align-items: center;
+}
+.site-account summary::-webkit-details-marker { display: none; }
+.site-account .caret { font-size: 11px; color: var(--chalk-dim); }
+.site-account .role { color: var(--chalk-dim); }
+.site-menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 1000; min-width: 220px;
+    background: var(--ink-soft); border: 1px solid rgba(var(--chalk-rgb), 0.15); border-radius: 12px;
+    padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    display: flex; flex-direction: column; gap: 10px;
+}
+.site-menu-who { font-size: 13px; color: var(--chalk-dim); }
+.site-menu .pill-btn { width: 100%; }
+@media (max-width: 560px) {
+    .site-bar { padding: 10px 16px; }
+    .site-brand { flex: 1; min-width: 0; }
+    .site-links { order: 3; flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+}

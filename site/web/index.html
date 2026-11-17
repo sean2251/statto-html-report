@@ -8,31 +8,53 @@
 <link rel="stylesheet" href="/site.css">
 </head>
 <body>
-<main>
-  <h1 id="team" style="margin:8px 0 4px">Team site</h1>
+<!-- Signed in: the home page. -->
+<main id="home" hidden>
+  <h1 class="team-name" style="margin:8px 0 4px">Team site</h1>
+  <p class="dim" id="home-who"></p>
+  <div id="home-cards" class="home-cards" style="margin-top:20px"></div>
+</main>
+
+<!-- Signed out: sign in (or set up a brand-new site). -->
+<main id="signin" hidden>
+  <h1 class="team-name" style="margin:8px 0 4px">Team site</h1>
   <p class="dim">Season stats, film tagging and the Team Report.</p>
   <div id="flash" hidden></div>
-  <div id="signed-in" class="msg" hidden></div>
+  <div id="need-role" class="msg warn" hidden></div>
 
   <form class="card" id="f-setup" onsubmit="return false" hidden style="margin-top:20px">
     <h3>Set up this site</h3>
-    <p>This is a new site: choose the Set up editor password. To prove it’s you, the site puts a one-time setup code in its logs, which only your Cloudflare account can see.</p>
+    <p>This is a new site: choose the admin password. To prove it’s you, the site puts a one-time setup code in its logs, which only your Cloudflare account can see.</p>
     <ol style="margin:0 0 4px;padding-left:20px">
       <li><button type="button" id="setup-code">Show a setup code</button></li>
       <li>In Cloudflare, open <strong>Workers &amp; Pages</strong> → this site → <strong>Observability</strong> (or <strong>Logs</strong>), and find the line “Statto team site setup code”. It can take a minute to appear; refresh the logs if it isn’t there yet.</li>
-      <li>Enter the code and choose the editor password (at least 10 characters).</li>
+      <li>Enter the code and choose the admin password (at least 10 characters).</li>
     </ol>
     <label>Setup code <input type="text" name="code" autocomplete="off" placeholder="ABCD-EFGH" maxlength="12"></label>
-    <label>Editor password <input type="password" name="password" autocomplete="new-password"></label>
+    <label>Admin password <input type="password" name="password" autocomplete="new-password"></label>
     <button class="primary" type="submit">Set up the site</button>
   </form>
 
-  <div class="grid" style="margin-top:20px">
+  <form class="card" id="f-reset" onsubmit="return false" hidden style="margin-top:20px">
+    <h3>Reset the admin password</h3>
+    <p>Choose a new admin password. To prove it’s you, the site puts a one-time reset code in its logs, which only your Cloudflare account can see. Everyone signed in with the old password is signed out.</p>
+    <ol style="margin:0 0 4px;padding-left:20px">
+      <li><button type="button" id="reset-code">Show a reset code</button></li>
+      <li>In Cloudflare, open <strong>Workers &amp; Pages</strong> → this site → <strong>Observability</strong> (or <strong>Logs</strong>), and find the line “Statto team site password reset code”. It can take a minute to appear; refresh the logs if it isn’t there yet.</li>
+      <li>Enter the code and choose the new password (at least 10 characters).</li>
+    </ol>
+    <label>Reset code <input type="text" name="code" autocomplete="off" placeholder="ABCD-EFGH" maxlength="12"></label>
+    <label>New admin password <input type="password" name="password" autocomplete="new-password"></label>
+    <div class="row"><button class="primary" type="submit">Reset the password</button> <a href="/" id="reset-cancel">Back to sign in</a></div>
+  </form>
+
+  <div class="grid" id="signin-cards" style="margin-top:20px">
     <form class="card" id="f-editor" onsubmit="return false">
-      <h3>Set up editor</h3>
-      <p class="dim">Upload Statto exports, set up the season, publish the Team Report.</p>
+      <h3>Admin</h3>
+      <p class="dim">Set up the season, manage the site, publish the Team Report.</p>
       <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">Sign in</button>
+      <a href="#reset" id="forgot" class="dim">Forgot the password?</a>
     </form>
 
     <form class="card" id="f-tagger" onsubmit="return false">
@@ -56,48 +78,75 @@
 (async function () {
   const params = new URLSearchParams(location.search);
   const next = params.get('next');
-  const DEST = { editor: '/editor', tagger: '/tag', viewer: '/view' };
+  const wantRole = params.get('role');
+  // Where each login lands: the admin on this home page, taggers in the hub,
+  // viewers in the Team Report.
+  const DEST = { editor: '/', tagger: '/tag', viewer: '/view' };
+  const ALLOWED = { editor: ['editor'], tagger: ['editor', 'tagger'], viewer: ['editor', 'tagger', 'viewer'] };
   const safeNext = next && /^\/[a-z]+(\?[^\s]*)?$/.test(next) ? next : null;
   let status;
   try { status = await Site.api('GET', '/api/status'); }
-  catch (e) { Site.flash('Can’t reach the site’s server: ' + e.message, true); return; }
-
-  if (status.teamName) {
-    document.getElementById('team').textContent = status.teamName;
-    document.title = status.teamName;
+  catch (e) {
+    document.getElementById('signin').hidden = false;
+    Site.flash('Can’t reach the site’s server: ' + e.message, true);
+    return;
   }
-  if (status.setupNeeded) {
-    // First run: claim the site with a setup code from its logs.
-    const setup = document.getElementById('f-setup');
-    setup.hidden = false;
-    document.querySelector('.grid').hidden = true;
-    document.getElementById('setup-code').addEventListener('click', async (ev) => {
+  const team = status.teamName || 'Team site';
+  document.title = team;
+  document.querySelectorAll('.team-name').forEach(h => { h.textContent = team; });
+  const session = status.session;
+
+  // Signed in, and not sent here for a page this login can't open: home page.
+  const sentForOtherRole = session && wantRole && !ALLOWED[wantRole].includes(session.role);
+  if (session && !sentForOtherRole) {
+    Site.renderBar(status, 'home');
+    showHome(session, status.season || {});
+    document.body.dataset.ready = '1';
+    return;
+  }
+
+  // ---- signed out (or signed in as the wrong login for where they were going) ----
+  document.getElementById('signin').hidden = false;
+  if (session) {
+    Site.renderBar(status, null);
+    const box = document.getElementById('need-role');
+    box.hidden = false;
+    box.textContent = 'That page needs the ' + Site.ROLE_LABEL[wantRole] + ' login. Sign in with it below (this signs you out of ' + Site.ROLE_LABEL[session.role] + ').';
+  }
+
+  // A card that proves "I run this site" with a one-time code from the
+  // site's logs: first-run setup, or a forgotten admin password.
+  function showCodeCard(kind) {
+    const form = document.getElementById('f-' + kind);
+    form.hidden = false;
+    document.getElementById('signin-cards').hidden = true;
+    document.getElementById(kind + '-code').addEventListener('click', async (ev) => {
       try {
-        await Site.api('POST', '/api/setup/code', '');
+        await Site.api('POST', '/api/' + kind + '/code', '');
         ev.target.textContent = 'Code sent to the logs ✓ (click again to resend)';
       } catch (e) { Site.flash(e.message, true); }
     });
-    setup.addEventListener('submit', async () => {
-      const field = n => setup.querySelector('[name=' + n + ']');
-      const btn = setup.querySelector('button[type=submit]');
+    form.addEventListener('submit', async () => {
+      const field = n => form.querySelector('[name=' + n + ']');
+      const btn = form.querySelector('button[type=submit]');
       btn.disabled = true;
       try {
-        await Site.api('POST', '/api/setup', JSON.stringify({ code: field('code').value, password: field('password').value }));
-        location.href = '/editor';
+        await Site.api('POST', '/api/' + kind, JSON.stringify({ code: field('code').value, password: field('password').value }));
+        // A new site goes straight to uploading its first export.
+        location.href = kind === 'setup' ? '/editor' : '/';
       } catch (e) {
         Site.flash(e.message, true);
         btn.disabled = false;
       }
     });
   }
-  if (status.session) {
-    const s = status.session;
-    const box = document.getElementById('signed-in');
-    box.hidden = false;
-    box.append('Signed in as ' + (s.name ? s.name + ' (' + s.role + ')' : s.role) + '. ',
-      Site.el('a', { href: DEST[s.role] }, 'Continue'), ' · ',
-      Site.el('a', { href: '#', onclick: e => { e.preventDefault(); Site.logout(); } }, 'Sign out'));
-  }
+  if (status.setupNeeded) showCodeCard('setup');
+  else if (location.hash === '#reset') showCodeCard('reset');
+  document.getElementById('forgot').addEventListener('click', (e) => {
+    e.preventDefault();
+    history.replaceState(null, '', '#reset');
+    showCodeCard('reset');
+  });
   if (status.viewerOpen) {
     document.getElementById('viewer-pw').hidden = true;
     document.getElementById('viewer-go').textContent = 'Open the Team Report';
@@ -120,7 +169,7 @@
       btn.disabled = true;
       try {
         await Site.api('POST', '/api/login', JSON.stringify(body));
-        location.href = (safeNext && params.get('role') === role) ? safeNext : DEST[role];
+        location.href = (safeNext && wantRole && ALLOWED[wantRole].includes(role)) ? safeNext : DEST[role];
       } catch (e) {
         Site.flash(e.message, true);
         btn.disabled = false;
@@ -129,8 +178,38 @@
   }
   ['editor', 'tagger', 'viewer'].forEach(wire);
   document.body.dataset.ready = '1';
-  const want = params.get('role');
-  if (want && document.getElementById('f-' + want)) document.querySelector('#f-' + want + ' input:not([type=hidden])').focus();
+  if (wantRole && document.getElementById('f-' + wantRole)) document.querySelector('#f-' + wantRole + ' input').focus();
+
+  // ---- the home page: one card per area this login can use ----
+  function showHome(s, season) {
+    document.getElementById('home').hidden = false;
+    document.getElementById('home-who').textContent = 'Signed in as ' +
+      (s.name ? s.name + ' (' + Site.ROLE_LABEL[s.role] + ')' : Site.ROLE_LABEL[s.role]) + '.';
+    const date = t => new Date(t * 1000).toLocaleDateString(undefined, { dateStyle: 'medium' });
+    const card = (href, title, stat, blurb) => Site.el('a', { class: 'card home-card', href }, [
+      Site.el('h3', {}, title), Site.el('div', { class: 'stat' }, stat), Site.el('p', { class: 'dim' }, blurb)]);
+    const cards = [];
+    if (s.role === 'editor') {
+      cards.push(card('/editor', 'Season setup',
+        season.stattoUpdatedAt
+          ? (season.games != null ? season.games + ' games · ' : '') + 'export updated ' + date(season.stattoUpdatedAt)
+          : 'No Statto export yet',
+        'Add newer exports, tournaments, video links, photos and lines.'));
+    }
+    if (s.role === 'editor' || s.role === 'tagger') {
+      cards.push(card('/tag', 'Tagging hub',
+        (season.taggedEvents || 0) + ' events tagged · ' + (season.gamesDone || 0) + ' games done',
+        'Pick a game to tag, see who’s on what, and progress live.'));
+    }
+    cards.push(card('/view', 'Team Report',
+      season.reportPublishedAt ? 'Published ' + date(season.reportPublishedAt) : 'Not published yet',
+      s.role === 'editor' ? 'What your team sees. Publish a new one from Season setup.' : 'Every stat for the season, on any device.'));
+    if (s.role === 'editor') {
+      cards.push(card('/settings', 'Site settings', 'Passwords and backups',
+        'Change the three passwords, download or restore a backup.'));
+    }
+    document.getElementById('home-cards').append(...cards);
+  }
 })();
 </script>
 </body>

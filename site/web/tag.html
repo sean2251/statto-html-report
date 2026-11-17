@@ -11,12 +11,8 @@
 <div class="center" id="loading"><p class="dim">Loading…</p></div>
 
 <div id="hub" hidden>
-  <header class="bar">
-    <h1 id="title">Tagging hub</h1>
-    <span class="who" id="who"></span>
-    <a href="#" id="logout">Sign out</a>
-  </header>
   <main>
+    <h1 style="margin:8px 0 4px">Tagging hub</h1>
     <div id="flash" hidden></div>
     <p class="dim">Pick a game to tag. Your tags save as you go, and anyone can pick up where someone else left off — the list updates by itself.</p>
     <div class="row" style="margin:14px 0">
@@ -32,13 +28,14 @@
 <script>
 (async function () {
   const status = await Site.requireRole('tagger', location.pathname + location.search);
-  const me = (status.session && status.session.name) || 'Editor';
+  Site.renderBar(status, 'tag'); // shown while loading, in the hub, and on any message
+  const me = (status.session && status.session.name) || 'Admin';
   const isEditor = status.session && status.session.role === 'editor';
   let loaded;
   try { loaded = await Site.loadReport(); }
   catch (e) { document.getElementById('loading').textContent = e.message; return; }
   if (!loaded) {
-    document.getElementById('loading').textContent = 'The editor hasn’t uploaded the season yet. Check back soon.';
+    document.getElementById('loading').textContent = 'The season hasn’t been uploaded yet. Check back soon.';
     return;
   }
   const report = loaded.report;
@@ -56,16 +53,13 @@
     Site.writeReportPage(report, 'vs ' + report.games[gi].opponent + ' — ' + teamName + ' tagging', {
       __STATTO_TAGONLY_GAME__: gi,
       __STATTO_SYNC__: { since: tags.seq, name: me, data },
-      __STATTO_BACK__: { href: '/tag', label: '← Games', title: 'Back to the tagging hub' },
+      __STATTO_SITE_BAR__: Site.barConfig(status, 'tag'),
     });
     return;
   }
 
   document.getElementById('loading').hidden = true;
   document.getElementById('hub').hidden = false;
-  document.getElementById('title').textContent = teamName + ' · Tagging hub';
-  document.getElementById('who').textContent = 'Signed in as ' + me + (isEditor ? ' (editor)' : '');
-  document.getElementById('logout').addEventListener('click', e => { e.preventDefault(); Site.logout(); });
   const hideDone = document.getElementById('hide-done');
   try { hideDone.checked = localStorage.getItem('statto-hub-hide-done') === '1'; } catch (e) {}
   hideDone.addEventListener('change', () => { try { localStorage.setItem('statto-hub-hide-done', hideDone.checked ? '1' : '0'); } catch (e) {} render(); });

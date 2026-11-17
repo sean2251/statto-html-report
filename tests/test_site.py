@@ -80,14 +80,14 @@ class LocalSite:
         self.stop()
         raise RuntimeError("The local team site didn't start; see wrangler's log.")
 
-    def setup_code(self):
-        """The newest setup code the site wrote to its logs."""
+    def setup_code(self, label="setup code"):
+        """The newest code of this kind the site wrote to its logs."""
         import re
         def find():
             with open(self.log_path) as f:
-                codes = re.findall(r"setup code: ([A-Z0-9]{4}-[A-Z0-9]{4})", f.read())
+                codes = re.findall(re.escape(label) + r": ([A-Z0-9]{4}-[A-Z0-9]{4})", f.read())
             return codes[-1] if codes else None
-        return wait_until(find, message="a setup code in the logs")
+        return wait_until(find, message="a %s in the logs" % label)
 
     def stop(self):
         if self.proc.poll() is None:
@@ -280,6 +280,65 @@ class FirstRunSetupTests(unittest.TestCase):
             site.stop()
 
 
+class PasswordResetTests(unittest.TestCase):
+    """A forgotten editor password is reset with a one-time code from the logs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.site = LocalSite()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.site.stop()
+
+    def test_1_reset_rules(self):
+        base = self.site.base
+        old_session = Api(base).login("editor", EDITOR_PW)
+        anon = Api(base)
+        # Setup is closed on a site that has an editor password; reset is open.
+        self.assertEqual(anon.call("POST", "/api/setup/code", b"")[0], 409)
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": "AAAA-AAAA", "password": "x" * 12})[0], 401,
+                         "no reset code issued yet")
+        self.assertEqual(anon.call("POST", "/api/reset/code", b"")[0], 200)
+        code = self.site.setup_code("password reset code")
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": "WRNG-CODE", "password": "x" * 12})[0], 401)
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": code, "password": "short"})[0], 400)
+        status, body = anon.call("POST", "/api/reset", {"code": code, "password": "the-reset-password"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(anon.call("GET", "/api/settings")[0], 200, "signed in by the reset")
+        # Everyone on the old password is signed out; the old password no longer works.
+        self.assertEqual(old_session.call("GET", "/api/settings")[0], 401)
+        self.assertEqual(Api(base).call("POST", "/api/login", {"role": "editor", "password": EDITOR_PW})[0], 401)
+        Api(base).login("editor", "the-reset-password")
+        # The code is used up.
+        self.assertEqual(anon.call("POST", "/api/reset", {"code": code, "password": "another-password"})[0], 401)
+
+    def test_2_reset_in_the_browser(self):
+        pw = sync_playwright().start()
+        try:
+            browser = pw.chromium.launch()
+            page = browser.new_page()
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(self.site.base + "/")
+            page.wait_for_selector("body[data-ready]")
+            self.assertFalse(page.is_visible("#f-setup"))
+            page.click("#forgot")
+            self.assertTrue(page.is_visible("#f-reset"))
+            self.assertFalse(page.is_visible("#f-editor"))
+            page.click("#reset-code")
+            page.wait_for_selector("text=Code sent to the logs")
+            page.fill("#f-reset [name=code]", self.site.setup_code("password reset code"))
+            page.fill("#f-reset [name=password]", "browser-reset-pass")
+            page.click("#f-reset button[type=submit]")
+            page.wait_for_selector("#home:not([hidden])")
+            self.assertEqual(errors, [])
+            browser.close()
+        finally:
+            pw.stop()
+        Api(self.site.base).login("editor", "browser-reset-pass")
+
+
 class RateLimitTests(unittest.TestCase):
     def test_too_many_wrong_passwords(self):
         site = LocalSite()
@@ -339,7 +398,9 @@ class BrowserTests(unittest.TestCase):
         ctx.on("page", watch)
         return ctx
 
-    def sign_in(self, ctx, role, password, name=None):
+    def sign_in(self, ctx, role, password, name=None, go=None):
+        """Sign in from the home page; the admin lands on the home page, so
+        `go` then opens another page (e.g. "/editor" for Season setup)."""
         page = ctx.new_page()
         page.goto(self.base + "/")
         page.wait_for_selector("body[data-ready]")  # sign-in handlers attached
@@ -348,6 +409,10 @@ class BrowserTests(unittest.TestCase):
         if password is not None:
             page.fill("#f-%s [name=password]" % role, password)
         page.click("#f-%s button" % role)
+        if role == "editor":
+            page.wait_for_selector("#home:not([hidden])")
+        if go:
+            page.goto(self.base + go)
         return page
 
     def setup_rows(self, page):
@@ -362,8 +427,10 @@ class BrowserTests(unittest.TestCase):
 
     def test_1_first_run_brings_in_existing_work(self):
         ctx = self.context()
-        page = self.sign_in(ctx, "editor", EDITOR_PW)
+        page = self.sign_in(ctx, "editor", EDITOR_PW, go="/editor")
         page.wait_for_selector("#f-upload")
+        # Who's signed in shows even on the first-upload screen.
+        self.assertEqual(page.text_content(".site-account summary").replace("▾", "").strip(), "Admin")
         page.set_input_files("#f-upload [name=statto]", self.files["partial.statto"])
         page.set_input_files("#f-upload [name=data]", self.files["season_data.json"])
         page.click("#f-upload button")
@@ -413,13 +480,13 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(tags[p1]["by"], "Blake")
 
         # The editor's own annotation editor gets them live too.
-        ed = self.sign_in(editor_ctx, "editor", EDITOR_PW)
+        ed = self.sign_in(editor_ctx, "editor", EDITOR_PW, go="/editor")
         self.setup_rows(ed)
         blake.evaluate(tag, [2, "Hammer"])
         wait_until(lambda: len(ed.evaluate("() => Object.keys(loadAnnotations().passes)")) >= 3, message="editor sees new tags")
 
         # The hub shows progress and who's tagging now.
-        blake.click("#topnav a:has-text('Games')")
+        blake.click(".site-bar a:has-text('Tagging hub')")
         blake.wait_for_selector(".game")
         text = blake.text_content(".game >> nth=0")
         self.assertIn("3/", text)
@@ -430,7 +497,7 @@ class BrowserTests(unittest.TestCase):
 
     def test_3_newer_export_keeps_everything(self):
         ctx = self.context()
-        page = self.sign_in(ctx, "editor", EDITOR_PW)
+        page = self.sign_in(ctx, "editor", EDITOR_PW, go="/editor")
         self.setup_rows(page)
         # The editor checks the new export, saves it, and reloads itself.
         with page.expect_navigation(timeout=30000):
@@ -447,7 +514,7 @@ class BrowserTests(unittest.TestCase):
 
     def test_4_publish_and_view(self):
         ctx = self.context()
-        page = self.sign_in(ctx, "editor", EDITOR_PW)
+        page = self.sign_in(ctx, "editor", EDITOR_PW, go="/editor")
         self.setup_rows(page)
         page.click("text=Publish Team Report")
         page.wait_for_selector(".app-dialog >> text=Team Report published")
@@ -475,6 +542,62 @@ class BrowserTests(unittest.TestCase):
         view.goto(self.base + "/view")
         view.wait_for_selector("#topnav button.tab")
         open_ctx.close()
+        self.assertEqual(self.errors, [])
+
+    def test_6_home_page_and_top_bar(self):
+        def bar_links(page):
+            page.wait_for_selector(".site-bar")
+            return page.eval_on_selector_all(".site-bar .site-links a", "e => e.map(x => x.textContent)")
+
+        # The admin: a home page instead of the sign-in cards, with the bar.
+        ctx = self.context()
+        home = self.sign_in(ctx, "editor", EDITOR_PW)
+        self.assertFalse(home.is_visible("#signin-cards"))
+        cards = home.eval_on_selector_all(".home-card h3", "e => e.map(x => x.textContent)")
+        self.assertEqual(cards, ["Season setup", "Tagging hub", "Team Report", "Site settings"])
+        self.assertIn("3 games", home.text_content(".home-card >> nth=0"))
+        self.assertIn("events tagged", home.text_content(".home-card >> nth=1"))
+        self.assertIn("Published", home.text_content(".home-card >> nth=2"))
+        admin_links = ["Home", "Season setup", "Tagging hub", "Team Report", "Site settings"]
+        self.assertEqual(bar_links(home), admin_links)
+        # Coming back to / while signed in stays on the home page.
+        home.goto(self.base + "/")
+        home.wait_for_selector("#home:not([hidden])")
+
+        # The same bar on every page, with the current one marked.
+        for path, current in (("/editor", "Season setup"), ("/tag", "Tagging hub"), ("/settings", "Site settings"), ("/view", "Team Report")):
+            page = ctx.new_page()
+            page.goto(self.base + path)
+            self.assertEqual(bar_links(page), admin_links, path)
+            self.assertEqual(page.text_content(".site-bar .site-link.active"), current, path)
+            page.close()
+        editor = ctx.new_page()
+        editor.goto(self.base + "/editor")
+        editor.wait_for_selector("table.setup-games")
+        self.assertEqual(editor.eval_on_selector_all("#topnav a", "e => e.length"), 0, "no stray links in the tab row")
+
+        # The account menu signs out, back to the sign-in cards.
+        home.click(".site-account summary")
+        home.click(".site-menu button:has-text('Sign out')")
+        home.wait_for_selector("#signin-cards:not([hidden])")
+        self.assertFalse(home.is_visible(".site-bar"))
+        ctx.close()
+
+        # A tagger: hub and Team Report only; the tagging page explains live saving.
+        tctx = self.context()
+        hub = self.sign_in(tctx, "tagger", TAGGER_PW, "Casey")
+        hub.wait_for_selector(".game")
+        self.assertEqual(bar_links(hub), ["Tagging hub", "Team Report"])
+        self.assertEqual(hub.get_attribute(".site-account summary", "title"), "Signed in as Casey · Tagger")
+        hub.click(".game >> nth=0 >> .actions a.btn")  # "Tag" or "Continue"
+        hub.wait_for_selector("#topnav .tab.active")
+        self.assertEqual(bar_links(hub), ["Tagging hub", "Team Report"])
+        # ...and on the tagging page itself, top right.
+        self.assertEqual(hub.get_attribute(".site-account summary", "title"), "Signed in as Casey · Tagger")
+        text = hub.text_content("#data-editor")
+        self.assertIn("saves to the team site as you go", text)
+        self.assertNotIn("Export annotations JSON", text)
+        tctx.close()
         self.assertEqual(self.errors, [])
 
     def test_5_published_report_carries_no_site_data(self):

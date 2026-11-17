@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Set up editor</title>
+<title>Season setup</title>
 <meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/site.css">
 </head>
@@ -12,7 +12,7 @@
 
 <main class="narrow" id="first-upload" hidden>
   <h1 style="margin:8px 0 4px">Start your season</h1>
-  <p class="dim">Upload your team’s Statto export to get started. You’ll add newer exports from the editor as you stat more games.</p>
+  <p class="dim">Upload your team’s Statto export to get started. You’ll add newer exports from Season setup as you stat more games.</p>
   <div id="flash" hidden></div>
   <form class="card" id="f-upload" onsubmit="return false">
     <label>Statto export <span class="dim">The <code>.statto</code> file you exported from Statto</span>
@@ -30,6 +30,7 @@
 <script>
 (async function () {
   const status = await Site.requireRole('editor', '/editor');
+  Site.renderBar(status, 'editor'); // shown while loading and on the first-upload screen
   let loaded;
   try { loaded = await Site.loadReport(); }
   catch (e) { document.getElementById('loading').textContent = e.message; return; }
@@ -53,7 +54,7 @@
           bundle = JSON.parse(await Site.readFile(dataFile, 'text'));
           if (!bundle || bundle.statto !== 'custom-data') throw new Error('The existing-work file isn’t a season data or “custom data” file.');
         }
-        await Site.api('PUT', '/api/statto?team=' + encodeURIComponent(teamName), buf, 'application/octet-stream');
+        await Site.api('PUT', '/api/statto?team=' + encodeURIComponent(teamName) + '&games=' + report.games.length, buf, 'application/octet-stream');
         if (bundle) {
           await Site.api('PUT', '/api/season?force=1', JSON.stringify(bundle));
           await Site.uploadAnnotations(report, bundle.annotations);
@@ -68,14 +69,19 @@
   }
 
   const [season, tags] = await Promise.all([Site.loadSeason(), Site.loadTags()]);
+  // Keep the home page's game count current (older sites didn't record it).
+  if (!status.season || status.season.games !== loaded.report.games.length) {
+    Site.api('POST', '/api/settings', JSON.stringify({ gameCount: loaded.report.games.length })).catch(() => {});
+  }
   const data = Object.assign({ statto: 'custom-data', version: 1 }, season.data || {}, { annotations: tags.annotations });
   const teamName = status.teamName || loaded.teamName;
-  Site.writeReportPage(loaded.report, teamName + ' — Set up editor', {
+  Site.writeReportPage(loaded.report, teamName + ' — Season setup', {
     __STATTO_APP__: {
       server: true, seasonId: 'site', seasonName: teamName, home: '/',
       revision: season.revision, data,
     },
-    __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Editor' },
+    __STATTO_SYNC__: { since: tags.seq, name: (status.session && status.session.name) || 'Admin' },
+    __STATTO_SITE_BAR__: Site.barConfig(status, 'editor'),
   });
 })();
 </script>
