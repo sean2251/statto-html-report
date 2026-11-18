@@ -54,6 +54,12 @@ Everything saves to the site as you go; the pill at the bottom right says
   send helpers the team's address and tagger password. They pick games in the
   [tagging hub](tagging.md). To put someone on a game, use **Share for
   tagging** on its row (or they click **Claim** in the hub).
+- **Tags from before the site:** a helper sent you a tags file (from the old
+  tagging pages' **Export annotations JSON**)? In the **Tagging hub**, click
+  **Upload tags** on that game's row (only the admin sees it) and choose the
+  file. Only that game's tags are taken; where an event is already tagged,
+  the file's values replace the same fields and the rest are kept. Taggers'
+  hubs update by themselves; publish the Team Report again to include them.
 - **Publishing:** **Publish Team Report** on the Set up tab puts the current
   report at `<team address>/view`. It's a snapshot: publish again after
   changes. **Preview Team Report** shows it first.

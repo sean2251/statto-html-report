@@ -68,6 +68,68 @@
     (g.points || []).reduce((n, pt) => n + (pt.passes || []).length + (pt.blocks || []).length, 0)]));
   let hub = { now: 0, games: {} };
 
+  // ---- the admin's "Upload tags": an annotations file from before the site
+  // (a helper's "Export annotations JSON", or a whole "custom data" export) ----
+  // Only this game's events are taken, merged field by field into what's
+  // already on the site (the file wins where both set the same field), so a
+  // file for the wrong game can't touch other games.
+  function gameKeys(g) {
+    const keys = { passes: new Set(), blocks: new Set(), points: new Set() };
+    (g.points || []).forEach(pt => {
+      (pt.passes || []).forEach(p => p.uuid && keys.passes.add(p.uuid));
+      (pt.blocks || []).forEach(b => b.uuid && keys.blocks.add(b.uuid));
+      if (!pt.uuid) return;
+      for (let d = 1; d <= (pt.defensivePossessions || 0); d++) {
+        keys.points.add(pt.uuid + '#d' + d);
+        keys.points.add(pt.uuid + '#o' + d);
+      }
+      keys.points.add(pt.uuid + '#pull');
+    });
+    return keys;
+  }
+  async function uploadTags(g, file) {
+    let parsed;
+    try { parsed = JSON.parse(await Site.readFile(file, 'text')); }
+    catch (e) { Site.flash('That file isn’t valid JSON.', true); return; }
+    const incoming = (parsed && parsed.statto === 'custom-data') ? parsed.annotations : parsed;
+    if (!incoming || typeof incoming !== 'object' || !['passes', 'blocks', 'points'].some(k => incoming[k] && typeof incoming[k] === 'object')) {
+      Site.flash('That isn’t an annotations file (from “Export annotations JSON” or “Export all custom data”).', true);
+      return;
+    }
+    const keys = gameKeys(g);
+    const current = (await Site.loadTags()).annotations;
+    const changes = [];
+    let skipped = 0;
+    for (const kind of ['passes', 'blocks', 'points']) {
+      for (const [key, rec] of Object.entries(incoming[kind] || {})) {
+        if (!rec || typeof rec !== 'object' || !Object.keys(rec).length) continue;
+        if (!keys[kind].has(key)) { skipped++; continue; }
+        changes.push({ kind, key, game: g.uuid, data: Object.assign({}, current[kind][key], rec) });
+      }
+    }
+    if (!changes.length) {
+      Site.flash('None of the tags in that file are for vs ' + g.opponent + ' (' + g.dateDisplay + '). Check it’s the right game’s file.', true);
+      return;
+    }
+    if (!confirm('Upload ' + changes.length + ' tagged event' + (changes.length === 1 ? '' : 's') + ' to vs ' + g.opponent + ' (' + g.dateDisplay + ')?' +
+      (skipped ? '\n\n' + skipped + ' in the file are for other games and will be skipped.' : '') +
+      '\n\nWhere an event is already tagged here, the file’s values replace the same fields; other fields are kept.')) return;
+    try {
+      for (let i = 0; i < changes.length; i += 400) {
+        await Site.api('POST', '/api/tags', JSON.stringify({ changes: changes.slice(i, i + 400), upload: true }));
+      }
+      Site.flash('Uploaded ' + changes.length + ' tagged event' + (changes.length === 1 ? '' : 's') + ' to vs ' + g.opponent + '.' +
+        (skipped ? ' Skipped ' + skipped + ' for other games.' : '') + ' Publish the Team Report again to include them there.');
+      await refresh();
+    } catch (e) { Site.flash('Couldn’t upload the tags: ' + e.message, true); }
+  }
+  function uploadButton(g) {
+    const input = Site.el('input', { type: 'file', accept: '.json,application/json', hidden: true, class: 'upload-tags-input' });
+    input.addEventListener('change', () => { const f = input.files[0]; input.value = ''; if (f) uploadTags(g, f); });
+    const btn = Site.el('button', { type: 'button', title: 'Upload a tags file (.json) for this game', onclick: () => input.click() }, 'Upload tags');
+    return [btn, input];
+  }
+
   async function act(game, action) {
     try { hub = await Site.api('POST', '/api/claims', JSON.stringify({ game, action })); render(); }
     catch (e) { Site.flash(e.message, true); }
@@ -97,6 +159,7 @@
       if (!claim || (claim.name !== me && !done)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, 'claim') }, claim ? 'Take over' : 'Claim'));
       if (claim && !done && (claim.name === me || isEditor)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, 'done') }, 'Mark done'));
       if (claim && (claim.name === me || isEditor)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, done ? 'reopen' : 'release') }, done ? 'Reopen' : 'Release'));
+      if (isEditor) actions.append(...uploadButton(g));
       ul.append(el('li', { class: 'game' }, [el('div', {}, [name, meta]), actions, barRow]));
     }
     if (!ul.children.length) ul.append(el('li', { class: 'dim' }, 'Every game is done. Nice work!'));

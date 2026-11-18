@@ -815,6 +815,67 @@ class BrowserTests(unittest.TestCase):
         tctx.close()
         self.assertEqual(self.errors, [])
 
+    def test_8_admin_uploads_a_tags_file(self):
+        # An old annotations file (a helper's "Export annotations JSON") for one
+        # of the second team's games, plus one tag for another game.
+        passes = passes_by_game(example_bytes())
+        game, others = "Glass Cannons", [g for g in passes if g != "Glass Cannons"]
+        mine, theirs = passes[game][:5], passes[others[0]][:1]
+        api = Api(self.base, "other-club").login("editor", EDITOR_PW)
+        # One of them is already tagged on the site (by a tagger), with a different field.
+        Api(self.base, "other-club").login("tagger", "other-club-tagger", "Pat").call("POST", "/api/tags", {"changes": [{"kind": "passes", "key": mine[0]["uuid"], "game": mine[0]["game"],
+                                                   "data": {"release": "Forceside"}}]})
+        path = os.path.join(self.tmp.name, "old_annotations.json")
+        with open(path, "w") as f:
+            json.dump({"version": 1, "teamName": TEAM, "blocks": {}, "points": {},
+                       "passes": {p["uuid"]: {"hand": "Flick", "timestamp": 30 + i} for i, p in enumerate(mine + theirs)}}, f)
+
+        ctx = self.context()
+        hub = self.sign_in(ctx, "editor", EDITOR_PW, go="/tag", team="other-club")
+        row = ".game:has-text('vs %s')" % game
+        hub.wait_for_selector(row)
+        self.assertIn("1/", hub.text_content(row))
+        with hub.expect_file_chooser() as fc:
+            hub.click(row + " >> button:has-text('Upload tags')")
+        fc.value.set_files(path)
+        hub.wait_for_selector("#flash >> text=Uploaded 5 tagged events")
+        self.assertIn("Skipped 1 for other games", hub.text_content("#flash"))
+        hub.wait_for_selector(row + " >> text=5/")
+        ctx.close()
+
+        # Saved on the site for that game only, merged with what was there,
+        # and not shown as someone "tagging now".
+        tags = {c["key"]: c for c in api.call("GET", "/api/tags?since=0")[1]["changes"]}
+        self.assertEqual(tags[mine[0]["uuid"]]["data"], {"release": "Forceside", "hand": "Flick", "timestamp": 30})
+        self.assertTrue(all(tags[p["uuid"]]["game"] == p["game"] for p in mine))
+        self.assertNotIn(theirs[0]["uuid"], tags)
+        active = api.call("GET", "/api/hub")[1]["games"][mine[0]["game"]]["active"]
+        self.assertEqual([a["name"] for a in active], ["Pat"], "the upload isn't someone tagging now")
+
+        # A tagger's hub shows the progress; taggers get no upload button.
+        tctx = self.context()
+        thub = self.sign_in(tctx, "tagger", "other-club-tagger", "Erin", team="other-club")
+        thub.wait_for_selector(row + " >> text=5/")
+        self.assertEqual(thub.locator("button:has-text('Upload tags')").count(), 0)
+        tctx.close()
+        self.assertEqual(self.errors, [])
+
+
+def passes_by_game(statto):
+    """{opponent: [{uuid, game}]} for every pass in a .statto export."""
+    import io
+    import zipfile
+    rel = json.loads(zipfile.ZipFile(io.BytesIO(statto)).read("data.json"))["teams"][0]["data"]["relations"]
+    games = {g["uuid"]: g["opponent"] for g in rel["games"]}
+    point_game = {p["uuid"]: p["gameUUID"] for p in rel["points"]}
+    poss_game = {p["uuid"]: point_game.get(p["pointUUID"]) for p in rel["possessions"]}
+    out = {}
+    for pa in rel["passes"]:
+        g = poss_game.get(pa.get("possessionUUID"))
+        if g in games:
+            out.setdefault(games[g], []).append({"uuid": pa["uuid"], "game": g})
+    return out
+
 
 def v1_database(statto, tagger_pw, session_token):
     """SQL for a site from before teams (schema 1): one team's data in
