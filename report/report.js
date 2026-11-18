@@ -315,6 +315,7 @@ function buildNav() {
     nav.appendChild(el('button', { class: 'tab active', 'data-target': 'setup' }, [document.createTextNode('Set up')]));
     nav.appendChild(el('button', { class: 'tab', 'data-target': 'data-editor' }, [document.createTextNode('Video annotation editor')]));
     nav.appendChild(el('button', { class: 'tab', 'data-target': 'line-setup' }, [document.createTextNode('Line set up')]));
+    nav.appendChild(el('button', { class: 'tab', 'data-target': 'handedness' }, [document.createTextNode('Handedness')]));
   } else {
     // The published Team Report: all the analysis, read-only.
     nav.appendChild(el('button', { class: 'tab active', 'data-target': 'season' }, [document.createTextNode('Season')]));
@@ -402,7 +403,6 @@ function showView(id) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   // A tour in progress belongs to the tab you just left.
   endTour();
-  maybeAutoTour(id);
 }
 
 // ---------- Sortable stats tables & CSV export ----------
@@ -3698,7 +3698,7 @@ function buildSetupSection() {
 
   // ---- Games table: assignment + one video link each ----
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Games')]));
-  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Assign each game to a tournament and paste its video link. To have someone else tag a game, use “Share for tagging” — it gives you a game file and a link to send them; when they send back their exported annotations JSON, “Upload tags” merges it here (only that game’s tags, so a wrong file can’t affect others).')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('Assign each game to a tournament and paste its video link (it plays inside the tagging page). “Share for tagging” puts someone’s name on a game in the tagging hub; helpers sign in with the tagger password and tag there. Got an old tags file from a helper? Use “Upload tags” on the game in the tagging hub.')]));
   const gamesTableWrap = el('div', { class: 'table-scroll' }, []);
   section.appendChild(gamesTableWrap);
 
@@ -3754,6 +3754,56 @@ function buildSetupSection() {
     table.appendChild(tbody);
     gamesTableWrap.appendChild(table);
   }
+
+  // ---- Defensive schemes: the choices when tagging a defensive possession ----
+  section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Defensive schemes')]));
+  section.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('The defences your team plays. Tick the ones to offer when tagging a defensive possession, and add your own. Open tagging pages pick up changes by themselves.')]));
+  const schemesWrap = el('div', { class: 'setup-schemes' }, []);
+  section.appendChild(schemesWrap);
+  function renderSchemes() {
+    const saved = loadSetupData().defSchemes;
+    const custom = saved ? saved.custom.slice() : [];
+    const selected = new Set(saved ? saved.selected : DEF_SCHEME_STANDARD);
+    const save = () => {
+      saveSetupData(Object.assign(loadSetupData(), { defSchemes: { selected: [...selected], custom } }));
+      renderSchemes();
+    };
+    schemesWrap.innerHTML = '';
+    const list = el('div', { class: 'setup-scheme-list' }, []);
+    DEF_SCHEME_STANDARD.concat(custom).forEach(name => {
+      const box = el('input', { type: 'checkbox' }, []);
+      box.checked = selected.has(name);
+      box.addEventListener('change', () => { if (box.checked) selected.add(name); else selected.delete(name); save(); });
+      const item = el('label', { class: 'setup-scheme' }, [box, document.createTextNode(' ' + name)]);
+      if (custom.includes(name)) {
+        const del = el('button', { type: 'button', class: 'setup-scheme-remove', title: 'Remove “' + name + '”', 'aria-label': 'Remove ' + name }, [document.createTextNode('×')]);
+        del.addEventListener('click', (e) => {
+          e.preventDefault();
+          custom.splice(custom.indexOf(name), 1);
+          selected.delete(name);
+          save();
+        });
+        item.appendChild(del);
+      }
+      list.appendChild(item);
+    });
+    const input = el('input', { type: 'text', class: 'setup-video-input setup-scheme-input', placeholder: 'Your own, e.g. “Clam” or “Junk”', maxlength: '40', 'aria-label': 'New defensive scheme' }, []);
+    const addBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Add')]);
+    const add = () => {
+      const name = input.value.trim().replace(/\s+/g, ' ');
+      if (!name) return;
+      const same = DEF_SCHEME_STANDARD.concat(custom).find(x => x.toLowerCase() === name.toLowerCase());
+      if (same) selected.add(same);
+      else { custom.push(name); selected.add(name); }
+      save();
+    };
+    addBtn.addEventListener('click', add);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    schemesWrap.appendChild(list);
+    schemesWrap.appendChild(el('div', { class: 'controls-row setup-scheme-add' }, [input, addBtn]));
+    if (!selected.size) schemesWrap.appendChild(el('p', { class: 'pitch-caption' }, [document.createTextNode('⚠ Nothing ticked: taggers won’t have any scheme to choose.')]));
+  }
+  renderSchemes();
 
   // ---- Player photos ----
   section.appendChild(el('h2', { class: 'section-title' }, [document.createTextNode('Player photos')]));
@@ -4291,8 +4341,12 @@ function setupStorageKey() { return 'statto-report-setup::' + REPORT.teamName + 
 // even a full roster stays comfortably within localStorage's budget. All
 // three are independent maps so a partial/older saved blob still loads.
 //
-// In memory: { tournaments: [{ id, label, gameIndices }], videoLinks: { <index>: url }, playerPhotos }
-// Stored (v2): { tournaments: [{ id, label, gameUUIDs }], videoLinks: { <gameUUID>: url }, playerPhotos }
+// Also: playerHands ({ <player name>: 'Left' | 'Right' }, the Handedness tab)
+// and defSchemes ({ selected: [..], custom: [..] }, or null when never set up:
+// the team's defensive schemes, see teamDefSchemes).
+//
+// In memory: { tournaments: [{ id, label, gameIndices }], videoLinks: { <index>: url }, playerPhotos, playerHands, defSchemes }
+// Stored (v2): { tournaments: [{ id, label, gameUUIDs }], videoLinks: { <gameUUID>: url }, playerPhotos, playerHands, defSchemes }
 function setupFromStored(parsed) {
   parsed = parsed || {};
   const legacy = !(parsed.version >= 2);
@@ -4312,7 +4366,22 @@ function setupFromStored(parsed) {
     tournaments,
     videoLinks,
     playerPhotos: (parsed.playerPhotos && typeof parsed.playerPhotos === 'object') ? parsed.playerPhotos : {},
+    playerHands: cleanPlayerHands(parsed.playerHands),
+    defSchemes: cleanDefSchemes(parsed.defSchemes),
   };
+}
+function cleanPlayerHands(h) {
+  const out = {};
+  if (h && typeof h === 'object') Object.keys(h).forEach(n => { if (h[n] === 'Left' || h[n] === 'Right') out[n] = h[n]; });
+  return out;
+}
+function cleanDefSchemes(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.selected)) return null;
+  const clean = a => [...new Set((Array.isArray(a) ? a : []).map(x => String(x).trim()).filter(Boolean))];
+  const custom = clean(d.custom).filter(x => !DEF_SCHEME_STANDARD.includes(x));
+  const picked = new Set(clean(d.selected));
+  // Standard ones in their usual order, then the team's own in theirs.
+  return { selected: DEF_SCHEME_STANDARD.concat(custom).filter(x => picked.has(x)), custom };
 }
 
 function loadSetupData() {
@@ -4348,6 +4417,10 @@ function saveSetupData(data) {
       tournaments,
       videoLinks,
       playerPhotos: data.playerPhotos || {},
+      // Kept as they were unless this save sets them (the Set up tab's own
+      // saves don't carry them).
+      playerHands: cleanPlayerHands(data.playerHands !== undefined ? data.playerHands : (prev && prev.playerHands)),
+      defSchemes: cleanDefSchemes(data.defSchemes !== undefined ? data.defSchemes : (prev && prev.defSchemes)),
     }));
     appNoteChange();
     return true;
@@ -4384,7 +4457,7 @@ const ANNOTATION_VOCAB = {
   distance: ['Reset', 'Under', 'Upline', 'Away', 'Huck', 'Other'],
   stall: ['Low', 'Mid', 'High'],
   // only meaningful when the base pass is a turnover
-  turnoverReason: ['Underthrown', 'Overthrown', 'Thrown OB', 'Into poach', 'Into doublecoverage', 'Miscommunication', 'Hand/foot blocked', 'Receiver not open', 'Drop'],
+  turnoverReason: ['Underthrown', 'Overthrown', 'Thrown OB', 'Into poach', 'Into doublecoverage', 'Miscommunication', 'Hand/foot blocked', 'Receiver not open', 'Receiver did not run through', 'Drop'],
   catch: ['Uncontested', 'Contested', 'Layout/difficult'],
   highlight: ['Crazy highlight', 'Normal highlight'],
 };
@@ -4432,12 +4505,36 @@ const TAG_PRESET_FIELD_LABELS = {
   hand: 'Hand', release: 'Release', distance: 'Distance', stall: 'Stall', catch: 'Catch',
 };
 
-// Point-level: our defensive scheme while the opponent is on offence, and how
-// the opponent gave the disc back when it wasn't one of our blocks.
+// Point-level: how the opponent gave the disc back when it wasn't one of our
+// blocks. (Our defensive scheme's choices are the team's own -- see
+// teamDefSchemes.)
 const POINT_VOCAB = {
-  defScheme: ['Zone', 'Force forehand', 'Force backhand', 'Force return'],
   oppTurnover: ['Huck turnover', 'Throwing error', 'Receiver error'],
 };
+
+// The defences a team can choose from on Season setup's Set up tab; the team
+// ticks the ones it plays and can add its own. Tagging a defensive possession
+// offers exactly the team's list.
+const DEF_SCHEME_STANDARD = ['Force forehand', 'Force backhand', 'Zone', 'Force middle', 'Force return'];
+// The team's list, in order: the standard ones it ticked, then its own.
+// Never set up: all the standard ones.
+function teamDefSchemes() {
+  const d = loadSetupData().defSchemes;
+  return d ? d.selected.slice() : DEF_SCHEME_STANDARD.slice();
+}
+// For a dropdown: the team's list, plus a value already tagged that has since
+// been taken off it (so the tag still shows, and can be changed).
+function defSchemeChoices(current) {
+  const list = teamDefSchemes();
+  if (current && !list.includes(current)) list.push(current);
+  return list;
+}
+// For filtering tags: the team's list plus every scheme actually tagged.
+function defSchemesInUse() {
+  const list = teamDefSchemes();
+  Object.values(loadAnnotations().points || {}).forEach(r => { if (r && r.defScheme && !list.includes(r.defScheme)) list.push(r.defScheme); });
+  return list;
+}
 
 function annotationsStorageKey() { return 'statto-report-annotations::' + REPORT.teamName + appKeySuffix(); }
 
@@ -4831,6 +4928,31 @@ function syncStart() {
   });
   setInterval(syncPoll, SYNC_POLL_MS);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPoll(); });
+  // A tagging page also follows the team's set-up (its defensive schemes, a
+  // video link added later), which only Season setup changes.
+  if (TAGONLY_GAME != null) {
+    setInterval(() => { if (!document.hidden) syncSetupPoll(); }, SYNC_SETUP_POLL_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) syncSetupPoll(); });
+  }
+}
+
+const SYNC_SETUP_POLL_MS = 20000;
+let syncSetupPolling = false;
+function syncSetupPoll() {
+  if (syncSetupPolling) return;
+  syncSetupPolling = true;
+  fetch(SITE_BASE + '/api/season', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      const setup = j && j.data && j.data.setup;
+      if (!setup || typeof setup !== 'object') return;
+      const fresh = JSON.stringify(setup);
+      if (fresh === localStorage.getItem(setupStorageKey())) return;
+      localStorage.setItem(setupStorageKey(), fresh);
+      window.dispatchEvent(new CustomEvent('statto:remote-setup'));
+    })
+    .catch(() => {})
+    .then(() => { syncSetupPolling = false; });
 }
 
 function syncDiff() {
@@ -6942,13 +7064,14 @@ const RAW_DATA_NOTES = [
   'Blocks are this team’s own defensive plays (turnovers forced on the opponent); locationX/locationY is where the block happened.',
   'Statto only records this team’s own actions -- a point the opponent won by simply holding their own possession has zero recorded passes for that point, so point and score counts should always come from the points data, never by counting passes.',
   'Player names (not IDs) are the join key across points, passes, blocks, lineup, and boxScore within this export.',
-  'roster (top level) lists every player who appears in a box score this season. Each entry carries their mixed-line gender designation -- gender is "WMP" (women-matching player) or "MMP" (men-matching player), with genderCode 1 or 0 respectively (both null if the player has no gender set) -- and hasPhoto and photoFile. Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
+  'roster (top level) lists every player who appears in a box score this season. Each entry carries their mixed-line gender designation -- gender is "WMP" (women-matching player) or "MMP" (men-matching player), with genderCode 1 or 0 respectively (both null if the player has no gender set) -- plus hasPhoto and photoFile, and handedness ("Right" or "Left" -- the hand they throw with, as set by the admin; null if not set). Photos are NOT embedded here — they travel as a separate "player photos" ZIP downloaded from the same Raw Data tab, in which each file is named exactly as photoFile says (e.g. photos/sean_mcsweeney.png). If you were given that ZIP alongside this file, use photoFile to match a face to a name; if you weren’t, ignore it — nothing else depends on it.',
   'pullEvents (top level, separate from games) is a manually video-tagged list, one entry per defensive point that has been tagged: who pulled and where our pull landed. puller is the player name (or null if untagged). landX/landY are 0-1 field fractions in the same coordinate system as passes (null when outOfBounds is true, or when a spot wasn’t marked); outOfBounds=true means the pull sailed out. It is only present for points a tagger has marked, so it may be empty or cover only some defensive points.',
   'opponentTurnoverEvents (top level) is the other manually video-tagged list: opponent turnovers that were NOT one of our blocks (those are in games[].points[].blocks). Statto records nothing for them, so each is inferred as an opponent possession we won the disc back from, identified by pointNumber + opponentPossession (their n-th offensive possession that point); type is one of Huck turnover / Throwing error / Receiver error, or null if untagged. Like pullEvents, only tagged ones appear.',
   'Film tags: a pass or block in games[].points[] may carry a "filmTags" object when someone has video-tagged it. On a pass: hand (backhand/forehand/etc.), release, distance, stall (Low/Mid/High), catch, highlight, turnoverReason (an ARRAY -- a turnover can have several causes), plus timestamp (seconds into that game’s video) and notes. On a block: type, highlight, timestamp, notes. A point may also carry filmTags: defScheme (the defence called), pull (where our pull landed -- puller, landX/landY 0-1 or outOfBounds), defensivePossessions[] (each with defScheme), and opponentTurnovers[] (each with a type). Every field is optional and tags exist only where a tagger added them, so most passes have none. (pullEvents/opponentTurnoverEvents above are flattened, game-context copies of the same point-level tags, handy for "list every tagged pull".)',
   'videoLinks (top level) maps each selected game to its YouTube URL. To deep-link a tagged moment, append the tag’s timestamp: `<url>&t=<timestamp>s`.',
   'lines (top level) is the user’s curated line groupings (e.g. "O line", "D line"): each has a name, optional tournament, pointCount, the points it covers (gameIndex + pointNumber), and a roster listing how many of the line’s points each player was on (pctOfLinePoints). Lines are a season-level curation and are deliberately NOT filtered by the selected games.',
   'tournaments (top level) groups the selected games the way the report does -- custom names if the user set them, else auto-detected -- so questions can be scoped to an event ("at Regionals...").',
+  'defensiveSchemes (top level) lists the defences this team tags defensive possessions with (its own choice of labels), the values a point-level filmTags defScheme takes. "Force forehand" and "Force backhand" are named from a right-handed thrower’s perspective.',
   'advancedStatsForSelection (top level) is one row per player of the Ultiworld "EDGE" goal-equivalent / efficiency metrics (EDGE-O, EDGE-B, EDGE, xE, CP+, PE, CR, ...) for the selected games; advancedStatsGlossary defines every column. EDGE is a league-ranking framework adapted here to a single team, so game-condition adjustments use this season’s own scoring efficiency as the reference and the purely league-relative ratings are omitted -- read these as relative across your own roster, not against outside benchmarks.',
   'See "glossary" above for definitions of Huck, Red zone, Clean/Dirty hold, and the other Statto-specific terms used throughout this data.',
 ].join(' ');
@@ -7223,6 +7346,8 @@ function buildRawDataExportJSON(gameIndices) {
         genderCode: (gc === 1 || gc === 0) ? gc : null,
         hasPhoto: has,
         photoFile: has ? 'photos/' + slug(name) + '.png' : null,
+        // Set by the admin on Season setup's Handedness tab; null if not set.
+        handedness: loadSetupData().playerHands[name] || null,
       };
     }),
     seasonLeaderboardForSelection: aggregateSeasonStats(gameIndices),
@@ -7238,6 +7363,7 @@ function buildRawDataExportJSON(gameIndices) {
     lines: collectLinesForExport(),
     videoLinks: collectVideoLinks(gameIndices),
     tournaments: collectTournamentsForExport(gameIndices),
+    defensiveSchemes: teamDefSchemes(),
     pullEvents: collectPullEvents(gameIndices),
     opponentTurnoverEvents: collectOppTurnoverEvents(gameIndices),
   };
@@ -7383,9 +7509,12 @@ The JSON has these top-level sections:
   from any \`filmTags.timestamp\` to deep-link a tagged moment
 - \`tournaments[]\` — how the selected games group into tournaments (custom
   names if set), for event-scoped questions
+- \`defensiveSchemes[]\` — the defences this team tags defensive possessions
+  with (its own labels): the values \`filmTags.defScheme\` takes
 - \`roster[]\` — every player, with their mixed-line gender designation
   (\`gender\`: \`"WMP"\`/\`"MMP"\`, \`genderCode\`: \`1\`/\`0\`, both \`null\` if unset),
-  plus \`hasPhoto\` and \`photoFile\`. Photos are
+  their \`handedness\` (\`"Right"\`/\`"Left"\`, the hand they throw with as
+  set by the admin; \`null\` if not set), plus \`hasPhoto\` and \`photoFile\`. Photos are
   deliberately **not** embedded in the JSON (base64 images would add
   megabytes to a file meant to be pasted into a chat, and can't be viewed
   out of a string field anyway). They come as a separate
@@ -7913,7 +8042,7 @@ function buildAnnotationQueryPane() {
       filterRow.appendChild(dropdown('Landing', ['In-bounds', 'Out-of-bounds'], 'landing'));
       filterRow.appendChild(dropdown('Puller', allPlayerNames(), 'puller'));
     } else if (showKind === 'def') {
-      filterRow.appendChild(dropdown('Defensive scheme', POINT_VOCAB.defScheme, 'defScheme'));
+      filterRow.appendChild(dropdown('Defensive scheme', defSchemesInUse(), 'defScheme'));
     } else if (showKind === 'oppTurn') {
       filterRow.appendChild(dropdown('Turnover type', POINT_VOCAB.oppTurnover, 'oppTurnover'));
     } else if (showKind === 'points') {
@@ -8619,7 +8748,7 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
         el('div', { class: 'de-panel-sub' }, [document.createTextNode(`Point ${step.pt.number} · Defensive possession ${step.defN}`)]),
       ]));
       const sel = el('select', { class: 'de-select' }, [el('option', { value: '' }, [document.createTextNode('—')])]);
-      POINT_VOCAB.defScheme.forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
+      defSchemeChoices(rec.defScheme).forEach(v => sel.appendChild(el('option', { value: v }, [document.createTextNode(v)])));
       sel.value = rec.defScheme || '';
       sel.addEventListener('change', () => setPointField(annKey, 'defScheme', sel.value || undefined));
       panel.appendChild(el('label', { class: 'de-field de-field-wide' }, [el('span', { class: 'de-field-label' }, [document.createTextNode('Defensive scheme')]), sel]));
@@ -8913,6 +9042,13 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   // Tags saved by someone else (team site): always take the fresh copy, so a
   // later save here can't write back a stale one; redraw unless the person is
   // mid-way through typing in the tag panel.
+  // The team's set-up changed (tagging pages): new scheme choices, a video link.
+  window.addEventListener('statto:remote-setup', () => {
+    refreshPlayer();
+    const active = document.activeElement;
+    const typing = active && section.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+    if (!typing) render();
+  });
   if (SYNC) {
     window.addEventListener('statto:remote-tags', () => {
       annotations = loadAnnotations();
@@ -8924,6 +9060,83 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   }
 
   loadGame();
+  return section;
+}
+
+// ---------- Handedness (Season setup) ----------
+// Which hand each player throws with, set by the admin and saved with the
+// season's set-up (playerHands). Beside each player: up to three of their
+// throws that have a video timestamp, to check against the film. Not used by
+// any stat yet; it travels in the Team Report and the Raw Data export.
+const HANDS = ['Right', 'Left'];
+
+// Up to `limit` of a player's throws with a timestamp, in games with a video
+// link. Throws tagged Flick or Backhand first: they show the hand plainly.
+function playerFilmThrows(name, limit) {
+  const ann = loadAnnotations();
+  const links = loadSetupData().videoLinks;
+  const out = [];
+  REPORT.games.forEach((g, gi) => {
+    const vid = parseYouTubeId(links[gi]);
+    if (!vid) return;
+    (g.points || []).forEach(pt => (pt.passes || []).forEach(p => {
+      if (p.thrower !== name || !p.uuid) return;
+      const rec = ann.passes[p.uuid];
+      if (!rec || rec.timestamp == null || !isFinite(Number(rec.timestamp))) return;
+      out.push({ game: g, vid, ts: Math.max(0, Math.floor(Number(rec.timestamp))), hand: rec.hand || null });
+    }));
+  });
+  const clear = t => (t.hand === 'Flick' || t.hand === 'Backhand') ? 0 : 1;
+  return out.sort((a, b) => clear(a) - clear(b)).slice(0, limit);
+}
+
+function buildHandednessSection() {
+  const section = el('section', { class: 'view', id: 'handedness' }, []);
+  section.appendChild(text('p', 'eyebrow', 'Handedness'));
+  section.appendChild(text('p', 'hero-sub', 'Which hand each player throws with. Beside each player, up to three of their throws with a video timestamp, so anyone can check against the film.'));
+  const summary = el('p', { class: 'pitch-caption' }, []);
+  section.appendChild(summary);
+  const wrap = el('div', { class: 'table-scroll' }, []);
+  section.appendChild(wrap);
+
+  function render() {
+    const hands = loadSetupData().playerHands;
+    const names = allPlayerNames();
+    const set = names.filter(n => hands[n]).length;
+    summary.textContent = set + ' of ' + names.length + ' players set' +
+      (set ? ' (' + HANDS.map(h => names.filter(n => hands[n] === h).length + ' ' + h.toLowerCase()).join(', ') + ')' : '') +
+      '. Throws appear here once they’re tagged with a timestamp in a game that has a video link.';
+    const table = el('table', { class: 'stats setup-hands' }, []);
+    table.appendChild(el('thead', {}, [el('tr', {}, ['Player', 'Throws with', 'Check on film'].map(h => el('th', {}, [document.createTextNode(h)])))]));
+    const tbody = el('tbody', {}, []);
+    names.forEach(name => {
+      const choice = el('div', { class: 'setup-hand-choice', role: 'group', 'aria-label': name + ' throws with' }, []);
+      HANDS.forEach(h => {
+        const on = hands[name] === h;
+        const b = el('button', { type: 'button', class: 'pill-btn' + (on ? ' active' : ''), 'aria-pressed': on ? 'true' : 'false',
+          title: on ? 'Click again to clear' : name + ' throws ' + h.toLowerCase() + '-handed' }, [document.createTextNode(h)]);
+        b.addEventListener('click', () => {
+          const next = Object.assign({}, loadSetupData().playerHands);
+          if (next[name] === h) delete next[name]; else next[name] = h;
+          saveSetupData(Object.assign(loadSetupData(), { playerHands: next }));
+          render();
+        });
+        choice.appendChild(b);
+      });
+      const throws = playerFilmThrows(name, 3);
+      const film = el('div', { class: 'setup-hand-film' }, throws.length
+        ? throws.map(t => el('a', { href: youtubeTimestampUrl(t.vid, t.ts), target: '_blank', rel: 'noopener noreferrer', class: 'setup-hand-clip' },
+          [document.createTextNode('▶ vs ' + t.game.opponent + ' ' + formatTimestamp(t.ts) + (t.hand ? ' · ' + t.hand : ''))]))
+        : [el('span', { class: 'setup-hand-none' }, [document.createTextNode('No timestamped throws yet')])]);
+      tbody.appendChild(el('tr', {}, [el('td', {}, [document.createTextNode(name)]), el('td', {}, [choice]), el('td', {}, [film])]));
+    });
+    table.appendChild(tbody);
+    wrap.innerHTML = '';
+    wrap.appendChild(table);
+  }
+  render();
+  // Opening the tab picks up throws tagged (or video links added) since.
+  gameViewRefreshers.set('handedness', render);
   return section;
 }
 
@@ -9927,9 +10140,8 @@ function buildAdvancedStatsSection() {
 
 // ---------- Guided tours (published team report only) ----------
 // A short walkthrough per tab: dim everything, cut a hole around one element,
-// explain it, Next. Teammates open this report cold and with no one to ask, so
-// each tab introduces itself once and then gets out of the way -- the "Guide"
-// button in the nav replays it on demand.
+// explain it, Next. Tours never start by themselves: the "? Guide" button in
+// the nav starts the current tab's.
 //
 // Steps name their target with a selector scoped to the section. A step whose
 // target is missing or hidden is dropped before the tour starts, so the same
@@ -10015,13 +10227,6 @@ const TOURS = {
 const TOUR_PAD = 6;
 let tourState = null;
 
-function toursSeenKey() { return 'statto-report-tours-seen::' + REPORT.teamName; }
-function loadToursSeen() {
-  try { return JSON.parse(localStorage.getItem(toursSeenKey())) || {}; } catch (e) { return {}; }
-}
-function saveToursSeen(seen) {
-  try { localStorage.setItem(toursSeenKey(), JSON.stringify(seen)); } catch (e) {}
-}
 // Game pages all share one tour; every other view is keyed by its own id.
 function tourKeyForView(id) { return String(id).startsWith('game-') ? 'game' : id; }
 
@@ -10171,18 +10376,6 @@ function startTour(viewId) {
 
 // First visit to a tab in the team report runs its tour once, then never again
 // on this browser unless the Guide button is used.
-function maybeAutoTour(viewId) {
-  if (!VIEWER_MODE) return;
-  const key = tourKeyForView(viewId);
-  if (!TOURS[key]) return;
-  const seen = loadToursSeen();
-  if (seen[key]) return;
-  seen[key] = true;
-  saveToursSeen(seen);
-  // Let the view finish rendering (some rebuild on show) before measuring it.
-  setTimeout(() => { if (document.getElementById(viewId)) startTour(viewId); }, 400);
-}
-
 function currentViewId() {
   const active = document.querySelector('main section.view.active');
   return active ? active.id : null;
@@ -10208,6 +10401,7 @@ function init() {
     main.appendChild(buildSetupSection());
     main.appendChild(buildDataEditorSection(false));
     mountRebuildableView(() => buildLineAnalysisSection('setup'));
+    main.appendChild(buildHandednessSection());
     initTableScrollAffordance(main);
     return;
   }
@@ -10238,13 +10432,10 @@ function init() {
   REPORT.games.forEach((g, i) => main.appendChild(buildGameSection(g, i)));
   initTableScrollAffordance(main);
   // A shared view link (#share=) opens straight onto its tab, already seeded at
-  // build time. Then drop the hash so a reload behaves normally. Otherwise
-  // Season is active on load and kicks off its tour here.
+  // build time. Then drop the hash so a reload behaves normally.
   if (PENDING_SHARE_VIEW && document.getElementById(PENDING_SHARE_VIEW.tab)) {
     showView(PENDING_SHARE_VIEW.tab);
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-  } else {
-    maybeAutoTour('season');
   }
 }
 

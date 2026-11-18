@@ -3,7 +3,7 @@
 Each team's pages split into two:
 
 - **Season setup** (admin only) — **Set up**, the **Video annotation editor**,
-  and **Line set up**. This is where you author; none of the analysis lives
+  **Line set up** and **Handedness**. This is where you author; none of the analysis lives
   here. Everything saves to the site as you go.
 - **Team Report** (what you publish from Season setup, at `<team address>/view`)
   — **Season**, a **Games** dropdown, **Film Clips**, **Player Analysis**,
@@ -43,6 +43,12 @@ The configuration the Team Report reads from. None of it is in the
   game's own page, and plays inside the tagging page), and see how much of
   each game is tagged (`X/Y tagged`). **Share for tagging** puts a helper's
   name on a game in the tagging hub.
+- **Defensive schemes** — the defences your team plays, which are the choices
+  when tagging a defensive possession. Tick any of **Force forehand**, **Force
+  backhand**, **Zone**, **Force middle** and **Force return**, and add as many
+  of your own as you like (× removes one). Tagging pages already open pick up
+  a change within about 20 seconds. Taking a scheme off the list doesn't touch
+  possessions already tagged with it.
 - **Player photos** — give each player a round avatar, two ways: upload one
   photo per player and crop it to a circle (drag to pan, slider to zoom), or
   **tag several at once from a single team photo** — upload one group shot,
@@ -65,11 +71,10 @@ The configuration the Team Report reads from. None of it is in the
   **point-in-time snapshot** (stamped with its publish time in the footer), so
   publish again after you change anything.
 
-  **Guided tours.** The Team Report — and only the Team Report — walks a
-  first-time visitor through each tab: a dimmed overlay highlights one element
-  at a time with a short explanation and a Next button. Each tab introduces
-  itself once per browser and then stays quiet; the **? Guide** button in the
-  nav replays the current tab's tour any time. Steps whose target isn't there
+  **Guided tours.** The Team Report — and only the Team Report — has a short
+  walkthrough of each tab: a dimmed overlay highlights one element at a time
+  with a short explanation and a Next button. Tours don't open by themselves;
+  the **? Guide** button in the nav starts the current tab's. Steps whose target isn't there
   are dropped before the tour starts, so a game with no video link or no tagged
   film simply skips those steps rather than pointing at nothing. Arrow keys step
   through it, Esc or **Skip** closes it.
@@ -98,8 +103,9 @@ richer, queryable film dataset on top of the raw Statto data.
   the opponent gets a new offensive possession each time they gain the disc
   (they receive your pull, or you turn it over), so a scrappy point can have
   several, and even a clean opponent hold shows up as its own step. Each one
-  lets you tag your **Defensive scheme** (Zone / Force forehand / Force
-  backhand / Force return) for that possession.
+  lets you tag your **Defensive scheme** for that possession, from the
+  team's own list (see [Set up](#set-up----season-setup)). “Force forehand”
+  and “Force backhand” are named from a right-handed thrower's perspective.
 - Tag each pass with a few composable fields — **Hand** (backhand/flick/…),
   **Release** (forceside/breakside/…), **Distance** (reset/under/away/…),
   **Stall**, **Catch**, and, for turnovers, one or more **Turnover reasons**
@@ -128,6 +134,18 @@ richer, queryable film dataset on top of the raw Statto data.
   Backhand* reads as "X of Y turnovers (Z%)". A **Copy timestamp links**
   button grabs every result's video link at once (e.g. to paste into a
   scouting doc or share with players).
+
+## Handedness  ·  *Season setup*
+
+Which hand each player throws with: **Right** or **Left** per player (click
+the chosen one again to clear it). Beside each player are up to three of their
+throws that have a video timestamp, in games with a video link — each opens
+the game's video at that moment, so anyone can check. Throws tagged Flick or
+Backhand come first, since they show the hand most plainly. A player shows
+"No timestamped throws yet" until someone tags one.
+
+It isn't used by any stat yet. It's saved with the season, travels in the
+published Team Report, and is in the Raw Data JSON export (`roster[].handedness`).
 
 ## Season  ·  *Team Report*
 

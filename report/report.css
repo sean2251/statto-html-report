@@ -1329,6 +1329,29 @@
   .setup-tournament-row .line-name-input { flex: 1; min-width: 0; }
   .setup-tournament-count { font-size: 12px; color: var(--chalk-dim); white-space: nowrap; }
   .setup-tournament-row .pill-btn { margin-top: 0; }
+  /* Defensive schemes: tick the team's, add its own */
+  .setup-scheme-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+  .setup-scheme {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    background: var(--ink-soft); border: 1px solid rgba(var(--chalk-rgb),0.12);
+    border-radius: 999px; padding: 6px 12px; font-size: 13px; color: var(--chalk);
+  }
+  .setup-scheme-remove {
+    border: 0; background: none; color: var(--chalk-dim); cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 0 0 4px;
+  }
+  .setup-scheme-remove:hover { color: var(--chalk); }
+  .setup-scheme-add { gap: 8px; align-items: center; }
+  .setup-scheme-input { max-width: 320px; }
+  /* Handedness tab */
+  .setup-hands td { vertical-align: middle; }
+  table.stats.setup-hands th, table.stats.setup-hands td { text-align: left; font-family: var(--sans); }
+  .setup-hand-choice { display: inline-flex; gap: 6px; }
+  .setup-hand-choice .pill-btn { margin-top: 0; padding: 5px 12px; }
+  .setup-hand-choice .pill-btn.active { background: var(--chalk); color: var(--ink); border-color: var(--chalk); }
+  .setup-hand-film { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .setup-hand-clip { font-size: 12.5px; white-space: nowrap; }
+  .setup-hand-none { font-size: 12.5px; color: var(--chalk-dim); }
 
   table.stats.setup-games { width: 100%; }
   table.stats.setup-games th, table.stats.setup-games td { text-align: left; vertical-align: middle; }

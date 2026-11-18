@@ -20,7 +20,7 @@ another team altogether — completely separate from the others:
 | Each team has its own | |
 |---|---|
 | Address | `<your site>/t/ramp-2026/` — send people this one |
-| Season setup | tournaments, video links, photos, lines |
+| Season setup | tournaments, video links, photos, defensive schemes, lines, handedness |
 | Tags and tagging hub | |
 | Team Report | at `<team address>/view` |
 | Passwords | tagger and viewer, set in that team's **Site settings**; they only open that team |
@@ -40,10 +40,13 @@ password for the whole site, and it opens every team.
 ## Season setup
 
 Where you author the season: the [Set up tab](report-guide.md#set-up----season-setup)
-(tournaments, video links, player photos, newer exports), the [Video annotation
+(tournaments, video links, player photos, your team's defensive schemes, newer
+exports), the [Video annotation
 editor](report-guide.md#video-annotation-editor----season-setup) (tag film
-yourself, and watch helpers' tags arrive) and [Line set
-up](report-guide.md#line-set-up--line-analysis----season-setup--team-report).
+yourself, and watch helpers' tags arrive), [Line set
+up](report-guide.md#line-set-up--line-analysis----season-setup--team-report) and
+[Handedness](report-guide.md#handedness----season-setup) (who throws left or
+right, with clips to check).
 Everything saves to the site as you go; the pill at the bottom right says
 **All changes saved**.
 
