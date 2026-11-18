@@ -1,42 +1,25 @@
-# Statto data and generated reports (may contain real player names)
-*.statto
-*_report.html
+# Dependencies and Wrangler's local state (the local database lives here)
+node_modules/
+.wrangler/
+.dev.vars
 
-# Anything named after a real team. "RAMP" anywhere in the name (not just as a
-# prefix) so year-prefixed files like "2026 RAMP/" and "2026_RAMP_Thru_SFI.html"
-# are caught too, alongside hand-renamed downloads. Both cases, since gitignore
-# is case-sensitive by default.
+# Real teams' data never goes in the repo: Statto exports carry players'
+# names. Only the made-up example season is checked in.
+*.statto
+!examples/example_season.statto
+*.tagging.json
+*_custom_data.json
+*-backup.json
+*.csv
+# Anything named after a real team (both cases: gitignore is case-sensitive).
 *RAMP*
 *ramp*
 
-# Everything else the report generates, all of which carries real names:
-# single-game video-tagging pages, exported film annotations, curated lines,
-# the player-photo bundle, and the Raw Data CSV/JSON/Markdown exports.
-*_tag_*.html
-*_annotations*.json
-*_lines.json
-*_player_photos.zip
-*_raw_data.json
-*_raw_data_context.md
-*.csv
-
-# ...except the fake, made-up-names example checked into examples/
-!examples/example_season.statto
-!examples/example_report.html
-
-# Python
+# Python (the tests)
 __pycache__/
 *.pyc
 .venv/
 
 # Editor/OS
 .DS_Store
-.Rhistory
 .claude/
-
-# Game files for the shared tagging site (real names), and build output
-*.tagging.json
-*_custom_data.json
-build/
-dist/
-_site/
