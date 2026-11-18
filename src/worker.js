@@ -592,7 +592,9 @@ async function getTags(env, team, since) {
 }
 
 // changes: [{ kind, key, game, data }] -- data replaces that event's tags (null clears them).
-async function putTags(env, team, session, changes) {
+// quiet: an upload or restore, not someone tagging -- don't show them in the
+// hub as "tagging now".
+async function putTags(env, team, session, changes, quiet) {
   if (!Array.isArray(changes) || !changes.length) return { saved: 0 };
   if (changes.length > 500) throw new HttpError('Too many changes at once.');
   const db = env.DB;
@@ -614,7 +616,7 @@ async function putTags(env, team, session, changes) {
           updated_by = excluded.updated_by, updated_at = excluded.updated_at, seq = excluded.seq`)
       .bind(team.id, c.kind, c.key, game, data, by, t));
   }
-  for (const g of games) {
+  for (const g of quiet ? [] : games) {
     stmts.push(db.prepare(`INSERT INTO team_activity (team, game, name, at) VALUES (?, ?, ?, ?)
         ON CONFLICT(team, game, name) DO UPDATE SET at = excluded.at`).bind(team.id, g, by, t));
   }
@@ -734,7 +736,7 @@ async function restore(env, team, body) {
   for (let i = 0; i < tags.length; i += 200) {
     await putTags(env, team, { name: 'restore', role: 'editor' }, tags.slice(i, i + 200).map(r => ({
       kind: r.kind, key: r.key, game: r.game, data: r.data ? JSON.parse(r.data) : null,
-    })));
+    })), true);
   }
   return { ok: true, blobs: Object.keys(body.blobs || {}).length, tags: tags.length };
 }
@@ -856,7 +858,8 @@ async function handleTeamApi(request, env, url, team, path) {
     if (method === 'POST') {
       const s = await requireRole(request, env, team, 'tagger');
       const body = await request.json().catch(() => null);
-      return json(await putTags(env, team, s, body && body.changes));
+      // The admin's "Upload tags" (an old annotations file) is quiet.
+      return json(await putTags(env, team, s, body && body.changes, !!(body && body.upload) && s.role === 'editor'));
     }
   }
 
