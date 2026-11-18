@@ -1,8 +1,8 @@
-"""Tests for the team site (site/): a real local copy of it, run by Wrangler
+"""Tests for the site: a real local copy of it, run by Wrangler
 (Cloudflare's local Workers runtime, with a local D1 database), driven through
 its API and in headless Chromium.
 
-Needs Node, site/node_modules (cd site && npm install) and Playwright for the
+Needs Node, node_modules (npm install) and Playwright for the
 browser parts; skipped without them. CI sets STATTO_REQUIRE_SITE_TESTS=1 so a
 missing piece fails instead of silently skipping.
 """
@@ -21,7 +21,7 @@ import urllib.request
 
 from helpers import EXAMPLE, ROOT, TEAM, example_bytes, legacy_bundle, without_earliest_game
 
-SITE = os.path.join(ROOT, "site")
+SITE = ROOT
 WRANGLER = os.path.join(SITE, "node_modules", ".bin", "wrangler")
 EDITOR_PW = "editor-pass-for-tests"
 TAGGER_PW = "tagger-pass-for-tests"
@@ -40,7 +40,7 @@ def setUpModule():
     if not shutil.which("node"):
         missing.append("Node")
     if not os.path.exists(WRANGLER):
-        missing.append("site/node_modules (cd site && npm install)")
+        missing.append("node_modules (npm install)")
     if sync_playwright is None:
         missing.append("Playwright")
     if missing:

@@ -1,0 +1,14 @@
+{
+  "name": "statto-stats",
+  "private": true,
+  "description": "Your team's stats website from Statto exports: Season setup, a live film-tagging hub and the Team Report, on Cloudflare Workers + D1.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "python3 -m unittest discover -s tests -v"
+  },
+  "devDependencies": {
+    "wrangler": "4.160.1"
+  }
+}

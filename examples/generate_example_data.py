@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 Generate a fake .statto file with made-up names and 3 games, for use as a
-repo example (see examples/example_season.statto, and example_report.html: the
-Set up editor built from it).
+repo example (examples/example_season.statto): upload it as a team to try the
+site, and the tests use it.
 
 Usage:
     python3 examples/generate_example_data.py
-    python3 statto_to_html_report.py examples/example_season.statto -o examples/example_report.html
 """
 
 import json
@@ -54,7 +53,7 @@ mmp_players = [p for p in players if p["gender"] == 0]
 
 OPPONENTS = ["Glass Cannons", "Night Herons", "Tumbleweed", "Salt Flats Sundowners"]
 
-ENDZONE = 20.0 / 110.0  # matches statto_report.constants.ENDZONE_FRACTION
+ENDZONE = 20.0 / 110.0  # matches ENDZONE_FRACTION in report/stats.js
 
 def rand_x():
     return random.uniform(0.05, 0.95)
