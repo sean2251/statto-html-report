@@ -30,9 +30,11 @@ You work in two pages:
 Everything in one place online: Season setup for the admin, a **live tagging hub** where
 several people can tag at once (even the same game) and see each other's
 progress, and the Team Report — stored on your team's own site, not in anyone's
-browser. Three logins (admin, tagger, viewer), each with one shared password;
-the viewer password is optional. Each team runs its own copy on Cloudflare's
-free plan, set up with a **Deploy to Cloudflare** button in about 10 minutes.
+browser. One site holds as many teams or seasons as you like, each completely
+separate with its own address and its own tagger and viewer passwords (the
+viewer one optional); one admin login switches between them. It runs on
+Cloudflare's free plan, set up with a **Deploy to Cloudflare** button in about
+10 minutes.
 
 **[Setting up and using a team site →](site/README.md)**
 

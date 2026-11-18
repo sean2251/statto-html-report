@@ -28,6 +28,7 @@ button:disabled { opacity:.5; cursor:default; }
 .games { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
 .game { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:grid; grid-template-columns: minmax(0,1fr) auto; gap:6px 12px; align-items:center; }
 .game .name { font-weight:600; }
+.game .name a { color:inherit; }
 .game .meta { color:var(--dim); font-size:13px; }
 .game .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; grid-row: span 2; }
 .bar-track { height:6px; border-radius:3px; background:var(--line); overflow:hidden; }
@@ -56,12 +57,25 @@ button:disabled { opacity:.5; cursor:default; }
 .site-account .role { color:var(--dim); }
 .site-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:50; min-width:220px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; box-shadow:0 8px 24px rgba(0,0,0,.25); display:flex; flex-direction:column; gap:10px; }
 .site-menu button { width:100%; }
+/* the admin's team switcher, in place of the team name */
+.site-teams { position:relative; margin-right:6px; }
+.site-teams summary { list-style:none; cursor:pointer; display:flex; gap:6px; align-items:center; padding:4px 8px; margin-left:-8px; border-radius:10px; }
+.site-teams summary::-webkit-details-marker { display:none; }
+.site-teams summary:hover { background:var(--line); }
+.site-teams .site-brand { margin:0; }
+.site-teams .caret { font-size:11px; color:var(--dim); }
+.site-teams .site-menu { left:0; right:auto; min-width:260px; }
+.site-menu-list { display:flex; flex-direction:column; gap:2px; max-height:50vh; overflow-y:auto; }
+.site-menu-item { color:var(--fg); text-decoration:none; padding:6px 8px; border-radius:8px; font-size:14px; }
+.site-menu-item:hover { background:var(--line); }
+.site-menu-item.current { font-weight:600; }
+.site-new-team { width:100%; }
 .home-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; }
 .home-card { text-decoration:none; color:var(--fg); }
 .home-card:hover { border-color:var(--accent); }
 .home-card .stat { font-size:14px; color:var(--dim); }
 @media (max-width: 560px) {
   .site-bar { padding:10px 16px; }
-  .site-brand { flex:1; min-width:0; }
+  .site-brand, .site-teams { flex:1; min-width:0; }
   .site-links { order:3; flex-basis:100%; overflow-x:auto; flex-wrap:nowrap; }
 }

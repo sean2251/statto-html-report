@@ -5,7 +5,17 @@
 (function () {
   'use strict';
 
-  async function api(method, path, body, contentType) {
+  // Every team's pages live under its own address, /t/<slug>/ (the same files
+  // for each team); BASE is that prefix, or '' on the site's own pages (the
+  // first sign-in, "Upload new team").
+  const BASE = (location.pathname.match(/^\/t\/[a-z0-9-]+/) || [''])[0];
+
+  // A call to this team's API (or the site's, on the site's own pages).
+  function api(method, path, body, contentType) { return call(method, BASE + path, body, contentType); }
+  // A call to the site's own API (setup, the admin login, the list of teams).
+  function siteApi(method, path, body, contentType) { return call(method, path, body, contentType); }
+
+  async function call(method, path, body, contentType) {
     const opts = { method, headers: {}, cache: 'no-store' };
     if (body !== undefined) {
       opts.body = body;
@@ -26,12 +36,13 @@
   const ALLOWED = { editor: ['editor'], tagger: ['editor', 'tagger'], viewer: ['editor', 'tagger', 'viewer'] };
 
   // The signed-in session, or a trip to the login page (which comes back here).
-  async function requireRole(need, page) {
+  // (Comes back to this page after signing in.)
+  async function requireRole(need) {
     const status = await api('GET', '/api/status');
     const ok = status.session && ALLOWED[need].includes(status.session.role);
     const open = need === 'viewer' && status.viewerOpen;
     if (!ok && !open) {
-      location.replace('/?next=' + encodeURIComponent(page) + '&role=' + need);
+      location.replace(BASE + '/?next=' + encodeURIComponent(location.pathname + location.search) + '&role=' + need);
       return new Promise(() => {}); // never resolves; we're leaving
     }
     return status;
@@ -39,11 +50,11 @@
 
   async function logout() {
     await api('POST', '/api/logout', '');
-    location.href = '/';
+    location.href = BASE + '/';
   }
 
   async function loadReport() {
-    const r = await fetch('/api/statto', { cache: 'no-store' });
+    const r = await fetch(BASE + '/api/statto', { cache: 'no-store' });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('Couldn’t load the Statto export (' + r.status + ').');
     return window.StattoStats.reportFromStatto(await r.arrayBuffer());
@@ -73,8 +84,9 @@
     return (kind, key) => kind === 'points' ? m.get('pt:' + String(key).split('#')[0]) || null : m.get(kind + ':' + key) || null;
   }
 
-  // Send a whole annotation store to the server (e.g. imported from the Mac app).
-  async function uploadAnnotations(report, annotations) {
+  // Send a whole annotation store to a team (e.g. imported from the Mac app).
+  // base: that team's address, if not this page's.
+  async function uploadAnnotations(report, annotations, base) {
     const gameOf = gameIndex(report);
     const changes = [];
     for (const kind of ['passes', 'blocks', 'points']) {
@@ -83,7 +95,7 @@
       }
     }
     for (let i = 0; i < changes.length; i += 400) {
-      await api('POST', '/api/tags', JSON.stringify({ changes: changes.slice(i, i + 400) }));
+      await call('POST', (base == null ? BASE : base) + '/api/tags', JSON.stringify({ changes: changes.slice(i, i + 400) }));
     }
     return changes.length;
   }
@@ -152,16 +164,35 @@
     tagger: [['tag', '/tag', 'Tagging hub'], ['view', '/view', 'Team Report']],
     viewer: [['view', '/view', 'Team Report']],
   };
+  const PAGE_PATH = { home: '/', editor: '/editor', tag: '/tag', view: '/view', settings: '/settings' };
+  // status: /api/status (a team's, or the site's on the site's own pages).
   function barConfig(status, current) {
     const s = status.session;
+    const here = status.team ? status.team.slug : null;
+    const base = here ? '/t/' + here : '';
+    const links = s ? BAR_LINKS[s.role] : (status.viewerOpen ? BAR_LINKS.viewer : []);
     return {
-      team: status.teamName || 'Team site',
+      team: status.teamName || 'All teams',
+      base,
+      home: base + '/',
       role: s ? s.role : null,
       name: s ? (s.name || ROLE_LABEL[s.role]) : null,
       roleLabel: s ? ROLE_LABEL[s.role] : null,
-      links: s ? BAR_LINKS[s.role] : (status.viewerOpen ? BAR_LINKS.viewer : []),
+      links: here ? links.map(([key, href, label]) => [key, base + href, label]) : [],
       current,
+      // The admin's team switcher: every team, each opening the same page there.
+      teams: status.teams ? status.teams.map(t => ({ name: t.name, slug: t.slug, current: t.slug === here,
+        href: '/t/' + t.slug + (PAGE_PATH[current] || '/') })) : null,
+      newTeam: status.teams ? '/new' : null,
+      // Other teams this browser is signed in to (taggers and viewers).
+      others: (status.signedIn || []).map(t => ({ name: t.name, href: '/t/' + t.slug + '/' + (t.role === 'viewer' ? 'view' : 'tag') })),
     };
+  }
+  // A dropdown in the bar: <details> with a menu; closes on any click outside.
+  function dropdown(cls, summary, title, menu) {
+    const d = el('details', { class: cls }, [el('summary', { title }, summary), el('div', { class: 'site-menu' }, menu)]);
+    document.addEventListener('click', e => { if (!d.contains(e.target)) d.open = false; });
+    return d;
   }
   function renderBar(status, current) {
     const cfg = barConfig(status, current);
@@ -170,22 +201,32 @@
     let account;
     if (cfg.role) {
       const who = cfg.name === cfg.roleLabel ? cfg.roleLabel : cfg.name + ' · ' + cfg.roleLabel;
-      account = el('details', { class: 'site-account' }, [
-        el('summary', { title: 'Signed in as ' + who }, [cfg.name,
-          cfg.name === cfg.roleLabel ? null : el('span', { class: 'role' }, '· ' + cfg.roleLabel),
-          el('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')]),
-        el('div', { class: 'site-menu' }, [
-          el('div', { class: 'dim' }, 'Signed in as ' + who),
-          el('button', { type: 'button', onclick: logout }, 'Sign out'),
-        ]),
-      ]);
-      // Close the menu on any click outside it, like a normal dropdown.
-      document.addEventListener('click', e => { if (!account.contains(e.target)) account.open = false; });
+      const menu = [el('div', { class: 'dim' }, 'Signed in as ' + who)];
+      if (cfg.others.length) {
+        menu.push(el('div', { class: 'dim' }, 'Also signed in to:'),
+          el('div', { class: 'site-menu-list' }, cfg.others.map(t => el('a', { href: t.href, class: 'site-menu-item' }, t.name))));
+      }
+      menu.push(el('button', { type: 'button', onclick: logout }, 'Sign out'));
+      account = dropdown('site-account', [cfg.name,
+        cfg.name === cfg.roleLabel ? null : el('span', { class: 'role' }, '· ' + cfg.roleLabel),
+        el('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')], 'Signed in as ' + who, menu);
     } else {
-      account = el('a', { href: '/', class: 'site-link' }, 'Sign in');
+      account = el('a', { href: cfg.home, class: 'site-link' }, 'Sign in');
+    }
+    let brand;
+    if (cfg.teams) {
+      brand = dropdown('site-teams', [el('span', { class: 'site-brand' }, cfg.team), el('span', { class: 'caret', 'aria-hidden': 'true' }, '▾')],
+        'Switch team', [
+          el('div', { class: 'site-menu-list' }, cfg.teams.map(t => el('a', {
+            href: t.href, class: 'site-menu-item' + (t.current ? ' current' : ''), 'aria-current': t.current ? 'true' : false,
+          }, [t.current ? '✓ ' : '', t.name]))),
+          el('a', { href: cfg.newTeam, class: 'btn site-new-team' }, '+ Upload new team'),
+        ]);
+    } else {
+      brand = el('a', { href: cfg.home, class: 'site-brand' }, cfg.team);
     }
     const bar = el('header', { class: 'site-bar' }, [
-      el('a', { href: '/', class: 'site-brand' }, cfg.team),
+      brand,
       el('nav', { class: 'site-links', 'aria-label': 'Site' }, links),
       account,
     ]);
@@ -193,5 +234,5 @@
     return bar;
   }
 
-  window.Site = { api, requireRole, logout, loadReport, loadSeason, loadTags, uploadAnnotations, writeReportPage, readFile, el, flash, ago, barConfig, renderBar, ROLE_LABEL };
+  window.Site = { base: BASE, api, siteApi, requireRole, logout, loadReport, loadSeason, loadTags, uploadAnnotations, writeReportPage, readFile, el, flash, ago, barConfig, renderBar, ROLE_LABEL };
 })();
