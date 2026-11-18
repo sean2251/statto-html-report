@@ -8894,8 +8894,10 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
     renderPanel();
   }
 
+  let playerUrl;  // the video link refreshPlayer last showed
   function refreshPlayer() {
     const url = loadSetupData().videoLinks[gameIndex];
+    playerUrl = url;
     const vid = parseYouTubeId(url);
     playerNote.style.display = 'none';
     videoHint.style.display = 'none';
@@ -9044,7 +9046,9 @@ function buildDataEditorSection(viewer, tagOnlyGame) {
   // mid-way through typing in the tag panel.
   // The team's set-up changed (tagging pages): new scheme choices, a video link.
   window.addEventListener('statto:remote-setup', () => {
-    refreshPlayer();
+    // Only touch the player if this game's video link changed: rebuilding it
+    // would interrupt someone mid-tag (or retry a video that can't embed).
+    if (loadSetupData().videoLinks[gameIndex] !== playerUrl) refreshPlayer();
     const active = document.activeElement;
     const typing = active && section.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
     if (!typing) render();

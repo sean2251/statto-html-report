@@ -869,7 +869,12 @@ class BrowserTests(unittest.TestCase):
             return team_api.call("GET", "/api/season")[1]["data"]["setup"]
 
         # A tagger already has a game open before the admin changes anything.
+        # Its YouTube player is a stand-in that counts players and, like
+        # YouTube with an id it can't embed, reports an error.
         tctx = self.context()
+        tctx.add_init_script("""window.__ytPlayers = 0; window.YT = { Player: function (id, opts) {
+            window.__ytPlayers++; this.loadVideoById = function () { window.__ytPlayers++; };
+            setTimeout(function () { opts.events.onError({ data: 2 }); }, 0); } };""")
         hub = self.sign_in(tctx, "tagger", TAGGER_PW, "Fran")
         hub.wait_for_selector(".game")
         hub.click(".game >> nth=0 >> .actions a.btn")
@@ -900,9 +905,13 @@ class BrowserTests(unittest.TestCase):
 
         # The open tagging page picks them up by itself (it checks every 20s;
         # ask now rather than wait), keeping a value already tagged.
+        self.assertEqual(hub.evaluate("() => window.__ytPlayers"), 1)
         hub.evaluate("() => syncSetupPoll()")
         wait_until(lambda: hub.evaluate("() => teamDefSchemes()") == want, message="tagging page has the new schemes")
         self.assertEqual(hub.evaluate("() => defSchemeChoices('Zone')"), want + ["Zone"])
+        # This game's video link didn't change, so its player is left alone.
+        hub.wait_for_timeout(300)
+        self.assertEqual(hub.evaluate("() => window.__ytPlayers"), 1)
         tctx.close()
 
         # Handedness: every player, with throws to check on film.
