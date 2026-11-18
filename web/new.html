@@ -20,7 +20,7 @@
     <label>Bring in existing work (optional)
       <span class="dim">From the old Statto Reports Mac app? Choose the season folder’s <code>season_data.json</code>. From an old Set up editor file? Use its Set up → “Export all custom data” file. Use the same <code>.statto</code> it was built from; add newer exports afterwards.</span>
       <input type="file" name="data" accept=".json,application/json"></label>
-    <div class="row"><button class="primary" type="submit">Create the team</button></div>
+    <div class="row"><button class="primary" type="submit" disabled>Create the team</button></div>
   </form>
 </main>
 <script src="/site.js"></script>
@@ -32,8 +32,10 @@
   const form = document.getElementById('f-new');
   const field = n => form.querySelector('[name=' + n + ']');
   let parsed = null; // { buf, report, teamName } of the chosen export
+  let parsing = Promise.resolve(); // reading it; Create waits for this
 
-  field('statto').addEventListener('change', async () => {
+  field('statto').addEventListener('change', () => { parsing = readExport(); });
+  async function readExport() {
     parsed = null;
     const file = field('statto').files[0];
     if (!file) return;
@@ -48,13 +50,16 @@
         field('name').dataset.suggested = '1';
       }
     } catch (e) { Site.flash('That file isn’t a Statto export this site can read: ' + e.message, true); }
-  });
+  }
   field('name').addEventListener('input', () => { field('name').dataset.suggested = '0'; });
+  // A file chosen before the page was ready (no change event reached us).
+  if (field('statto').files.length) parsing = readExport();
 
   form.addEventListener('submit', async () => {
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
     try {
+      await parsing; // still reading the file someone just chose
       if (!parsed) throw new Error('Choose the team’s Statto export first.');
       const name = field('name').value.trim();
       if (!name) throw new Error('Give the team a name.');
@@ -77,6 +82,9 @@
       btn.disabled = false;
     }
   });
+  // Ready: the button works from here on (disabled until now, so an early
+  // click can't silently do nothing).
+  form.querySelector('button[type=submit]').disabled = false;
   document.body.dataset.ready = '1';
 })();
 </script>
