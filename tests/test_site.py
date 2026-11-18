@@ -516,11 +516,6 @@ class BrowserTests(unittest.TestCase):
 
     def context(self):
         ctx = self.browser.new_context(accept_downloads=True)
-        # First-time Team Report viewers get guided tours; mark them seen.
-        ctx.add_init_script("""try { localStorage.setItem('statto-report-tours-seen::' + %s, JSON.stringify(
-            Object.fromEntries(['season','game','data-editor','player-analysis','line-analysis','thrower-receiver-analysis',
-            'field-analysis','gender-analysis','time-series','advanced-stats','raw-data'].map(k => [k, true])))); } catch (e) {}"""
-                            % json.dumps(TEAM))
 
         def watch(page):
             page.on("pageerror", lambda e: self.errors.append(str(e)))
@@ -677,6 +672,13 @@ class BrowserTests(unittest.TestCase):
         view.wait_for_selector("#topnav button.tab")
         self.assertIsNone(view.evaluate("() => APP"))
         self.assertEqual(view.evaluate("() => loadSetupData().videoLinks[2]"), "https://youtu.be/TW")
+        # No guided tour pops up by itself; "? Guide" starts one.
+        view.wait_for_timeout(800)
+        self.assertFalse(view.is_visible(".tour-pop"))
+        view.click(".tour-guide-btn")
+        view.wait_for_selector(".tour-pop")
+        view.keyboard.press("Escape")
+        view.wait_for_selector(".tour-pop", state="detached")
         for tab in view.query_selector_all("#topnav button.tab[data-target]"):
             if tab.is_visible():
                 tab.click()
@@ -858,6 +860,81 @@ class BrowserTests(unittest.TestCase):
         thub.wait_for_selector(row + " >> text=5/")
         self.assertEqual(thub.locator("button:has-text('Upload tags')").count(), 0)
         tctx.close()
+        self.assertEqual(self.errors, [])
+
+    def test_9_handedness_and_defensive_schemes(self):
+        team_api = self.editor_api()
+
+        def saved_setup():
+            return team_api.call("GET", "/api/season")[1]["data"]["setup"]
+
+        # A tagger already has a game open before the admin changes anything.
+        # Its YouTube player is a stand-in that counts players and, like
+        # YouTube with an id it can't embed, reports an error.
+        tctx = self.context()
+        tctx.add_init_script("""window.__ytPlayers = 0; window.YT = { Player: function (id, opts) {
+            window.__ytPlayers++; this.loadVideoById = function () { window.__ytPlayers++; };
+            setTimeout(function () { opts.events.onError({ data: 2 }); }, 0); } };""")
+        hub = self.sign_in(tctx, "tagger", TAGGER_PW, "Fran")
+        hub.wait_for_selector(".game")
+        hub.click(".game >> nth=0 >> .actions a.btn")
+        hub.wait_for_selector("#topnav .tab.active")
+        self.assertEqual(hub.evaluate("() => defSchemeChoices()"),
+                         ["Force forehand", "Force backhand", "Zone", "Force middle", "Force return"])
+        self.assertIn("Receiver did not run through", hub.evaluate("() => ANNOTATION_VOCAB.turnoverReason"))
+
+        ctx = self.context()
+        page = self.sign_in(ctx, "editor", EDITOR_PW, go="/editor")
+        self.setup_rows(page)
+
+        # Defensive schemes: untick one, add the team's own.
+        schemes = page.eval_on_selector_all(".setup-scheme", "e => e.map(x => [x.textContent.trim(), x.querySelector('input').checked])")
+        self.assertEqual(schemes, [[n, True] for n in ["Force forehand", "Force backhand", "Zone", "Force middle", "Force return"]])
+        page.uncheck(".setup-scheme:has-text('Zone') input")
+        page.fill(".setup-scheme-input", "Clam")
+        page.press(".setup-scheme-input", "Enter")
+        page.wait_for_selector(".setup-scheme:has-text('Clam') input:checked")
+        want = ["Force forehand", "Force backhand", "Force middle", "Force return", "Clam"]
+        wait_until(lambda: (saved_setup().get("defSchemes") or {}).get("selected") == want, message="schemes saved")
+        # Saving the rest of the Set up tab keeps them.
+        page.fill("table.setup-games tbody tr >> nth=0 >> input.setup-video-input", "https://youtu.be/GC")
+        page.press("table.setup-games tbody tr >> nth=0 >> input.setup-video-input", "Tab")
+        wait_until(lambda: saved_setup()["videoLinks"].get(page.evaluate("() => REPORT.games[0].uuid")) == "https://youtu.be/GC",
+                   message="video link saved")
+        self.assertEqual(saved_setup()["defSchemes"]["selected"], want)
+
+        # The open tagging page picks them up by itself (it checks every 20s;
+        # ask now rather than wait), keeping a value already tagged.
+        self.assertEqual(hub.evaluate("() => window.__ytPlayers"), 1)
+        hub.evaluate("() => syncSetupPoll()")
+        wait_until(lambda: hub.evaluate("() => teamDefSchemes()") == want, message="tagging page has the new schemes")
+        self.assertEqual(hub.evaluate("() => defSchemeChoices('Zone')"), want + ["Zone"])
+        # This game's video link didn't change, so its player is left alone.
+        hub.wait_for_timeout(300)
+        self.assertEqual(hub.evaluate("() => window.__ytPlayers"), 1)
+        tctx.close()
+
+        # Handedness: every player, with throws to check on film.
+        page.click("#topnav button.tab[data-target=handedness]")
+        page.wait_for_selector("#handedness.active table.setup-hands")
+        thrower = page.evaluate("() => REPORT.games[2].points[0].passes[0].thrower")
+        row = "#handedness tr:has(td:text-is(%s))" % json.dumps(thrower)
+        clips = page.eval_on_selector_all(row + " a.setup-hand-clip", "e => e.map(a => [a.textContent, a.href])")
+        self.assertTrue(clips and len(clips) <= 3, clips)
+        self.assertTrue(all("vs Tumbleweed" in t and "youtube.com/watch?v=TW&t=" in h for t, h in clips), clips)
+        page.click(row + " button:has-text('Left')")
+        wait_until(lambda: saved_setup().get("playerHands") == {thrower: "Left"}, message="handedness saved")
+        self.assertEqual(page.get_attribute(row + " button:has-text('Left')", "aria-pressed"), "true")
+        # In the machine-readable export, with the team's schemes.
+        export = page.evaluate("() => buildRawDataExportJSON(REPORT.games.map((g, i) => i))")
+        hands = {r["name"]: r["handedness"] for r in export["roster"]}
+        self.assertEqual(hands[thrower], "Left")
+        self.assertEqual(sum(1 for v in hands.values() if v), 1)
+        self.assertEqual(export["defensiveSchemes"], want)
+        # Clicking the chosen hand again clears it.
+        page.click(row + " button:has-text('Left')")
+        wait_until(lambda: saved_setup().get("playerHands") == {}, message="handedness cleared")
+        ctx.close()
         self.assertEqual(self.errors, [])
 
 
