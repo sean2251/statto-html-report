@@ -19,10 +19,12 @@ const out = process.argv[2] || join(here, 'public');
 
 const read = name => readFileSync(join(report, name), 'utf8');
 
-// The report page with its CSS and JS inlined; the title and the report data
+// The report page with its CSS and JS (the stats engine too: the report uses
+// its list of taggable events) inlined; the title and the report data
 // are filled in by the page that shows it (web/site.js writeReportPage).
 const template = read('report.html')
   .replace('__REPORT_CSS__', () => read('report.css'))
+  .replace('__STATS_JS__', () => read('stats.js'))
   .replace('__REPORT_JS__', () => read('report.js'));
 
 rmSync(out, { recursive: true, force: true });

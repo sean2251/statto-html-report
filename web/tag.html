@@ -64,9 +64,18 @@
   try { hideDone.checked = localStorage.getItem('statto-hub-hide-done') === '1'; } catch (e) {}
   hideDone.addEventListener('change', () => { try { localStorage.setItem('statto-hub-hide-done', hideDone.checked ? '1' : '0'); } catch (e) {} render(); });
 
-  const totals = new Map(report.games.map(g => [g.uuid,
-    (g.points || []).reduce((n, pt) => n + (pt.passes || []).length + (pt.blocks || []).length, 0)]));
   let hub = { now: 0, games: {} };
+  // Every tag on the site, kept current: the progress counts come from these,
+  // by the same rule as the tagging page (StattoStats.taggedEvents).
+  let tags = await Site.loadTags();
+  async function refreshTags() {
+    const j = await Site.api('GET', '/api/tags?since=' + tags.seq);
+    for (const c of j.changes) {
+      if (!tags.annotations[c.kind]) continue;
+      if (c.data) tags.annotations[c.kind][c.key] = c.data; else delete tags.annotations[c.kind][c.key];
+    }
+    tags.seq = Math.max(tags.seq, j.seq);
+  }
 
   // ---- the admin's "Upload tags": an annotations file from before the site
   // (a helper's "Export annotations JSON", or a whole "custom data" export) ----
@@ -144,17 +153,17 @@
       const claim = h.claim;
       const done = claim && claim.status === 'done';
       if (done && hideDone.checked) continue;
-      const total = totals.get(g.uuid) || 0;
-      const pct = total ? Math.min(100, Math.round(100 * h.tagged / total)) : 0;
+      const { tagged, total } = StattoStats.taggedEvents(g, tags.annotations);
+      const pct = total ? Math.min(100, Math.round(100 * tagged / total)) : 0;
       const live = h.active.filter(a => a.name !== me);
       const who = claim ? (done ? 'Finished by ' + claim.name : claim.name + ' is on it') : 'Nobody yet';
       const name = el('div', { class: 'name' }, ['vs ' + g.opponent]);
       if (done) name.append(el('span', { class: 'pill done' }, 'done'));
       if (live.length) name.append(el('span', { class: 'pill live' }, live.map(a => a.name).join(', ') + ' tagging now'));
-      const meta = el('div', { class: 'meta' }, [g.dateDisplay + ' · ' + g.ourScore + '–' + g.oppScore + ' · ' + h.tagged + '/' + total + ' tagged · ' + who]);
+      const meta = el('div', { class: 'meta' }, [g.dateDisplay + ' · ' + g.ourScore + '–' + g.oppScore + ' · ' + tagged + '/' + total + ' tagged · ' + who]);
       const barRow = el('div', { class: 'bar-track' }, el('div', { class: 'bar-fill', style: 'width:' + pct + '%' }));
       const actions = el('div', { class: 'actions' });
-      const tagBtn = el('a', { class: 'btn primary', href: Site.base + '/tag?game=' + encodeURIComponent(g.uuid) }, h.tagged ? 'Continue' : 'Tag');
+      const tagBtn = el('a', { class: 'btn primary', href: Site.base + '/tag?game=' + encodeURIComponent(g.uuid) }, tagged ? 'Continue' : 'Tag');
       actions.append(tagBtn);
       if (!claim || (claim.name !== me && !done)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, 'claim') }, claim ? 'Take over' : 'Claim'));
       if (claim && !done && (claim.name === me || isEditor)) actions.append(el('button', { type: 'button', onclick: () => act(g.uuid, 'done') }, 'Mark done'));
@@ -166,7 +175,7 @@
   }
 
   async function refresh() {
-    try { hub = await Site.api('GET', '/api/hub'); render(); } catch (e) { /* keep the last view */ }
+    try { [hub] = await Promise.all([Site.api('GET', '/api/hub'), refreshTags()]); render(); } catch (e) { /* keep the last view */ }
   }
   await refresh();
   setInterval(() => { if (!document.hidden) refresh(); }, 8000);

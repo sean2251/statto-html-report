@@ -3735,8 +3735,7 @@ function buildSetupSection() {
       });
 
       // Per-game video tagging: put someone on it (they tag in the hub).
-      const total = gameAnnotationUUIDs(i).size;
-      const tagged = gameTaggedCount(i);
+      const { tagged, total } = gameTagProgress(i);
       const createBtn = el('button', { class: 'pill-btn', type: 'button' }, [document.createTextNode('Share for tagging')]);
       createBtn.addEventListener('click', () => openShareForTaggingDialog(i));
       const countEl = el('span', { class: 'setup-tag-count' }, [document.createTextNode(`${tagged}/${total} tagged`)]);
@@ -5214,23 +5213,12 @@ function openShareForTaggingDialog(gameIndex) {
   ]);
 }
 
-// The pass/block UUIDs that belong to one game -- used to count how much of a
-// game is tagged.
-function gameAnnotationUUIDs(gameIndex) {
-  const set = new Set();
-  const g = REPORT.games[gameIndex];
-  (g.points || []).forEach(pt => {
-    (pt.passes || []).forEach(p => { if (p.uuid) set.add(p.uuid); });
-    (pt.blocks || []).forEach(b => { if (b.uuid) set.add(b.uuid); });
-  });
-  return set;
+// How much of a game is tagged ({ tagged, total }), by the same rule as the
+// tagging page and the tagging hub: every taggable event counts.
+function gameTagProgress(gameIndex) {
+  return StattoStats.taggedEvents(REPORT.games[gameIndex], loadAnnotations());
 }
-function gameTaggedCount(gameIndex) {
-  const ann = loadAnnotations();
-  let n = 0;
-  gameAnnotationUUIDs(gameIndex).forEach(uuid => { if (ann.passes[uuid] || ann.blocks[uuid]) n++; });
-  return n;
-}
+
 // Both curated lines and any custom tournament names travel together --
 // one localStorage entry, and one exported lines.json covers both.
 // tournamentLabels maps tournament id -> user-chosen name (absent = use the
@@ -7780,91 +7768,11 @@ function buildRawDataSection() {
   return section;
 }
 
-// ---------- Taggable events ----------
-// Every taggable event in one point, in the order it happened. Shared by the
-// Data Editor's stepper and the Query pane so the two always agree on what
-// exists and -- for the synthesized events (pull, defensive possession,
-// opponent turnover) -- on the annotation key each one is stored under.
-function buildPointEvents(pt) {
-  const out = [];
-  // Every defensive point opens with a Pull (our pull to the opponent), ahead
-  // of the first defensive-possession/scheme event.
-  if (!pt.isOffense) out.push({ kind: 'pull', pt, uuid: pt.uuid + '#pull' });
-  // Interleave our offensive possessions (their passes) with the opponent's
-  // offensive possessions (= our defensive possessions), in chronological
-  // order: the disc starts with whoever received the pull (isOffense) and
-  // flips on every turnover. Each defensive possession becomes its own event
-  // so it can be tagged with its scheme -- and a clean opponent hold (no
-  // passes, no blocks of ours) stays reachable rather than being skipped.
-  const passesByPoss = new Map();
-  (pt.passes || []).forEach(p => {
-    if (!p.uuid) return;
-    if (!passesByPoss.has(p.possession)) passesByPoss.set(p.possession, []);
-    passesByPoss.get(p.possession).push(p);
-  });
-  const ourPossNums = [...passesByPoss.keys()].sort((a, b) => a - b);
-  const defCount = pt.defensivePossessions || 0;
-  // Blocks bucketed by how many of our possessions preceded them (from
-  // stats.py), so each block lands mid-point -- right after the opponent
-  // possession it ended and before the possession it handed us -- instead of
-  // all being dumped at the end of the point.
-  const blocksBefore = new Map();
-  (pt.blocks || []).forEach(b => {
-    if (!b.uuid) return;
-    const gi = (b.afterOurPossessions != null) ? b.afterOurPossessions : ourPossNums.length;
-    if (!blocksBefore.has(gi)) blocksBefore.set(gi, []);
-    blocksBefore.get(gi).push(b);
-  });
-  const emitBlocksBefore = (gi) => {
-    const list = blocksBefore.get(gi) || [];
-    list.forEach(b => out.push({ kind: 'block', pt, item: b, uuid: b.uuid }));
-    blocksBefore.delete(gi);
-    return list.length;
-  };
-  // Every opponent possession we won the disc back from ended in a turnover:
-  // either one of our blocks (a recorded event) or an unforced opponent error.
-  // Statto records nothing at all for the latter, so we synthesize the event
-  // here. Held pending until we see whether a block claimed it.
-  let ourIdx = 0, defIdx = 0;
-  let pendingOppTurn = null;
-  // Settles the pending turnover: if a block of ours is waiting at this point
-  // in the flow, that block WAS the turnover; otherwise it was unforced and we
-  // emit the synthesized event. Resolving the block here (rather than only on
-  // the way into one of our possessions) matters when we won the disc back but
-  // recorded no passes with it -- an immediate re-turnover leaves no possession
-  // to hang the block off, and the turnover would otherwise be double-counted.
-  const flushOppTurn = () => {
-    if (pendingOppTurn == null) return;
-    const n = pendingOppTurn;
-    pendingOppTurn = null;
-    if (emitBlocksBefore(ourIdx)) return;
-    out.push({ kind: 'oppTurn', pt, defN: n, uuid: pt.uuid + '#o' + n });
-  };
-  let turn = pt.isOffense ? 'us' : 'them';
-  const total = ourPossNums.length + defCount;
-  for (let s = 0; s < total; s++) {
-    const takeUs = (turn === 'us') ? (ourIdx < ourPossNums.length) : (defIdx >= defCount);
-    if (takeUs) {
-      flushOppTurn();
-      emitBlocksBefore(ourIdx); // any further blocks bucketed at this possession
-      passesByPoss.get(ourPossNums[ourIdx]).forEach(p => out.push({ kind: 'pass', pt, item: p, uuid: p.uuid }));
-      ourIdx++;
-      turn = 'them';
-    } else {
-      flushOppTurn();
-      defIdx++;
-      out.push({ kind: 'def', pt, defN: defIdx, uuid: pt.uuid + '#d' + defIdx });
-      // The opponent's last possession of a point they scored ended in a goal,
-      // not a turnover -- every other one gave us the disc back.
-      pendingOppTurn = (pt.result === -1 && defIdx === defCount) ? null : defIdx;
-      turn = 'us';
-    }
-  }
-  flushOppTurn();
-  // Any blocks after our last recorded possession (or missing order info).
-  [...blocksBefore.keys()].sort((a, b) => a - b).forEach(gi => emitBlocksBefore(gi));
-  return out;
-}
+// A point's taggable events, in the order they happened (pull, our passes,
+// their possessions, blocks, unforced opponent turnovers). Lives in the stats
+// engine (stats.js, inlined into every report page) so the tagging hub and
+// Season setup count events exactly as the tagging page does.
+function buildPointEvents(pt) { return StattoStats.pointEvents(pt); }
 
 // The stored annotation record for an event, whichever store it lives in.
 function annotationRecordFor(ann, ev) {
