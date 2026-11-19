@@ -937,6 +937,48 @@ class BrowserTests(unittest.TestCase):
         ctx.close()
         self.assertEqual(self.errors, [])
 
+    def test_9b_tag_counts_agree_everywhere(self):
+        """The hub, Season setup and the tagging page count a game's tags the
+        same way: every taggable event, including pulls and defensive
+        possessions (which once left the hub showing 0)."""
+        api = Api(self.base, "other-club").login("editor", EDITOR_PW)
+        ctx = self.context()
+        page = self.sign_in(ctx, "editor", EDITOR_PW, go="/editor", team="other-club")
+        self.setup_rows(page)
+        # Tag only point-level events of the second game: a pull and a defensive possession.
+        gi = 1
+        keys = page.evaluate("""gi => {
+            const evs = StattoStats.gameEvents(REPORT.games[gi]);
+            return [evs.find(e => e.kind === 'pull'), evs.find(e => e.kind === 'def')].map(e => e.uuid); }""", gi)
+        game = page.evaluate("gi => REPORT.games[gi]", gi)
+        api.call("POST", "/api/tags", {"changes": [
+            {"kind": "points", "key": keys[0], "game": game["uuid"], "data": {"landX": 0.5, "landY": 0.5}},
+            {"kind": "points", "key": keys[1], "game": game["uuid"], "data": {"defScheme": "Zone"}}]})
+        page.reload()
+        self.setup_rows(page)
+        setup_count = page.text_content("table.setup-games tbody tr >> nth=%d >> .setup-tag-count" % gi)
+        tagged, total = [int(x) for x in setup_count.split(" ")[0].split("/")]
+        self.assertEqual(tagged, 2, setup_count)
+
+        # The hub says the same...
+        hub = ctx.new_page()
+        hub.goto(self.base + "/t/other-club/tag")
+        row = ".game:has-text('vs %s')" % game["opponent"]
+        hub.wait_for_selector(row)
+        self.assertIn("%d/%d tagged" % (tagged, total), hub.text_content(row))
+        # ...and so does the game's tagging page (in its "All events" view).
+        hub.click(row + " >> .actions a.btn")
+        hub.wait_for_selector(".de-tagged-count")
+        self.assertEqual(hub.text_content(".de-tagged-count"), "%d of %d events tagged in this view" % (tagged, total))
+        # The home page counts the same events.
+        home = ctx.new_page()
+        home.goto(self.base + "/t/other-club/")
+        home.wait_for_selector("#home:not([hidden])")
+        n_tags = sum(1 for c in api.call("GET", "/api/tags?since=0")[1]["changes"] if c["data"])
+        self.assertIn("%d events tagged" % n_tags, home.text_content(".home-card >> nth=1"))
+        ctx.close()
+        self.assertEqual(self.errors, [])
+
 
 def passes_by_game(statto):
     """{opponent: [{uuid, game}]} for every pass in a .statto export."""

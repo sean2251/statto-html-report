@@ -625,6 +625,11 @@ async function putTags(env, team, session, changes, quiet) {
   return { saved: changes.length, seq: top.seq };
 }
 
+// A tagged event: any kind (passes, blocks, and point-level events -- pulls,
+// defensive possessions, opponent turnovers) with at least one field set. The
+// same rule as the pages' counts (StattoStats.taggedEvents).
+const TAGGED = "data IS NOT NULL AND data <> '{}'";
+
 // ---------- the tagging hub ----------
 async function hub(env, team) {
   const db = env.DB;
@@ -632,7 +637,7 @@ async function hub(env, team) {
   const [claims, activity, counts] = await Promise.all([
     db.prepare('SELECT game, name, status, updated_at FROM team_claims WHERE team = ?').bind(team.id).all(),
     db.prepare('SELECT game, name, at FROM team_activity WHERE team = ? AND at > ? ORDER BY at DESC').bind(team.id, t - 7 * 86400).all(),
-    db.prepare(`SELECT game, COUNT(*) AS n FROM team_tags WHERE team = ? AND data IS NOT NULL AND kind IN ('passes', 'blocks') GROUP BY game`).bind(team.id).all(),
+    db.prepare(`SELECT game, COUNT(*) AS n FROM team_tags WHERE team = ? AND ${TAGGED} GROUP BY game`).bind(team.id).all(),
   ]);
   const games = {};
   const g = id => (games[id] = games[id] || { claim: null, tagged: 0, active: [], recent: [] });
@@ -677,7 +682,7 @@ async function seasonSummary(env, team) {
     db.prepare('SELECT updated_at FROM blobs WHERE name = ?').bind(blobName(team, 'statto')).first(),
     db.prepare('SELECT updated_at FROM blobs WHERE name = ?').bind(blobName(team, 'report')).first(),
     getTeamSetting(db, team, 'game_count'),
-    db.prepare("SELECT COUNT(*) AS n FROM team_tags WHERE team = ? AND data IS NOT NULL AND kind IN ('passes', 'blocks')").bind(team.id).first(),
+    db.prepare(`SELECT COUNT(*) AS n FROM team_tags WHERE team = ? AND ${TAGGED}`).bind(team.id).first(),
     db.prepare("SELECT COUNT(*) AS n FROM team_claims WHERE team = ? AND status = 'done'").bind(team.id).first(),
   ]);
   return {
